@@ -2,6 +2,8 @@
 
 Research date: 2026-05-01
 
+Validation update: 2026-05-02
+
 This document records the current DogeOS Chikyu Testnet DEX and liquidity discovery work for the aggregator. It is intentionally evidence-driven: each finding is labeled as verified, inferred, or unconfirmed so we do not build on assumptions.
 
 ## Goal
@@ -155,7 +157,7 @@ Evidence:
 
 | Contract | Address | Finding |
 | --- | --- | --- |
-| MuchFi V3 Positions NFT-V1 | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | ERC-721 position NFT, total supply seen at 7, unverified. |
+| MuchFi V3 Positions NFT-V1 | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | ERC-721 position NFT, total supply seen at 8 on 2026-05-02, unverified. |
 | MuchFi V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by `factory()` on the MuchFi V3 position NFT; supports Uniswap V3-style `getPool(address,address,uint24)`. |
 | MuchFi V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by `poolDeployer()` on the MuchFi V3 factory. |
 | MuchFi V2-style factory | `0x7864071B532894216e3C045a74814EafEB92ae20` | `allPairsLength()` returned 2; `getPair(address,address)` returns MuchFi LP tokens. |
@@ -181,7 +183,7 @@ Position summary:
 
 | Position manager | Official-pair positions |
 | --- | --- |
-| `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | USDC/WDOGE: 6 positions; USDT/WDOGE: 1 position |
+| `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | USDC/WDOGE: 7 positions; USDT/WDOGE: 1 position |
 
 Current MuchFi integration conclusion:
 
@@ -334,7 +336,7 @@ Token policy:
 
 ```text
                           DogeOS Official Inputs
-          docs, SDK, faucet tokens, RPC, Blockscout, L2scan
+          docs, SDK, faucet tokens, RPC, Blockscout, L2scan once confirmed
                                       |
                                       v
                       +-------------------------------+

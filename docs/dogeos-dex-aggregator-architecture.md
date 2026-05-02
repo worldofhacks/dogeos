@@ -2,6 +2,8 @@
 
 Research date: 2026-05-01
 
+Validation update: 2026-05-02
+
 This document maps the initial architecture for a DogeOS-native DEX aggregator focused on same-chain swaps on the DogeOS Chikyu Testnet. It compares DogeOS-specific constraints against established EVM DEX aggregator patterns and defines the V1 direction.
 
 ## Primary Goal
@@ -170,7 +172,7 @@ Verified facts from DogeOS docs and local RPC checks:
 | Fees | Total fee is execution fee plus Data and Finality fee. `L1GasPriceOracle` exists at `0x5300000000000000000000000000000000000002`. | Quote ranking must include data/finality fee estimates, not only `eth_estimateGas * gasPrice`. Calldata size matters. |
 | Official faucet tokens | WDOGE, LBTC, WETH, USD1, USDC, USDT all have contract bytecode and report 18 decimals on testnet. | Token registry must read decimals on-chain and never hard-code Ethereum mainnet conventions like USDC/USDT 6 decimals. |
 | Wallet SDK | Official React SDK supports wallet modal, embedded login, social login, browser wallets, WalletConnect, EVM provider calls, and chain switching. | Use DogeOS SDK as the primary wallet layer instead of generic wallet onboarding. |
-| Explorers | Blockscout and L2scan are available. Blockscout exposes REST/API links and contract verification endpoints. | Use Blockscout for links, verification, transaction indexing fallback, and support workflows. |
+| Explorers | Blockscout is reachable and exposes REST/API links and contract verification endpoints. L2scan was provided, but its root returned HTTP `404` during the 2026-05-02 validation pass. | Use Blockscout as the source of record for links, verification, transaction indexing fallback, and support workflows until L2scan is confirmed. |
 
 ## DogeOS-Native Leverage
 
@@ -188,7 +190,7 @@ The aggregator should actively exploit what makes DogeOS different instead of me
 | Dogecoin/Celestia security model | Explain finality and confirmations in transaction status and indexer analytics. | Advanced users and partners understand why route analytics are reorg-aware. |
 | Official Wallet SDK | Use modal and embedded login for browser wallets, social login, and app-specific onboarding. | Dogecoin-native users can enter DeFi without a generic crypto-wallet learning curve. |
 | Dogecoin provider support | Keep room for Dogecoin L1 account actions and future bridge/deposit flows adjacent to swaps. | The aggregator can become a DOGE onboarding surface, not just a token swap form. |
-| Blockscout and L2scan explorers | Link every route, token, contract, and swap to DogeOS-native explorers. | Better support, partner transparency, and trust during testnet/mainnet growth. |
+| Blockscout explorer, plus L2scan once confirmed | Link every route, token, contract, and swap to DogeOS-native explorers. | Better support, partner transparency, and trust during testnet/mainnet growth. |
 | Official faucet token set | Bootstrap with WDOGE, LBTC, WETH, USD1, USDC, and USDT as verified test assets. | Early DeFi builders get predictable pairs and quote behavior. |
 
 ### Product Commitments From DogeOS Capabilities
@@ -405,8 +407,8 @@ The aggregator should classify DogeOS liquidity sources by execution type instea
 
 | Source type | Examples | V1 handling |
 | --- | --- | --- |
-| Constant-product AMM | Uniswap V2-style forks, simple pair pools | First adapter family. Direct and one-hop routes. |
-| Concentrated-liquidity AMM | Uniswap V3-style forks, Algebra-style pools | Second adapter family after V2 routes are stable. |
+| Concentrated-liquidity AMM | Uniswap V3-style forks, Algebra-style pools, owned CLAMM | First-class V1 adapter family for MuchFi V3, Barkswap, and our owned DEX. |
+| Constant-product AMM | Uniswap V2-style forks, simple pair pools | Include in V1 where present, starting with MuchFi V2, but treat it as one source type rather than the architecture center. |
 | Stable-swap AMM | Curve-style stable pools | Add once stablecoin liquidity appears and pool math is verified. |
 | Launchpad sale contract | Fixed-price sale, bonding curve sale, IDO contract | Specialized launchpad adapter with strict eligibility and transferability checks. |
 | Native DogeOS DEX | Any DogeOS-specific router/pool design | Partner adapter after interface and test fixtures are documented. |
@@ -415,10 +417,10 @@ The aggregator should classify DogeOS liquidity sources by execution type instea
 
 Coverage target:
 
-- V1: official tokens plus first credible AMM pools.
-- V1.5: all credible AMM DEXes on DogeOS.
-- V2: launchpad buy routes and concentrated-liquidity routes.
-- V3: public partner API and optional RFQ/meta-aggregation.
+- V1: official tokens plus Barkswap, MuchFi V2, MuchFi V3, and owned CLAMM direct-route quoting.
+- V1.5: simple one-hop routing across credible AMM pools.
+- V2: selective split routing once net-output improvement is measurable.
+- V3: launchpad adapters, public partner API, and optional RFQ/meta-aggregation.
 
 ## Listing And Integration Policy
 
@@ -460,8 +462,8 @@ To be the default aggregator without becoming unsafe, we need an explicit listin
 | Quote API | Receives quote requests, calls adapters, ranks routes, returns executable transaction plan. |
 | Token registry | Official token list, decimals, symbols, logos later, risk flags, explorer URLs. |
 | Pool registry | Known factories, pools, fee tiers, token pairs, DEX metadata. |
-| Liquidity adapters | Per-DEX and per-launchpad quote/state/calldata modules. Start with Uniswap V2-style, then V3-style and launchpad adapters. |
-| Route solver | Finds direct, one-hop, two-hop, and split routes where useful. |
+| Liquidity adapters | Per-DEX and per-launchpad quote/state/calldata modules. Start with Barkswap Algebra-style CLAMM, MuchFi V3, MuchFi V2, and owned CLAMM adapters. |
+| Route solver | Stage 1 chooses the best single executable route; later stages add one-hop, two-hop, and split routes where useful. |
 | Fee estimator | Combines `eth_estimateGas`, gas price, route calldata size, and DogeOS data/finality fee estimates. |
 | Router contract | Executes selected route atomically with min-out and deadline checks. |
 | Indexer | Syncs pools, reserves, swap events, token metadata, route performance, and DogeOS reorg/finality-aware analytics. |
@@ -715,7 +717,7 @@ The first-run flow should prioritize:
 - DogeOS Chikyu network switch
 - faucet links for testnet DOGE and official tokens
 - clear explanation of native DOGE vs WDOGE
-- links to Blockscout/L2scan after transaction submission
+- links to Blockscout after transaction submission, with L2scan added once its explorer route is confirmed
 
 ### Developer And Partner Surface
 
@@ -855,8 +857,11 @@ That combination gives DogeOS the best practical path to a smooth, credible, bes
 ### Phase 1: Quote-Only Prototype
 
 - Build token and pool registry.
-- Add Uniswap V2-style adapter.
-- Add simple direct and one-hop route solver.
+- Add Barkswap Algebra-style CLAMM read adapter after ABI/source confirmation.
+- Add MuchFi V3 read adapter after ABI/source confirmation.
+- Add MuchFi V2 reserve-based read adapter.
+- Add owned CLAMM read adapter once contracts are selected.
+- Add best single-route solver for direct official-token swaps.
 - Add DogeOS fee estimator.
 - Return route previews without executing swaps.
 - Return alternative routes and route-quality explanations.
@@ -879,7 +884,7 @@ That combination gives DogeOS the best practical path to a smooth, credible, bes
 
 ### Phase 4: Liquidity Coverage
 
-- Add Uniswap V3-style adapter if DogeOS pools exist.
+- Expand V3/CLAMM coverage beyond Barkswap, MuchFi V3, and owned CLAMM as new DogeOS pools appear.
 - Add DogeOS-native DEX adapters as partners launch.
 - Add launchpad adapters where sale mechanics are clear and safe.
 - Add split routing only when net output improvement is measurable.

@@ -1,6 +1,6 @@
 # DEX Aggregator Competitive Analysis
 
-Research date: 2026-05-01
+Research date: 2026-05-02
 
 Scope: same-chain spot DEX swapping and efficient routing for DogeOS. Cross-chain, yield, lending, perps, RFQ, and solver/intents are included only when they teach us something useful for V1 routing.
 
@@ -33,9 +33,9 @@ Stage 4: full 1inch-style routing engine
 
 | Aggregator | Relevant capability | What it teaches us |
 | --- | --- | --- |
-| 1inch | Pathfinder route discovery, liquidity-source registry, split routes, multi-hop routes, API-accessible source lists. | Route search and source transparency are core aggregator features. |
+| 1inch | Pathfinder route discovery, liquidity-source registry, split routes, multi-hop routes, API-accessible source lists. | Route search and source transparency are core aggregator features, but current commercial API access should not be treated as open-source infrastructure. |
 | 0x Swap API | Smart order routing, public/private liquidity, quote API returning executable transaction data, source endpoint, gas/fee-adjusted routing, approval safety via Permit2/AllowanceHolder. | Separate discovery, quote, and transaction construction. Score by net executable output, not raw pool price. |
-| ParaSwap | Classical smart-order routing plus intent/solver layer through Delta. | Start with direct routing, but keep architecture open to later solver/intents. |
+| ParaSwap / Velora | Classical smart-order routing plus intent/solver layer through Delta; DexLib is public and shows how serious aggregators require state sync, pricing replication, calldata generation, and end-to-end tests for each DEX. | Start with direct routing, but keep architecture open to later solver/intents. Make adapter admission test-driven, not name-driven. |
 | Odos | Advanced AMM pathfinding, non-linear routes, multi-token input/output, gas-aware route complexity. | Route graph design matters; pathfinding should support split and multi-hop later, even if V1 starts smaller. |
 | KyberSwap Aggregator | Route scanner, split/reroute across sources, API route preview then transaction build, source filtering. | Let integrators include/exclude venues and inspect route composition. |
 | OpenOcean | Quote then swap transaction pipeline, multi-hop/split routes, broad source coverage. | Clean quote/execute API shape is table stakes. |
@@ -241,7 +241,7 @@ We should not be a generic aggregator with a DogeOS logo.
 | Data/finality fee model | Include it in route scoring. |
 | Official SDK | Use DogeOS wallet/social login as primary wallet surface. |
 | Official faucet token set | Start with strict official-token registry. |
-| Blockscout/L2scan | Link every source, pool, token, and swap. |
+| Blockscout, plus L2scan once confirmed | Link every source, pool, token, and swap. |
 | Early ecosystem | Provide canonical source registry and adapter process before liquidity fragments. |
 
 ## V1 Feature Requirements
@@ -339,11 +339,16 @@ For V1, Barkswap and MuchFi should go through this same checklist even though th
 ## Sources
 
 - 0x Swap API docs: https://docs.0x.org/docs/0x-swap-api/introduction
+- 0x monetization docs: https://docs.0x.org/docs/0x-swap-api/guides/monetize-your-app-using-swap
 - 0x API reference: https://docs.0x.org/api-reference/api-overview
 - 0x smart order routing overview: https://0x.org/post/0x-smart-order-routing
-- 1inch liquidity sources endpoint docs: https://business.1inch.com/portal/documentation/apis/swap/classic-swap/methods/v6.1/1/liquidity-sources/method/get
-- KyberSwap docs: https://docs.kyberswap.com/
+- 1inch deprecated open-source aggregation protocol: https://github.com/1inch/1inchProtocol
+- Uniswap concentrated liquidity docs: https://developers.uniswap.org/docs/get-started/concepts/liquidity-providers/concentrated-liquidity
+- Uniswap V3 core repository and license: https://github.com/Uniswap/v3-core
+- KyberSwap Aggregator docs: https://docs.kyberswap.com/kyberswap-solutions/kyberswap-aggregator
 - KyberSwap EVM swaps API: https://docs.kyberswap.com/kyberswap-solutions/kyberswap-aggregator/aggregator-api-specification/evm-swaps
+- Velora / ParaSwap aggregation protocol docs: https://docs.velora.xyz/intro-to-velora/velora-overview/aggregation-protocol
+- ParaSwap DexLib repository: https://github.com/VeloraDEX/paraswap-dex-lib
 - Odos overview: https://www.odos.xyz/about
 - OpenOcean docs: https://docs.openocean.finance/
 - Uniswap quote API docs: https://api-docs.uniswap.org/api-reference/swapping/quote

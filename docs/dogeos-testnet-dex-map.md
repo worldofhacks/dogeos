@@ -2,6 +2,8 @@
 
 Research date: 2026-05-01
 
+Validation update: 2026-05-02
+
 This is the current source-of-truth map for DogeOS Chikyu Testnet swap venues visible from the official RPC and Blockscout.
 
 V1 aggregator scope is Barkswap and MuchFi only. Other DEX-like surfaces are tracked as watchlist items until the DogeOS team or the venue teams confirm that aggregators should route through them.
@@ -161,7 +163,7 @@ Contracts:
 
 | Role | Address | Notes |
 | --- | --- | --- |
-| V3 position manager | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply seen at 7. |
+| V3 position manager | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply seen at 8 on 2026-05-02. |
 | V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by V3 position manager `factory()`. |
 | V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by V3 factory `poolDeployer()`. |
 | V3 router candidate | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Deployer transactions include `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`. |
@@ -195,7 +197,7 @@ Position summary:
 
 | Position manager | Pair | Count |
 | --- | --- | --- |
-| `0x7932...` | USDC/WDOGE | 6 |
+| `0x7932...` | USDC/WDOGE | 7 |
 | `0x7932...` | USDT/WDOGE | 1 |
 
 Missing:
