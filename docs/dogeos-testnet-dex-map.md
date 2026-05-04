@@ -2,9 +2,9 @@
 
 Research date: 2026-05-01
 
-Validation update: 2026-05-02
+Latest validation update: 2026-05-04, block `4668058`
 
-This is the current source-of-truth map for DogeOS Chikyu Testnet swap venues visible from the official RPC and Blockscout.
+This is the current source-of-truth map for DogeOS Chikyū Testnet swap venues visible from the official RPC and Blockscout.
 
 V1 aggregator scope is Barkswap and MuchFi only. Other DEX-like surfaces are tracked as watchlist items until the DogeOS team or the venue teams confirm that aggregators should route through them.
 
@@ -54,7 +54,7 @@ Current DEX-visible official pairs:
 ## Venue Map
 
 ```text
-DogeOS Chikyu Testnet
+DogeOS Chikyū Testnet
 |
 +-- Barkswap / BarkSwap
 |   |
@@ -114,9 +114,9 @@ Contracts:
 
 | Role | Address | Notes |
 | --- | --- | --- |
-| Older position manager | `0xeA672006Ed9ce530e4EFb9D5580f08c1F363873A` | `Barkswap Positions NFT-V2`, 74 total supply seen. |
+| Older position manager | `0xeA672006Ed9ce530e4EFb9D5580f08c1F363873A` | `Barkswap Positions NFT-V2`, 74 total supply seen on 2026-05-04. |
 | Older factory | `0x88f7307dD42E603c2B4DDD1BFcc5cBe55A5Ed263` | Returned by older position manager `factory()`. |
-| Newer position manager | `0x4Bb4A5CF44028519908D6B4A90C570fEaA8c9a07` | `Barkswap Positions NFT-V2`, 10 total supply seen. |
+| Newer position manager | `0x4Bb4A5CF44028519908D6B4A90C570fEaA8c9a07` | `Barkswap Positions NFT-V2`, 10 total supply seen on 2026-05-04. |
 | Newer factory | `0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457` | Returned by newer position manager `factory()`. |
 | Gauge/reward candidate | `0x772F5dF6EAD1c421c9A779812c4e173AD6342E9d` | Methods decode to voting/gauge/distribution style, not swap router. |
 
@@ -163,7 +163,7 @@ Contracts:
 
 | Role | Address | Notes |
 | --- | --- | --- |
-| V3 position manager | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply seen at 8 on 2026-05-02. |
+| V3 position manager | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply seen at 8 on 2026-05-04. |
 | V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by V3 position manager `factory()`. |
 | V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by V3 factory `poolDeployer()`. |
 | V3 router candidate | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Deployer transactions include `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`. |
@@ -176,7 +176,7 @@ V3 pools:
 | Pair | Fee tier probed | Pool |
 | --- | --- | --- |
 | WDOGE/USDC | `500` | `0x4F1c638952a23DB25a13167B83810201c4BC7299` |
-| WDOGE/USDC | `2500` | `0xbed5ee59C0B913468253F3BB1021f2Dee5426eCc` |
+| WDOGE/USDC | `2500` | `0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC` |
 | WDOGE/USDT | `500` | `0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F` |
 
 Fee-tier probe results:
@@ -271,7 +271,7 @@ Ask these as confirmation, not as blind discovery questions.
 1. Are Barkswap and MuchFi the two main DEXes aggregators should prioritize on testnet?
 2. For V1, should we ignore SuchSwap, DogeBox, and other low-confidence LP surfaces unless told otherwise?
 3. Are there any live launchpads, bonding curves, or swap venues not obvious from Blockscout names?
-4. Are there upcoming DEXes that are not deployed on Chikyu yet but should be designed into the adapter model?
+4. Are there upcoming DEXes that are not deployed on Chikyū yet but should be designed into the adapter model?
 
 ### Barkswap
 

@@ -2,6 +2,8 @@
 
 Validation date: 2026-05-02
 
+Historical snapshot. Latest validation report: [onchain-validation-2026-05-04.md](./onchain-validation-2026-05-04.md).
+
 RPC used: `https://rpc.testnet.dogeos.com`
 
 Block validated: `4620801`

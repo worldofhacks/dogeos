@@ -2,6 +2,8 @@
 
 Research date: 2026-05-02
 
+Latest DogeOS validation update: 2026-05-04
+
 Scope: same-chain spot DEX swapping and efficient routing for DogeOS. Cross-chain, yield, lending, perps, RFQ, and solver/intents are included only when they teach us something useful for V1 routing.
 
 ## Executive Summary

@@ -2,9 +2,9 @@
 
 Research date: 2026-05-01
 
-Validation update: 2026-05-02
+Latest validation update: 2026-05-04, block `4668058`
 
-This document records the current DogeOS Chikyu Testnet DEX and liquidity discovery work for the aggregator. It is intentionally evidence-driven: each finding is labeled as verified, inferred, or unconfirmed so we do not build on assumptions.
+This document records the current DogeOS Chikyū Testnet DEX and liquidity discovery work for the aggregator. It is intentionally evidence-driven: each finding is labeled as verified, inferred, or unconfirmed so we do not build on assumptions.
 
 ## Goal
 
@@ -17,10 +17,11 @@ V1 scope remains same-chain spot swaps only. Perps, cross-chain, bridge, yield, 
 | Source | Use |
 | --- | --- |
 | DogeOS docs | Chain config, EVM compatibility, wallet SDK, fee model, finality/reorg behavior. |
-| DogeOS Chikyu RPC | `eth_chainId`, bytecode checks, ERC-20 metadata calls, pool/factory calls. |
+| DogeOS Chikyū RPC | `eth_chainId`, bytecode checks, ERC-20 metadata calls, pool/factory calls. |
 | Blockscout REST API | Token discovery, verified contracts, contract names, transactions, deployer activity. |
 | Blockscout UI/search | Search for router, factory, pool, pair, swap, quoter, Barkswap, MuchFi, Derps, launchpad, and Uniswap-like contracts. |
 | Public web search | Cross-check whether public DogeOS docs or announcements list DEX deployments. |
+| DogeOS ecosystem-team provided reference | Testnet RPCs, explorers, faucet tokens, SDK links, and MuchFi sample route. |
 
 Primary chain reference: [dogeos-chikyu-testnet.md](./dogeos-chikyu-testnet.md)
 
@@ -157,7 +158,7 @@ Evidence:
 
 | Contract | Address | Finding |
 | --- | --- | --- |
-| MuchFi V3 Positions NFT-V1 | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | ERC-721 position NFT, total supply seen at 8 on 2026-05-02, unverified. |
+| MuchFi V3 Positions NFT-V1 | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | ERC-721 position NFT, total supply seen at 8 on 2026-05-04, unverified. |
 | MuchFi V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by `factory()` on the MuchFi V3 position NFT; supports Uniswap V3-style `getPool(address,address,uint24)`. |
 | MuchFi V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by `poolDeployer()` on the MuchFi V3 factory. |
 | MuchFi V2-style factory | `0x7864071B532894216e3C045a74814EafEB92ae20` | `allPairsLength()` returned 2; `getPair(address,address)` returns MuchFi LP tokens. |
@@ -165,12 +166,13 @@ Evidence:
 | MuchFi LP | `0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4` | V2-style ERC-20 LP for USDT/WDOGE; `token0()`, `token1()`, and `getReserves()` work. |
 | Candidate V3 router | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Unverified contract; deployer transactions include `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`. |
 
-V3 pools found through `getPool(address,address,uint24)` with fee tier `500`:
+V3 pools found through `getPool(address,address,uint24)`:
 
-| Pair | Pool |
-| --- | --- |
-| WDOGE/USDC | `0x4F1c638952a23DB25a13167B83810201c4BC7299` |
-| WDOGE/USDT | `0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F` |
+| Pair | Fee tier | Pool |
+| --- | --- | --- |
+| WDOGE/USDC | `500` | `0x4F1c638952a23DB25a13167B83810201c4BC7299` |
+| WDOGE/USDC | `2500` | `0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC` |
+| WDOGE/USDT | `500` | `0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F` |
 
 V2-style pairs found through `getPair(address,address)`:
 

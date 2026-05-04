@@ -1,4 +1,6 @@
-# DogeOS Chikyu Testnet
+# DogeOS Chikyū Testnet
+
+Source basis: DogeOS ecosystem-team provided testnet details, rechecked against the official DogeOS docs and live DogeOS Chikyū Testnet RPC.
 
 ## Network
 
@@ -10,17 +12,19 @@
 | Symbol | `DOGE` |
 | Block explorer | `https://blockscout.testnet.dogeos.com` |
 
-Validation snapshot, 2026-05-02:
+Validation snapshot, 2026-05-04:
 
 | Check | Result |
 | --- | --- |
 | Official RPC `eth_chainId` | `0x5fdaf3` / `6281971` |
 | Unifra public RPC `eth_chainId` | `0x5fdaf3` / `6281971` |
+| WS RPC `eth_chainId` | `0x5fdaf3` / `6281971` |
 | Blockscout HTTP status | `200` |
 | Faucet HTTP status | `200` |
 | Dev portal HTTP status | `200` |
 | SDK docs HTTP status | `200` |
 | Wallet SDK demo HTTP status | `200` |
+| Unifra console HTTP status | `200` |
 | L2scan root HTTP status | `404` during validation; keep as provided link, but use Blockscout as validation source until confirmed. |
 
 ## Developer Resources
@@ -36,7 +40,7 @@ Validation snapshot, 2026-05-02:
 
 ## Wallet SDK
 
-The DogeOS Wallet SDK is the official React library for building on DogeOS. It enables social login and supports major browser wallets.
+The DogeOS Wallet SDK is the official React library for building on DogeOS. Current docs describe a configurable wallet modal, embedded wallet login, account actions, EVM chain support, WalletConnect configuration, and email/external-wallet/social login options.
 
 The SDK docs confirm DogeOS Chikyū Testnet as an EVM network with chain ID `6281971`, native currency `DOGE`, RPC `https://rpc.testnet.dogeos.com`, and Blockscout explorer `https://blockscout.testnet.dogeos.com`.
 
@@ -49,7 +53,7 @@ The SDK docs confirm DogeOS Chikyū Testnet as an EVM network with chain ID `628
 
 These tokens are for DeFi builders and are accessible from the faucet.
 
-On-chain validation at block `4620801`:
+On-chain validation at block `4668058`:
 
 | Symbol | Address | On-chain name | Decimals | Bytecode |
 | --- | --- | --- | --- | --- |

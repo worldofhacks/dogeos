@@ -2,9 +2,9 @@
 
 Research date: 2026-05-01
 
-Validation update: 2026-05-02
+Latest validation update: 2026-05-04
 
-This document maps the initial architecture for a DogeOS-native DEX aggregator focused on same-chain swaps on the DogeOS Chikyu Testnet. It compares DogeOS-specific constraints against established EVM DEX aggregator patterns and defines the V1 direction.
+This document maps the initial architecture for a DogeOS-native DEX aggregator focused on same-chain swaps on the DogeOS Chikyū Testnet. It compares DogeOS-specific constraints against established EVM DEX aggregator patterns and defines the V1 direction.
 
 ## Primary Goal
 
@@ -172,7 +172,7 @@ Verified facts from DogeOS docs and local RPC checks:
 | Fees | Total fee is execution fee plus Data and Finality fee. `L1GasPriceOracle` exists at `0x5300000000000000000000000000000000000002`. | Quote ranking must include data/finality fee estimates, not only `eth_estimateGas * gasPrice`. Calldata size matters. |
 | Official faucet tokens | WDOGE, LBTC, WETH, USD1, USDC, USDT all have contract bytecode and report 18 decimals on testnet. | Token registry must read decimals on-chain and never hard-code Ethereum mainnet conventions like USDC/USDT 6 decimals. |
 | Wallet SDK | Official React SDK supports wallet modal, embedded login, social login, browser wallets, WalletConnect, EVM provider calls, and chain switching. | Use DogeOS SDK as the primary wallet layer instead of generic wallet onboarding. |
-| Explorers | Blockscout is reachable and exposes REST/API links and contract verification endpoints. L2scan was provided, but its root returned HTTP `404` during the 2026-05-02 validation pass. | Use Blockscout as the source of record for links, verification, transaction indexing fallback, and support workflows until L2scan is confirmed. |
+| Explorers | Blockscout is reachable and exposes REST/API links and contract verification endpoints. L2scan was provided, but its root returned HTTP `404` during the 2026-05-04 validation pass. | Use Blockscout as the source of record for links, verification, transaction indexing fallback, and support workflows until L2scan is confirmed. |
 
 ## DogeOS-Native Leverage
 
@@ -316,7 +316,7 @@ Use the DogeOS SDK as the primary connect path:
 - embedded wallet onboarding
 - major browser wallets
 - WalletConnect where configured
-- explicit DogeOS Chikyu chain switching
+- explicit DogeOS Chikyū chain switching
 
 This can make the aggregator the easiest DogeOS DeFi entry point, not just another swap UI.
 
@@ -526,7 +526,7 @@ To be the default aggregator without becoming unsafe, we need an explicit listin
                                        |
                                        v
                           +------------+--------------+
-                          | DogeOS Chikyu Testnet     |
+                          | DogeOS Chikyū Testnet     |
                           | RPC / WS / Blockscout     |
                           +------------+--------------+
                                        |
@@ -714,7 +714,7 @@ The UI should update quickly after inclusion while advanced details can explain 
 The first-run flow should prioritize:
 
 - DogeOS SDK embedded/social login
-- DogeOS Chikyu network switch
+- DogeOS Chikyū network switch
 - faucet links for testnet DOGE and official tokens
 - clear explanation of native DOGE vs WDOGE
 - links to Blockscout after transaction submission, with L2scan added once its explorer route is confirmed
@@ -792,7 +792,7 @@ Required test layers:
 
 - Unit tests for token math, fee conversion, slippage, and route scoring.
 - Adapter tests using deterministic pool fixtures.
-- Fork/integration tests against DogeOS Chikyu for every live adapter.
+- Fork/integration tests against DogeOS Chikyū for every live adapter.
 - Quote-vs-execution tests that execute small swaps and compare realized output.
 - Router invariant tests: no stuck funds, min-out enforced, deadline enforced, no unauthorized adapter calls.
 - Reorg simulation for the indexer with at least a 17-block rollback window.
@@ -898,7 +898,7 @@ That combination gives DogeOS the best practical path to a smooth, credible, bes
 
 ## Open Questions
 
-1. Which DEXs are already deployed or planned on DogeOS Chikyu?
+1. Which DEXs are already deployed or planned on DogeOS Chikyū?
 2. Are there canonical factory/router addresses for DogeOS-native DEXs?
 3. Will official stablecoins remain 18 decimals on mainnet?
 4. What is the expected DogeOS SDK client ID approval process and timeline?
