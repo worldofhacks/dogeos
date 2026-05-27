@@ -1,6 +1,6 @@
 # DogeOS DEX V1 Deployment Readiness 2026-05-23
 
-Scope: V1 `DogeOSSwapRouter` and `DogeOSV2PairAdapter` deployment readiness for DogeOS Chikyu testnet. No adapter allowlisting, liquidity deployment, RFQ, split routing, Baseline-style module, or owned CLAMM deployment is included.
+Scope: V1 `DogeOSSwapRouter` and `DogeOSV2PairAdapter` deployment readiness for DogeOS Chikyu testnet. Adapter allowlisting and one dust-size MuchFi V2 canary swap are now included. No liquidity deployment, RFQ, split routing, Baseline-style module, or owned CLAMM deployment is included.
 
 ## Security Gate Result
 
@@ -11,19 +11,20 @@ Scope: V1 `DogeOSSwapRouter` and `DogeOSV2PairAdapter` deployment readiness for 
 | Deployer private key shape | Pass |
 | Derived deployer address matches `DEPLOYER_ADDRESS` | Pass |
 | Hardhat contract tests | Pass: 45 tests |
-| Package/deploy/gas helper tests | Pass: 16 tests |
+| Package/deploy/gas helper tests | Pass: 21 tests |
 | Placeholder/secret scan | Pass |
 | Hardhat compile | Pass, `evmVersion: prague` |
 | Solidity coverage | Pass: router `100%` statements/functions/lines, `97.62%` branch; adapter `100%` statements/functions/lines; all files `100%` statements, `98.4%` lines |
 | Router gas profile | Pass: deployment, admin, fixed-output swap, and DogeOS V2 adapter estimates written |
-| DogeOS V2 adapter fork gas profile | Pass: real MuchFi V2 WDOGE/USDC pair at fork block `5094455` |
+| DogeOS V2 adapter fork gas profile | Pass: real MuchFi V2 WDOGE/USDC pair at fork block `5184292` |
 | Dependency audit | Pass: production audit clean, moderate+ audit clean |
-| DogeOS live read-only analysis | Pass at block `5094601`; deployed router and adapter are source verified on Blockscout |
+| DogeOS live read-only analysis | Pass at block `5184491`; deployed router and adapter are source verified on Blockscout |
 | Router deployment preflight | Pass at block `5094550`; deployed at block `5094556` |
 | Adapter deployment preflight | Pass at block `5094558`; deployed at block `5094563` |
-| Adapter allowlist preflight | Pass at block `5094566`; `alreadyAllowed=false`, estimated gas `47822` |
-| Route preflight | Correctly blocked until explicit allowlist approval |
-| Transaction broadcast | Router and adapter deployment broadcasts succeeded; allowlist not broadcast |
+| Adapter allowlist | Pass at block `5184437`; transaction `0x919029a596982eea40d0b9267e6ab20dc9dff9a5c448feb58db80e64edae045f` |
+| Route preflight | Pass at block `5184459`; estimated swap gas `223969` |
+| Canary swap | Pass at block `5184451`; transaction `0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832` |
+| Transaction broadcast | Router, adapter, allowlist, and dust-size canary swap broadcasts succeeded |
 
 ## Deployment Plan
 
@@ -61,12 +62,32 @@ The adapter deployment succeeded separately:
 
 Raw adapter evidence is in `deployments/dogeos-chikyu/adapter-preflight-latest.json` and `deployments/dogeos-chikyu/adapter-latest.json`.
 
+The adapter allowlist and canary swap succeeded:
+
+| Field | Value |
+| --- | --- |
+| Allowlist tx | `0x919029a596982eea40d0b9267e6ab20dc9dff9a5c448feb58db80e64edae045f` |
+| Allowlist block | `5184437` |
+| Allowlist gas used | `47822` |
+| Route preflight gas estimate | `223969` |
+| Canary tx | `0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832` |
+| Canary block | `5184451` |
+| Canary amount in | `0.0001 DOGE` |
+| Canary actual output | `16075550163793` USDC base units |
+| Canary gas used | `191150` |
+
+Raw allowlist and canary evidence is in `deployments/dogeos-chikyu/adapter-allowlist-latest.json`, `deployments/dogeos-chikyu/route-v2-preflight-latest.json`, and `deployments/dogeos-chikyu/canary-v2-swap-latest.json`.
+
 Gas profile evidence is in:
 
 - `docs/dexv3/router-gas-profile-2026-05-23.md`
 - `docs/dexv3/router-gas-profile-2026-05-23.json`
 - `docs/dexv3/dogeos-v2-adapter-fork-gas-profile-2026-05-23.md`
 - `docs/dexv3/dogeos-v2-adapter-fork-gas-profile-2026-05-23.json`
+- `docs/dexv3/router-gas-profile-2026-05-27.md`
+- `docs/dexv3/router-gas-profile-2026-05-27.json`
+- `docs/dexv3/dogeos-v2-adapter-fork-gas-profile-2026-05-27.md`
+- `docs/dexv3/dogeos-v2-adapter-fork-gas-profile-2026-05-27.json`
 
 Representative local gas measurements at reference gas price `15680108` wei:
 
@@ -113,6 +134,8 @@ Fresh evidence was written to:
 
 - `docs/dexv3/onchain-validation-2026-05-23.md`
 - `docs/dexv3/onchain-validation-2026-05-23.json`
+- `docs/dexv3/onchain-validation-2026-05-27.md`
+- `docs/dexv3/onchain-validation-2026-05-27.json`
 
 Summary:
 
@@ -120,25 +143,20 @@ Summary:
 - `L1GasPriceOracle` bytecode is present and responds to `getL1Fee`.
 - MuchFi V2 pairs still expose reserves; the direct pair adapter fork profile succeeded against WDOGE/USDC.
 - Deployed `DogeOSSwapRouter` and `DogeOSV2PairAdapter` are source verified on DogeOS Blockscout.
+- MuchFi V2 direct-pair execution has live allowlist, route preflight, and dust-size canary evidence.
 - MuchFi V3 pools still expose fee, liquidity, and slot0.
 - Barkswap Algebra pools still expose fee, liquidity, and globalState.
 - Blockscout still shows external MuchFi/Barkswap factory/router/position-manager surfaces as unverified or unconfirmed for public execution.
 
 ## Security Decision
 
-The V1 router and MuchFi V2 adapter are deployed and source verified on testnet. External execution remains disabled because the adapter is not allowlisted. `deploy:preflight:allowlist:adapter` passed, and `deploy:preflight:route:v2` correctly refuses to run until the separate allowlist transaction is explicitly approved.
+The V1 router and MuchFi V2 adapter are deployed, source verified, allowlisted, and canary-tested on testnet. MuchFi V2 is the only active executable source. MuchFi V3, Barkswap Algebra, SuchSwap, DogeBox, and the owned Pancake V3 path remain non-executable.
 
 ## Next Safe Action
 
-Review the allowlist preflight evidence before enabling execution:
+Continue with canary-grade monitoring and additional dust routes before broadening execution:
 
 ```bash
-pnpm deploy:preflight:allowlist:adapter
-```
-
-If explicitly approved, broadcast only the adapter allowlist transaction:
-
-```bash
-CONFIRM_DOGEOS_TESTNET_ALLOWLIST=allowlist-dogeos-v2-adapter pnpm deploy:allowlist:adapter
 pnpm deploy:preflight:route:v2
+CONFIRM_DOGEOS_TESTNET_CANARY_SWAP=swap-dogeos-v2-canary pnpm deploy:canary:swap:v2
 ```

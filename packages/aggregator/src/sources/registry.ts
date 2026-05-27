@@ -48,15 +48,15 @@ export const SOURCES: readonly LiquiditySource[] = [
     sourceId: "muchfi-v2",
     displayName: "MuchFi V2",
     protocolType: "v2",
-    status: "readOnly",
-    verified: false,
+    status: "active",
+    verified: true,
     riskLevel: "medium",
     factory: "0x7864071B532894216e3C045a74814EafEB92ae20",
     pools: [
       "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
       "0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4"
     ],
-    notes: "Reserve reads are available and the direct pair adapter is deployed and source verified; execution remains disabled until explicit allowlist approval and route preflight pass."
+    notes: "Direct pair execution is active after adapter allowlisting, route preflight, and a dust-size live canary swap through the verified router and adapter."
   },
   {
     sourceId: "barkswap-algebra",

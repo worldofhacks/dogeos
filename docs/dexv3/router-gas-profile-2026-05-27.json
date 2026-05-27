@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-05-27T11:53:10.834Z",
+  "compiler": "0.8.30",
+  "evmVersion": "prague",
+  "referenceGasPriceWei": "15680108",
+  "note": "Local Hardhat gas profile. No transaction was broadcast. Swap gas uses fixed-output mocks plus the production DogeOS V2 pair adapter against local V2-shaped pair mocks. Production source gas can still differ when the external pair bytecode differs.",
+  "rows": [
+    {
+      "category": "deployment",
+      "action": "DogeOSSwapRouter.constructor",
+      "gasUsed": "1101546",
+      "estimatedCostWei": "17272360246968",
+      "notes": "local deployment with mock WDOGE"
+    },
+    {
+      "category": "deployment",
+      "action": "DogeOSV2PairAdapter.constructor",
+      "gasUsed": "771110",
+      "estimatedCostWei": "12091088079880",
+      "notes": "factory-bound adapter deployment"
+    },
+    {
+      "category": "admin",
+      "action": "setAdapterAllowed(adapter,true)",
+      "gasUsed": "47822",
+      "estimatedCostWei": "749854124776",
+      "notes": "owner enables adapter"
+    },
+    {
+      "category": "admin",
+      "action": "setAdapterAllowed(adapter,false)",
+      "gasUsed": "25910",
+      "estimatedCostWei": "406271598280",
+      "notes": "owner disables adapter"
+    },
+    {
+      "category": "admin",
+      "action": "pause()",
+      "gasUsed": "46878",
+      "estimatedCostWei": "735052102824",
+      "notes": "owner pause"
+    },
+    {
+      "category": "admin",
+      "action": "unpause()",
+      "gasUsed": "24861",
+      "estimatedCostWei": "389823164988",
+      "notes": "owner unpause"
+    },
+    {
+      "category": "admin",
+      "action": "transferOwnership(pendingOwner)",
+      "gasUsed": "47831",
+      "estimatedCostWei": "749995245748",
+      "notes": "Ownable2Step owner transfer start"
+    },
+    {
+      "category": "admin",
+      "action": "acceptOwnership()",
+      "gasUsed": "28310",
+      "estimatedCostWei": "443903857480",
+      "notes": "Ownable2Step owner transfer accept"
+    },
+    {
+      "category": "swap",
+      "action": "exactInput ERC20 -> ERC20",
+      "gasUsed": "161708",
+      "estimatedCostWei": "2535598904464",
+      "notes": "mock ERC20 tokens and mock adapter"
+    },
+    {
+      "category": "swap",
+      "action": "exactInput native DOGE -> ERC20",
+      "gasUsed": "148040",
+      "estimatedCostWei": "2321283188320",
+      "notes": "includes WDOGE deposit"
+    },
+    {
+      "category": "swap",
+      "action": "exactInput ERC20 -> native DOGE",
+      "gasUsed": "160647",
+      "estimatedCostWei": "2518962309876",
+      "notes": "includes WDOGE withdraw and native transfer"
+    },
+    {
+      "category": "integration",
+      "action": "exactInput DogeOS V2 ERC20 -> ERC20",
+      "gasUsed": "170139",
+      "estimatedCostWei": "2667797895012",
+      "notes": "production adapter with local V2-shaped pair"
+    },
+    {
+      "category": "integration",
+      "action": "exactInput DogeOS V2 native DOGE -> ERC20",
+      "gasUsed": "170150",
+      "estimatedCostWei": "2667970376200",
+      "notes": "production adapter with local V2-shaped WDOGE input pair"
+    },
+    {
+      "category": "integration",
+      "action": "exactInput DogeOS V2 ERC20 -> native DOGE",
+      "gasUsed": "169058",
+      "estimatedCostWei": "2650847698264",
+      "notes": "production adapter with local V2-shaped WDOGE output pair"
+    }
+  ]
+}

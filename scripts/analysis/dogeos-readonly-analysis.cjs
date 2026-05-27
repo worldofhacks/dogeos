@@ -73,6 +73,8 @@ const L1_ORACLE_ABI = ["function getL1Fee(bytes) view returns (uint256)"];
 function localDeployments() {
   const router = readDeploymentJson("router-latest.json");
   const adapter = readDeploymentJson("adapter-latest.json");
+  const allowlist = readDeploymentJson("adapter-allowlist-latest.json");
+  const canary = readDeploymentJson("canary-v2-swap-latest.json");
 
   return {
     router: router
@@ -80,6 +82,23 @@ function localDeployments() {
           address: router.routerAddress,
           blockNumber: router.deployedBlockNumber,
           transactionHash: router.transactionHash
+        }
+      : null,
+    allowlist: allowlist
+      ? {
+          adapter: allowlist.adapter?.adapterAddress,
+          blockNumber: allowlist.deployedBlockNumber,
+          router: allowlist.router?.routerAddress,
+          transactionHash: allowlist.transactionHash
+        }
+      : null,
+    canary: canary
+      ? {
+          actualAmountOut: canary.actualAmountOut,
+          amountInWei: canary.amountInWei,
+          blockNumber: canary.receipt?.blockNumber,
+          postChecks: canary.postChecks,
+          transactionHash: canary.receipt?.transactionHash
         }
       : null,
     adapter: adapter
@@ -240,7 +259,7 @@ ${tokenRows}
 - MuchFi V3 pools still expose readable token, fee, liquidity, and slot0 state.
 - Barkswap Algebra pools still expose readable token, fee, liquidity, and globalState.
 - The V1 router and MuchFi V2 direct-pair adapter are deployed and source verified when listed as verified below.
-- External execution remains disabled until the separate allowlist transaction is explicitly approved and route preflight passes. V3 and Algebra router/quoter ABI provenance remains incomplete.
+- MuchFi V2 direct-pair execution has allowlist and canary evidence when listed in the local deployment evidence. V3 and Algebra router/quoter ABI provenance remains incomplete and remains read-only.
 
 ## Blockscout Verification
 
@@ -250,7 +269,7 @@ ${verificationRows}
 
 ## Deployment Decision
 
-The V1 router and MuchFi V2 adapter can remain deployed for controlled testnet review. The adapter should not be allowlisted until a separate approval confirms source verification, expected calldata, deployed adapter code, canonical MuchFi V2 pair state, and route behavior. V3 and Algebra sources additionally require router/quoter ABI provenance.
+The V1 router and MuchFi V2 adapter can remain active for controlled testnet canary execution. Keep MuchFi V2 as the only executable source until broader monitoring and canary coverage are added. V3 and Algebra sources additionally require router/quoter ABI provenance.
 
 Raw evidence: \`${path.basename(jsonPath)}\`.
 `
@@ -340,9 +359,11 @@ async function main() {
     blockscout: Object.fromEntries(blockscoutEntries),
     deployments,
     decision: {
-      routerDeployment: deployments.router ? "deployed-and-source-verified-check-required" : "allowed-for-testnet-preflight",
-      externalExecution: "disabled",
-      reason: "Adapter allowlist execution remains disabled until explicit approval and route preflight. Adapter deployment/source verification evidence is included when available."
+      routerDeployment: deployments.router ? "deployed-and-source-verified" : "allowed-for-testnet-preflight",
+      externalExecution: deployments.canary ? "muchfi-v2-active-testnet-canary" : "disabled",
+      reason: deployments.canary
+        ? "MuchFi V2 direct-pair execution has adapter allowlist, route preflight, and live canary evidence. V3 and Algebra remain read-only."
+        : "Adapter allowlist execution remains disabled until explicit approval and route preflight. Adapter deployment/source verification evidence is included when available."
     }
   };
 

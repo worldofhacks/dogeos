@@ -95,6 +95,14 @@ CONFIRM_DOGEOS_TESTNET_ALLOWLIST=allowlist-dogeos-v2-adapter pnpm deploy:allowli
 pnpm deploy:preflight:route:v2
 ```
 
+After route preflight passes, execute one dust-size canary swap and capture evidence:
+
+```bash
+CONFIRM_DOGEOS_TESTNET_CANARY_SWAP=swap-dogeos-v2-canary pnpm deploy:canary:swap:v2
+```
+
+Defaults are intentionally small and conservative: `DOGEOS_CANARY_SWAP_DOGE=0.0001`, `DOGEOS_CANARY_SLIPPAGE_BPS=200`, and `DOGEOS_CANARY_DEADLINE_SECONDS=600`. The canary writes timestamped and latest JSON evidence under `deployments/dogeos-chikyu/` plus a markdown report under `docs/dexv3/`.
+
 ## Deployment Gates
 
 - `.env` must stay untracked.
@@ -108,3 +116,4 @@ pnpm deploy:preflight:route:v2
 - Any post-deploy adapter allowlist transaction requires a separate preflight and explicit approval.
 - `DogeOSV2PairAdapter` deployment and allowlisting are separate actions from router deployment.
 - Route preflight intentionally refuses to run until the adapter is already allowlisted.
+- The canary swap requires explicit confirmation and verifies output, router residual balances, and allowance reset after execution.

@@ -31,6 +31,6 @@
 
 | Source ID | Adapter | Status | Execution gate |
 | --- | --- | --- | --- |
-| `muchfi-v2` | `DogeOSV2PairAdapter` | Deployed on Chikyu at `0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E`, source verified, and fork-profiled against the real WDOGE/USDC pair | Keep disabled until explicit allowlist approval and route preflight pass. |
+| `muchfi-v2` | `DogeOSV2PairAdapter` | Active for dust-size testnet execution after Chikyu deployment, Blockscout source verification, adapter allowlisting, route preflight, and live canary swap | Keep as the only executable source until broader canary coverage and monitoring exist. |
 | `muchfi-v3` | none | Read-only | Requires router/quoter ABI provenance and adapter implementation. |
 | `barkswap-algebra` | none | Read-only | Requires canonical router/quoter confirmation and adapter implementation. |

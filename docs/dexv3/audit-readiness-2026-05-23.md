@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The V1 DogeOS router package has completed a controlled Chikyu testnet deployment of `DogeOSSwapRouter` and `DogeOSV2PairAdapter`. It is not positioned as mainnet-ready. The scope remains intentionally narrow: deployed and source verified, with external DEX execution still disabled until a separate adapter allowlist approval and route preflight.
+The V1 DogeOS router package has completed a controlled Chikyu testnet deployment of `DogeOSSwapRouter` and `DogeOSV2PairAdapter`, an explicit adapter allowlist transaction, route preflight, and one dust-size live MuchFi V2 canary swap. It is not positioned as mainnet-ready. The scope remains intentionally narrow: MuchFi V2 is the only active executable source; V3, Algebra, watchlist sources, and the owned Pancake V3 path remain non-executable.
 
 ## DogeOS-Specific Conformance
 
@@ -32,7 +32,7 @@ Official docs referenced:
 | Control | Status | Evidence |
 | --- | --- | --- |
 | Minimal V1 scope | Pass | No RFQ, split routing, Baseline module, launchpad, leverage, or owned CLAMM deployment |
-| Adapter execution disabled by default | Pass | `getExecutableSources()` requires `active && verified`; all external sources are read-only/watchlist/disabled |
+| Execution source gating | Pass | `getExecutableSources()` requires `active && verified`; only MuchFi V2 is active after allowlist and canary evidence |
 | Exact-input only | Pass | `DogeOSSwapRouter.exactInput` only |
 | Slippage guard | Pass | `minAmountOut`, balance-delta accounting, `OutputBelowMinimum` tests |
 | Deadline guard | Pass | `DeadlineExpired` test |
@@ -46,32 +46,33 @@ Official docs referenced:
 | DogeOS V2 pair adapter | Pass | `DogeOSV2PairAdapter` verifies canonical factory pairs, avoids arbitrary calldata, and is fork-profiled against MuchFi V2 WDOGE/USDC |
 | Constructor validation | Pass | zero owner and zero WDOGE tests |
 | Secret handling | Pass | `.env` ignored; secret scan clean |
-| DogeOS live state | Pass | Fresh read-only on-chain report at block `5094601` |
+| DogeOS live state | Pass | Fresh read-only on-chain report at block `5184491` |
 | Deployment preflight | Pass | chain, balance, WDOGE bytecode, nonce, gas, predicted address |
 | Blockscout verification | Pass | `DogeOSSwapRouter` and `DogeOSV2PairAdapter` source verified on DogeOS Blockscout |
-| Adapter allowlist preflight | Pass | `alreadyAllowed=false`, estimated gas `47822`, route quote reads canonical MuchFi V2 WDOGE/USDC pair |
+| Adapter allowlist and canary | Pass | Allowlist tx succeeded; dust canary swap produced expected USDC output and left no router token residue |
 
 ## Verification Evidence
 
 | Command | Result |
 | --- | --- |
-| `pnpm test` | Pass: 45 Hardhat contract tests, 16 package/deploy/gas-helper tests |
+| `pnpm test` | Pass: 45 Hardhat contract tests, 21 package/deploy/gas-helper tests |
 | `pnpm lint:placeholders` | Pass |
 | `pnpm lint:secrets` | Pass |
 | `pnpm compile` | Pass, 31 Solidity files, Solidity `0.8.30`, EVM `prague` |
 | `pnpm coverage` | Pass; router 100% statements/functions/lines, 97.62% branch; adapter 100% statements/functions/lines; all files 100% statements, 98.4% lines |
 | `pnpm gas:router` | Pass; deployment/admin/fixed-output swap/DogeOS V2 adapter gas profile written |
-| `pnpm gas:dogeos-v2-adapter` | Pass; Hardhat fork profile against real MuchFi V2 WDOGE/USDC pair at block `5094455` |
-| `pnpm analysis:dogeos` | Pass at block `5094601`; read-only DogeOS and Blockscout evidence written |
-| `pnpm audit:deps` | Pass at moderate threshold; only low dev-only findings remain |
+| `pnpm gas:dogeos-v2-adapter` | Pass; Hardhat fork profile against real MuchFi V2 WDOGE/USDC pair at block `5184292` |
+| `pnpm analysis:dogeos` | Pass at block `5184491`; read-only DogeOS and Blockscout evidence written |
+| `pnpm audit:deps` | Pass at moderate threshold; only low findings remain after overriding `tmp` to `0.2.6` |
 | `pnpm audit:deps:prod` | Pass: no known production vulnerabilities |
 | `pnpm deploy:preflight:router` | Pass at block `5094550`; router deployed at block `5094556` |
 | `pnpm deploy:preflight:adapter` | Pass at block `5094558`; adapter deployed at block `5094563` |
 | `pnpm deploy:verify-source:router` | Pass; source verified on Blockscout |
 | `pnpm deploy:verify-source:adapter` | Pass; source verified on Blockscout |
-| `pnpm deploy:preflight:allowlist:adapter` | Pass at block `5094566`; no broadcast |
-| `pnpm deploy:preflight:route:v2` | Expected block: refused because adapter is not allowlisted |
-| `pnpm preflight:full` | Pass before broadcast; post-deploy checks were rerun individually |
+| `pnpm deploy:preflight:allowlist:adapter` | Pass before allowlist; transaction confirmed at block `5184437` |
+| `pnpm deploy:preflight:route:v2` | Pass at block `5184459`; estimated swap gas `223969` |
+| `pnpm deploy:canary:swap:v2` | Pass at block `5184451`; tx `0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832` |
+| `pnpm preflight:full` | Pass before allowlist/canary broadcast |
 
 Coverage artifact hash:
 
@@ -95,10 +96,9 @@ Remaining low dev-only advisories:
 | Package | Severity | Position |
 | --- | --- | --- |
 | `cookie` | Low | Dev-tooling only; no production runtime |
-| `tmp` | Low | Dev-tooling only; no production runtime |
 | `elliptic` | Low | Dev-tooling only; no production runtime |
 
-Raw dependency audit evidence: `docs/dexv3/pnpm-audit-2026-05-23.json`.
+Raw dependency audit evidence: `docs/dexv3/pnpm-audit-2026-05-27.json`.
 
 ## Deployment Plan
 
@@ -140,6 +140,19 @@ Allowlist preflight:
 | Estimated cost | `0.000000749854124776 DOGE` |
 | Quote amount out for `0.001 DOGE` via WDOGE/USDC | `115834107382279` |
 
+Allowlist and canary execution:
+
+| Field | Value |
+| --- | --- |
+| Allowlist tx | `0x919029a596982eea40d0b9267e6ab20dc9dff9a5c448feb58db80e64edae045f` |
+| Allowlist block | `5184437` |
+| Route preflight gas estimate | `223969` |
+| Canary tx | `0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832` |
+| Canary block | `5184451` |
+| Canary input | `0.0001 DOGE` |
+| Canary actual output | `0.000016075550163793 USDC` |
+| Canary gas used | `191150` |
+
 Representative future-operation gas profile at reference gas price `15680108` wei:
 
 | Category | Action | Gas Used |
@@ -161,16 +174,11 @@ Representative future-operation gas profile at reference gas price `15680108` we
 
 Local DogeOS V2 rows use the production adapter with V2-shaped local pair mocks. The fork-swap row uses real DogeOS WDOGE and MuchFi V2 pair bytecode on a local Hardhat fork; no transaction was broadcast.
 
-Router and adapter deployment broadcasts are complete. The remaining state-changing command requires separate explicit approval:
-
-```bash
-CONFIRM_DOGEOS_TESTNET_ALLOWLIST=allowlist-dogeos-v2-adapter pnpm deploy:allowlist:adapter
-```
-
-Post-allowlist route preflight:
+Router, adapter, adapter allowlist, and the first canary swap are complete. Repeat canaries should use the explicit confirmation gate:
 
 ```bash
 pnpm deploy:preflight:route:v2
+CONFIRM_DOGEOS_TESTNET_CANARY_SWAP=swap-dogeos-v2-canary pnpm deploy:canary:swap:v2
 ```
 
 ## Known Limitations
@@ -179,7 +187,7 @@ pnpm deploy:preflight:route:v2
 | --- | --- | --- |
 | Slither not installed locally | Medium | Manual audit checklist and coverage run completed; install/run Slither before mainnet readiness |
 | Foundry/cast not installed locally | Medium | Hardhat/ethers preflight used; Foundry fork/fuzz remains a mainnet-readiness gap |
-| Adapter not allowlisted | High | `DogeOSV2PairAdapter` is deployed and source verified, but execution remains disabled until explicit allowlist approval and post-allowlist route preflight |
+| Single executable source | Medium | MuchFi V2 is active after canary; all V3/Algebra/watchlist/owned DEX routes remain non-executable |
 | External MuchFi/Barkswap contracts unverified/unconfirmed for public execution | High | MuchFi V2 has direct pair adapter coverage; V3 and Algebra remain read-only until router/quoter provenance and adapter work are complete |
 | Testnet key was shared in chat | High for production, low for disposable testnet | Use only for disposable testnet; mainnet must use fresh key, keystore/hardware wallet, and multisig/timelock owner |
 
@@ -187,4 +195,4 @@ pnpm deploy:preflight:route:v2
 
 Controlled Chikyu testnet router and adapter deployment is complete.
 
-No-go for adapter allowlisting, public execution routing, or mainnet readiness until explicit allowlist approval, post-allowlist route preflight, static analysis, expanded fork/testnet testing, and admin custody upgrades are complete.
+No-go for broader public execution routing or mainnet readiness until monitoring, more canary routes, static analysis, expanded fork/testnet testing, and admin custody upgrades are complete.

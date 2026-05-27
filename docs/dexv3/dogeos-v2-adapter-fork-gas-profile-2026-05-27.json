@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-05-27T11:53:31.557Z",
+  "rpcUrl": "https://rpc.testnet.dogeos.com",
+  "forkBlockNumber": 5184292,
+  "referenceGasPriceWei": "15680108",
+  "amountInWei": "1000000000000000",
+  "quotedAmountOut": "160743728000572",
+  "minAmountOut": "159136290720567",
+  "addresses": {
+    "factory": "0x7864071B532894216e3C045a74814EafEB92ae20",
+    "pairUsdcWdoge": "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+    "usdc": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+    "wDoge": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE"
+  },
+  "deployedInFork": {
+    "router": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+    "adapter": "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f",
+    "owner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "user": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "recipient": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+  },
+  "rows": [
+    {
+      "category": "deployment",
+      "action": "DogeOSV2PairAdapter.constructor",
+      "gasUsed": "771110",
+      "estimatedCostWei": "12091088079880",
+      "notes": "fork-local deployment bound to MuchFi V2 factory"
+    },
+    {
+      "category": "deployment",
+      "action": "DogeOSSwapRouter.constructor",
+      "gasUsed": "1101546",
+      "estimatedCostWei": "17272360246968",
+      "notes": "fork-local router deployment with DogeOS WDOGE"
+    },
+    {
+      "category": "admin",
+      "action": "setAdapterAllowed(adapter,true)",
+      "gasUsed": "47810",
+      "estimatedCostWei": "749665963480",
+      "notes": "fork-local allowlist transaction"
+    },
+    {
+      "category": "fork-swap",
+      "action": "exactInput MuchFi V2 native DOGE -> USDC",
+      "gasUsed": "191150",
+      "estimatedCostWei": "2997252644200",
+      "notes": "real DogeOS WDOGE and MuchFi V2 pair bytecode on local fork"
+    }
+  ]
+}

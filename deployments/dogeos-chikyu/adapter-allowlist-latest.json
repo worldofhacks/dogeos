@@ -5,12 +5,12 @@
     "adapterCodeHash": "0x95ab8e3610d5f3f474b2394a8af242406914e7e815b482f123b717d6b6639460",
     "factory": "0x7864071B532894216e3C045a74814EafEB92ae20"
   },
-  "alreadyAllowed": true,
-  "blockNumber": 5184537,
+  "alreadyAllowed": false,
+  "blockNumber": 5184434,
   "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
   "chainId": 6281971,
-  "estimatedCostWei": "0",
-  "estimatedGas": "0",
+  "estimatedCostWei": "749854124776",
+  "estimatedGas": "47822",
   "gasPriceWei": "15680108",
   "pairState": {
     "factoryCodeBytes": 11679,
@@ -19,11 +19,11 @@
     "pairCodeHash": "0x3057b72e0e16890ad37e168f87a3e93ae3bf618dc59c2a79f9d5eed0c1ac378f",
     "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
     "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
-    "reserve0": "1975277883598908483",
-    "reserve1": "12250704364282262700",
-    "blockTimestampLast": 1779882918
+    "reserve0": "1975293959149072276",
+    "reserve1": "12250604364282262700",
+    "blockTimestampLast": 1779634317
   },
-  "quotedAmountOut": "160741107817843",
+  "quotedAmountOut": "160743728000572",
   "routeData": "0x000000000000000000000000d826428b6a0ead35dcb31a75db61be94f2ee87f4",
   "routePreflightAmountInWei": "1000000000000000",
   "router": {
@@ -34,7 +34,13 @@
     "paused": false,
     "wDoge": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE"
   },
-  "timestamp": "2026-05-27T12:01:20.728Z",
+  "timestamp": "2026-05-27T11:54:24.905Z",
   "usdcAddress": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
-  "wDogeAddress": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE"
+  "wDogeAddress": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+  "deployedBlockNumber": 5184437,
+  "effectiveGasPrice": "15680108",
+  "explorerUrl": "https://blockscout.testnet.dogeos.com/tx/0x919029a596982eea40d0b9267e6ab20dc9dff9a5c448feb58db80e64edae045f",
+  "gasUsed": "47822",
+  "status": 1,
+  "transactionHash": "0x919029a596982eea40d0b9267e6ab20dc9dff9a5c448feb58db80e64edae045f"
 }
