@@ -117,7 +117,7 @@ Source registry fields:
 | `quoter` | Quote contract if needed. |
 | `positionManager` | CLAMM position NFT if applicable. |
 | `verified` | Blockscout/source verification status. |
-| `status` | `active`, `readOnly`, `watchlist`, `disabled`. |
+| `status` | `active`, `quoteActive`, `watchlist`, `disabled`. |
 | `riskLevel` | Routing risk classification. |
 | `supportedPairs` | Known official-token pairs. |
 

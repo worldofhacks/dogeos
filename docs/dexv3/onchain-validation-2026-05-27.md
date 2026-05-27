@@ -5,7 +5,7 @@ Read-only validation through DogeOS Chikyu RPC and Blockscout. No private key wa
 | Field | Value |
 | --- | --- |
 | Chain ID | `6281971` |
-| Block | `5184491` |
+| Block | `5188069` |
 | RPC | `https://rpc.testnet.dogeos.com` |
 | Blockscout | `https://blockscout.testnet.dogeos.com` |
 
@@ -26,7 +26,7 @@ Read-only validation through DogeOS Chikyu RPC and Blockscout. No private key wa
 - MuchFi V3 pools still expose readable token, fee, liquidity, and slot0 state.
 - Barkswap Algebra pools still expose readable token, fee, liquidity, and globalState.
 - The V1 router and MuchFi V2 direct-pair adapter are deployed and source verified when listed as verified below.
-- MuchFi V2 direct-pair execution has allowlist and canary evidence when listed in the local deployment evidence. V3 and Algebra router/quoter ABI provenance remains incomplete and remains read-only.
+- MuchFi V2 direct-pair execution has allowlist and canary evidence when listed in the local deployment evidence. MuchFi V3 and Barkswap Algebra are quote-active through on-chain pool reads, but remain non-executable until verified adapters, explicit allowlisting, route preflight, and live canary evidence exist.
 
 ## Blockscout Verification
 
@@ -42,6 +42,6 @@ Read-only validation through DogeOS Chikyu RPC and Blockscout. No private key wa
 
 ## Deployment Decision
 
-The V1 router and MuchFi V2 adapter can remain active for controlled testnet canary execution. Keep MuchFi V2 as the only executable source until broader monitoring and canary coverage are added. V3 and Algebra sources additionally require router/quoter ABI provenance.
+The V1 router and MuchFi V2 adapter can remain active for controlled testnet canary execution. Keep MuchFi V2 as the only executable source until broader monitoring and canary coverage are added. MuchFi V3 and Barkswap Algebra are quote-active only; execution additionally requires adapter implementation, allowlisting, preflight, and canary evidence.
 
 Raw evidence: `onchain-validation-2026-05-27.json`.

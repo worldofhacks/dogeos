@@ -1,12 +1,15 @@
 export type ProtocolType = "v2" | "v3" | "algebra" | "pancake-v3" | "unknown";
-export type SourceStatus = "active" | "readOnly" | "watchlist" | "disabled";
+export type SourceStatus = "active" | "quoteActive" | "watchlist" | "disabled";
 export type RiskLevel = "low" | "medium" | "high";
+export type SupportStatus = "enabled" | "disabled";
 
 export interface LiquiditySource {
   sourceId: string;
   displayName: string;
   protocolType: ProtocolType;
   status: SourceStatus;
+  quoteSupport: SupportStatus;
+  executionSupport: SupportStatus;
   verified: boolean;
   riskLevel: RiskLevel;
   factory?: `0x${string}`;
@@ -23,15 +26,19 @@ export const SOURCES: readonly LiquiditySource[] = [
     displayName: "Owned Pancake V3",
     protocolType: "pancake-v3",
     status: "disabled",
+    quoteSupport: "disabled",
+    executionSupport: "disabled",
     verified: false,
     riskLevel: "medium",
-    notes: "No DogeOS deployment yet; GPL decision and Blockscout verification required before activation."
+    notes: "No DogeOS deployment yet; keep disabled until a DogeOS-specific deployment and Blockscout verification exist."
   },
   {
     sourceId: "muchfi-v3",
     displayName: "MuchFi V3",
     protocolType: "v3",
-    status: "readOnly",
+    status: "quoteActive",
+    quoteSupport: "enabled",
+    executionSupport: "disabled",
     verified: false,
     riskLevel: "medium",
     factory: "0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B",
@@ -42,13 +49,15 @@ export const SOURCES: readonly LiquiditySource[] = [
       "0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC",
       "0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F"
     ],
-    notes: "Quote/read target only; execution waits for canonical router/quoter ABI provenance."
+    notes: "Quote-active CLAMM source backed by DogeOS on-chain pool reads; execution waits for a verified adapter, explicit allowlist, route preflight, and live canary evidence."
   },
   {
     sourceId: "muchfi-v2",
     displayName: "MuchFi V2",
     protocolType: "v2",
     status: "active",
+    quoteSupport: "enabled",
+    executionSupport: "enabled",
     verified: true,
     riskLevel: "medium",
     factory: "0x7864071B532894216e3C045a74814EafEB92ae20",
@@ -62,7 +71,9 @@ export const SOURCES: readonly LiquiditySource[] = [
     sourceId: "barkswap-algebra",
     displayName: "Barkswap Algebra",
     protocolType: "algebra",
-    status: "readOnly",
+    status: "quoteActive",
+    quoteSupport: "enabled",
+    executionSupport: "disabled",
     verified: false,
     riskLevel: "medium",
     factory: "0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457",
@@ -71,13 +82,15 @@ export const SOURCES: readonly LiquiditySource[] = [
       "0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1",
       "0x5DC3eB0e452f464e134F854EAeDf9431B93Da624"
     ],
-    notes: "Algebra-style read target; execution waits for canonical deployment, router, quoter, and ABI confirmation."
+    notes: "Quote-active Algebra source backed by DogeOS on-chain pool reads; execution waits for a verified adapter, explicit allowlist, route preflight, and live canary evidence."
   },
   {
     sourceId: "suchswap",
     displayName: "SuchSwap",
     protocolType: "unknown",
     status: "watchlist",
+    quoteSupport: "disabled",
+    executionSupport: "disabled",
     verified: false,
     riskLevel: "high",
     factory: "0x924163a558915Bf685eD21809A8B8b372A79Ed37",
@@ -89,6 +102,8 @@ export const SOURCES: readonly LiquiditySource[] = [
     displayName: "DogeBox",
     protocolType: "unknown",
     status: "watchlist",
+    quoteSupport: "disabled",
+    executionSupport: "disabled",
     verified: false,
     riskLevel: "high",
     notes: "Watchlist only; no official WDOGE/USDC or WDOGE/USDT production route found in repo evidence."
@@ -104,9 +119,9 @@ export function getSource(sourceId: string): LiquiditySource {
 }
 
 export function getQuoteSources(): LiquiditySource[] {
-  return SOURCES.filter((source) => source.status === "active" || source.status === "readOnly");
+  return SOURCES.filter((source) => source.quoteSupport === "enabled");
 }
 
 export function getExecutableSources(): LiquiditySource[] {
-  return SOURCES.filter((source) => source.status === "active" && source.verified);
+  return SOURCES.filter((source) => source.executionSupport === "enabled" && source.verified);
 }

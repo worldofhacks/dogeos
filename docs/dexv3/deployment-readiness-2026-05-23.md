@@ -147,10 +147,11 @@ Summary:
 - MuchFi V3 pools still expose fee, liquidity, and slot0.
 - Barkswap Algebra pools still expose fee, liquidity, and globalState.
 - Blockscout still shows external MuchFi/Barkswap factory/router/position-manager surfaces as unverified or unconfirmed for public execution.
+- MuchFi V3 and Barkswap Algebra are quote-active in the aggregator registry using on-chain pool reads, but remain blocked from router execution.
 
 ## Security Decision
 
-The V1 router and MuchFi V2 adapter are deployed, source verified, allowlisted, and canary-tested on testnet. MuchFi V2 is the only active executable source. MuchFi V3, Barkswap Algebra, SuchSwap, DogeBox, and the owned Pancake V3 path remain non-executable.
+The V1 router and MuchFi V2 adapter are deployed, source verified, allowlisted, and canary-tested on testnet. MuchFi V2 is the only active executable source. MuchFi V3 and Barkswap Algebra are quote-active only. SuchSwap, DogeBox, and the owned Pancake V3 path remain non-executable.
 
 ## Next Safe Action
 

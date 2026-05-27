@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "strict": false,
+  "checkedAt": "2026-05-27T15:44:43.543Z",
+  "cwd": "/Users/quietguy/Documents/Dev/dogeos/.worktrees/dogeos-dex-v1-security",
+  "tools": [
+    {
+      "id": "slither",
+      "executable": "slither",
+      "purpose": "Static Solidity analysis for access control, reentrancy, unchecked transfers, shadowing, and known EVM footguns.",
+      "command": "slither . --exclude-dependencies --filter-paths 'node_modules|artifacts|cache|coverage'",
+      "installed": false,
+      "path": null
+    },
+    {
+      "id": "aderyn",
+      "executable": "aderyn",
+      "purpose": "Independent Solidity static analyzer to cross-check Slither-style findings with a separate ruleset.",
+      "command": "aderyn .",
+      "installed": false,
+      "path": null
+    },
+    {
+      "id": "osv-scanner",
+      "executable": "osv-scanner",
+      "purpose": "Open Source Vulnerabilities dependency audit for lockfiles and reachable package metadata.",
+      "command": "osv-scanner scan source -r .",
+      "installed": false,
+      "path": null
+    },
+    {
+      "id": "semgrep",
+      "executable": "semgrep",
+      "purpose": "Pattern-based source scan for JavaScript/TypeScript script hazards, secrets, and unsafe shell/process usage.",
+      "command": "semgrep scan --config p/security-audit --config p/secrets .",
+      "installed": false,
+      "path": null
+    }
+  ],
+  "nextAction": "Install missing tools locally, or rerun with DOGEOS_SECURITY_STRICT_OPEN_SOURCE_TOOLS=1 once the audit workstation is provisioned."
+}

@@ -259,7 +259,7 @@ ${tokenRows}
 - MuchFi V3 pools still expose readable token, fee, liquidity, and slot0 state.
 - Barkswap Algebra pools still expose readable token, fee, liquidity, and globalState.
 - The V1 router and MuchFi V2 direct-pair adapter are deployed and source verified when listed as verified below.
-- MuchFi V2 direct-pair execution has allowlist and canary evidence when listed in the local deployment evidence. V3 and Algebra router/quoter ABI provenance remains incomplete and remains read-only.
+- MuchFi V2 direct-pair execution has allowlist and canary evidence when listed in the local deployment evidence. MuchFi V3 and Barkswap Algebra are quote-active through on-chain pool reads, but remain non-executable until verified adapters, explicit allowlisting, route preflight, and live canary evidence exist.
 
 ## Blockscout Verification
 
@@ -269,7 +269,7 @@ ${verificationRows}
 
 ## Deployment Decision
 
-The V1 router and MuchFi V2 adapter can remain active for controlled testnet canary execution. Keep MuchFi V2 as the only executable source until broader monitoring and canary coverage are added. V3 and Algebra sources additionally require router/quoter ABI provenance.
+The V1 router and MuchFi V2 adapter can remain active for controlled testnet canary execution. Keep MuchFi V2 as the only executable source until broader monitoring and canary coverage are added. MuchFi V3 and Barkswap Algebra are quote-active only; execution additionally requires adapter implementation, allowlisting, preflight, and canary evidence.
 
 Raw evidence: \`${path.basename(jsonPath)}\`.
 `
@@ -362,7 +362,7 @@ async function main() {
       routerDeployment: deployments.router ? "deployed-and-source-verified" : "allowed-for-testnet-preflight",
       externalExecution: deployments.canary ? "muchfi-v2-active-testnet-canary" : "disabled",
       reason: deployments.canary
-        ? "MuchFi V2 direct-pair execution has adapter allowlist, route preflight, and live canary evidence. V3 and Algebra remain read-only."
+        ? "MuchFi V2 direct-pair execution has adapter allowlist, route preflight, and live canary evidence. MuchFi V3 and Barkswap Algebra are quote-active only."
         : "Adapter allowlist execution remains disabled until explicit approval and route preflight. Adapter deployment/source verification evidence is included when available."
     }
   };

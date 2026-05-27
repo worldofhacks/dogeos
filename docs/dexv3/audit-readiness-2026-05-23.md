@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The V1 DogeOS router package has completed a controlled Chikyu testnet deployment of `DogeOSSwapRouter` and `DogeOSV2PairAdapter`, an explicit adapter allowlist transaction, route preflight, and one dust-size live MuchFi V2 canary swap. It is not positioned as mainnet-ready. The scope remains intentionally narrow: MuchFi V2 is the only active executable source; V3, Algebra, watchlist sources, and the owned Pancake V3 path remain non-executable.
+The V1 DogeOS router package has completed a controlled Chikyu testnet deployment of `DogeOSSwapRouter` and `DogeOSV2PairAdapter`, an explicit adapter allowlist transaction, route preflight, and one dust-size live MuchFi V2 canary swap. It is not positioned as mainnet-ready. The scope remains intentionally narrow: MuchFi V2 is the only active executable source. MuchFi V3 and Barkswap Algebra are now quote-active for aggregator discovery from on-chain pool reads, while all V3/Algebra execution paths remain non-executable.
 
 ## DogeOS-Specific Conformance
 
@@ -32,7 +32,8 @@ Official docs referenced:
 | Control | Status | Evidence |
 | --- | --- | --- |
 | Minimal V1 scope | Pass | No RFQ, split routing, Baseline module, launchpad, leverage, or owned CLAMM deployment |
-| Execution source gating | Pass | `getExecutableSources()` requires `active && verified`; only MuchFi V2 is active after allowlist and canary evidence |
+| Execution source gating | Pass | `getExecutableSources()` requires `executionSupport: "enabled"` and `verified`; only MuchFi V2 is executable after allowlist and canary evidence |
+| Quote source gating | Pass | MuchFi V3 and Barkswap Algebra are `quoteActive` with `executionSupport: "disabled"` |
 | Exact-input only | Pass | `DogeOSSwapRouter.exactInput` only |
 | Slippage guard | Pass | `minAmountOut`, balance-delta accounting, `OutputBelowMinimum` tests |
 | Deadline guard | Pass | `DeadlineExpired` test |
@@ -69,6 +70,9 @@ Official docs referenced:
 | `pnpm deploy:preflight:adapter` | Pass at block `5094558`; adapter deployed at block `5094563` |
 | `pnpm deploy:verify-source:router` | Pass; source verified on Blockscout |
 | `pnpm deploy:verify-source:adapter` | Pass; source verified on Blockscout |
+| `pnpm security:registry` | Pass; source admission checks enforce quote-only V3/Algebra and executable MuchFi V2 |
+| `pnpm security:live-evidence` | Pass; local evidence report validates router, adapter, allowlist, route preflight, canary, and quote-source on-chain evidence |
+| `pnpm security:oss` | Pass in non-strict mode; records whether Slither, Aderyn, OSV Scanner, and Semgrep are installed on the audit workstation |
 | `pnpm deploy:preflight:allowlist:adapter` | Pass before allowlist; transaction confirmed at block `5184437` |
 | `pnpm deploy:preflight:route:v2` | Pass at block `5184459`; estimated swap gas `223969` |
 | `pnpm deploy:canary:swap:v2` | Pass at block `5184451`; tx `0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832` |
@@ -187,8 +191,8 @@ CONFIRM_DOGEOS_TESTNET_CANARY_SWAP=swap-dogeos-v2-canary pnpm deploy:canary:swap
 | --- | --- | --- |
 | Slither not installed locally | Medium | Manual audit checklist and coverage run completed; install/run Slither before mainnet readiness |
 | Foundry/cast not installed locally | Medium | Hardhat/ethers preflight used; Foundry fork/fuzz remains a mainnet-readiness gap |
-| Single executable source | Medium | MuchFi V2 is active after canary; all V3/Algebra/watchlist/owned DEX routes remain non-executable |
-| External MuchFi/Barkswap contracts unverified/unconfirmed for public execution | High | MuchFi V2 has direct pair adapter coverage; V3 and Algebra remain read-only until router/quoter provenance and adapter work are complete |
+| Single executable source | Medium | MuchFi V2 is active after canary; MuchFi V3 and Barkswap are quote-active only; watchlist/owned DEX routes remain non-executable |
+| External MuchFi/Barkswap contracts unverified/unconfirmed for public execution | High | MuchFi V2 has direct pair adapter coverage; V3 and Algebra remain non-executable until adapter, allowlist, preflight, and canary work are complete |
 | Testnet key was shared in chat | High for production, low for disposable testnet | Use only for disposable testnet; mainnet must use fresh key, keystore/hardware wallet, and multisig/timelock owner |
 
 ## Go/No-Go

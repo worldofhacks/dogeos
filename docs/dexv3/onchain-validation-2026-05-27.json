@@ -1,10 +1,10 @@
 {
-  "validatedAt": "2026-05-27T11:58:17.282Z",
+  "validatedAt": "2026-05-27T15:43:48.530Z",
   "rpc": "https://rpc.testnet.dogeos.com",
   "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
   "network": {
     "chainId": "6281971",
-    "block": 5184491
+    "block": 5188069
   },
   "tokens": {
     "WDOGE": {
@@ -135,7 +135,7 @@
     }
   },
   "l1GasPriceOracle": {
-    "sampleL1FeeForRouterSelector": "86339937195"
+    "sampleL1FeeForRouterSelector": "89157891846"
   },
   "muchFiV2": {
     "allPairsLength": "2",
@@ -222,7 +222,7 @@
       "address": "0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1",
       "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
       "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
-      "fee": "3038",
+      "fee": "3037",
       "liquidity": "286127046181362770693",
       "globalState": [
         "69957002443463215441719767485",
@@ -237,7 +237,7 @@
       "address": "0x5DC3eB0e452f464e134F854EAeDf9431B93Da624",
       "token0": "0xC81800b77D91391Ef03d7868cB81204E753093a9",
       "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
-      "fee": "4706",
+      "fee": "6039",
       "liquidity": "312887185589690913425",
       "globalState": [
         "72612423107498783224633227427",
@@ -343,6 +343,6 @@
   "decision": {
     "routerDeployment": "deployed-and-source-verified",
     "externalExecution": "muchfi-v2-active-testnet-canary",
-    "reason": "MuchFi V2 direct-pair execution has adapter allowlist, route preflight, and live canary evidence. V3 and Algebra remain read-only."
+    "reason": "MuchFi V2 direct-pair execution has adapter allowlist, route preflight, and live canary evidence. MuchFi V3 and Barkswap Algebra are quote-active only."
   }
 }
