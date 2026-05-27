@@ -1,0 +1,52 @@
+{
+  "name": "dogeos-dex-v1",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "hardhat compile",
+    "coverage": "hardhat coverage",
+    "gas:dogeos-v2-adapter": "hardhat run scripts/gas/dogeos-v2-adapter-fork-profile.cjs",
+    "gas:router": "hardhat run scripts/gas/router-gas-profile.cjs",
+    "preflight:full": "pnpm test && pnpm lint:placeholders && pnpm lint:secrets && pnpm compile && pnpm coverage && pnpm gas:router && pnpm gas:dogeos-v2-adapter && pnpm audit:deps && pnpm audit:deps:prod && pnpm deploy:preflight:router",
+    "test": "pnpm test:contracts && pnpm test:packages",
+    "test:contracts": "hardhat test",
+    "test:packages": "vitest run",
+    "lint:placeholders": "bash -c '! rg -n \"TO[D]O|TB[D]|fill[[:space:]]in|implement[[:space:]]later|appropriate[[:space:]]error[[:space:]]handling\" docs contracts packages scripts'",
+    "lint:secrets": "node scripts/security/scan-secrets.cjs",
+    "audit:deps": "pnpm audit --audit-level moderate",
+    "audit:deps:prod": "pnpm audit --prod --audit-level moderate",
+    "analysis:dogeos": "node scripts/analysis/dogeos-readonly-analysis.cjs",
+    "deploy:preflight:router": "hardhat run --network dogeosTestnet scripts/deploy/preflight-router.cjs",
+    "deploy:router": "hardhat run --network dogeosTestnet scripts/deploy/deploy-router.cjs",
+    "deploy:verify:router": "hardhat run --network dogeosTestnet scripts/deploy/verify-router.cjs",
+    "deploy:verify-source:router": "hardhat run --network dogeosTestnet scripts/deploy/verify-source-router.cjs",
+    "deploy:preflight:adapter": "hardhat run --network dogeosTestnet scripts/deploy/preflight-adapter.cjs",
+    "deploy:adapter": "hardhat run --network dogeosTestnet scripts/deploy/deploy-adapter.cjs",
+    "deploy:verify:adapter": "hardhat run --network dogeosTestnet scripts/deploy/verify-adapter.cjs",
+    "deploy:verify-source:adapter": "hardhat run --network dogeosTestnet scripts/deploy/verify-source-adapter.cjs",
+    "deploy:preflight:allowlist:adapter": "hardhat run --network dogeosTestnet scripts/deploy/preflight-allowlist-adapter.cjs",
+    "deploy:allowlist:adapter": "hardhat run --network dogeosTestnet scripts/deploy/allowlist-adapter.cjs",
+    "deploy:preflight:route:v2": "hardhat run --network dogeosTestnet scripts/deploy/preflight-route-v2.cjs"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "2.0.8",
+    "@nomicfoundation/hardhat-ethers": "3.0.8",
+    "@nomicfoundation/hardhat-verify": "2.1.3",
+    "@openzeppelin/contracts": "5.6.1",
+    "chai": "4.5.0",
+    "ethers": "6.15.0",
+    "hardhat": "2.28.6",
+    "solidity-coverage": "0.8.17",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "bn.js": "4.12.3",
+      "serialize-javascript": "7.0.5",
+      "undici": "6.24.0",
+      "uuid": "11.1.1",
+      "ws": "8.20.1"
+    }
+  }
+}

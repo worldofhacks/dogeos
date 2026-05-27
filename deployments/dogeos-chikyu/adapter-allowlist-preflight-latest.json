@@ -1,0 +1,40 @@
+{
+  "adapter": {
+    "adapterAddress": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+    "adapterCodeBytes": 3205,
+    "adapterCodeHash": "0x95ab8e3610d5f3f474b2394a8af242406914e7e815b482f123b717d6b6639460",
+    "factory": "0x7864071B532894216e3C045a74814EafEB92ae20"
+  },
+  "alreadyAllowed": false,
+  "blockNumber": 5182936,
+  "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
+  "chainId": 6281971,
+  "estimatedCostWei": "749854124776",
+  "estimatedGas": "47822",
+  "gasPriceWei": "15680108",
+  "pairState": {
+    "factoryCodeBytes": 11679,
+    "factoryCodeHash": "0xe8dea29a3db02ade352a6a816a93646b5c906a22c1208c56d2bc2a6e123c5ede",
+    "pairCodeBytes": 8783,
+    "pairCodeHash": "0x3057b72e0e16890ad37e168f87a3e93ae3bf618dc59c2a79f9d5eed0c1ac378f",
+    "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+    "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+    "reserve0": "1975293959149072276",
+    "reserve1": "12250604364282262700",
+    "blockTimestampLast": 1779634317
+  },
+  "quotedAmountOut": "160743728000572",
+  "routeData": "0x000000000000000000000000d826428b6a0ead35dcb31a75db61be94f2ee87f4",
+  "routePreflightAmountInWei": "1000000000000000",
+  "router": {
+    "routerAddress": "0xBBf7ECC134350a9aF2BCA49A1420ac5E15fe54c3",
+    "routerCodeBytes": 4600,
+    "routerCodeHash": "0x1c912d85de525db6c791d69edbc6da7cb8f2e147aa65319ffe8ad6886ce10c6d",
+    "owner": "0x00B6F77d55967669Ea37f47Fc469FF47782007E4",
+    "paused": false,
+    "wDoge": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE"
+  },
+  "timestamp": "2026-05-27T10:09:08.123Z",
+  "usdcAddress": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+  "wDogeAddress": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE"
+}

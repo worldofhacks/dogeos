@@ -1,0 +1,328 @@
+{
+  "validatedAt": "2026-05-23T04:38:51.596Z",
+  "rpc": "https://rpc.testnet.dogeos.com",
+  "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
+  "network": {
+    "chainId": "6281971",
+    "block": 5094601
+  },
+  "tokens": {
+    "WDOGE": {
+      "address": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "name": "Wrapped Doge",
+      "symbol": "WDOGE",
+      "expectedSymbol": "WDOGE",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 5294
+    },
+    "LBTC": {
+      "address": "0x29789F5A3e4c3113e7165c33A7E3bc592CF6fE0E",
+      "name": "Lombard Staked BTC",
+      "symbol": "LBTC",
+      "expectedSymbol": "LBTC",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 2431
+    },
+    "WETH": {
+      "address": "0x1a6094Ac3ca3Fc9F1B4777941a5f4AAc16A72000",
+      "name": "Wrapped Ethereum",
+      "symbol": "WETH",
+      "expectedSymbol": "WETH",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 2431
+    },
+    "USD1": {
+      "address": "0x25D5E5375e01Ed39Dc856bDCA5040417fD45eA3F",
+      "name": "World Liberty Financial USD",
+      "symbol": "USD1",
+      "expectedSymbol": "USD1",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 2431
+    },
+    "USDC": {
+      "address": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+      "name": "USD Coin",
+      "symbol": "USDC",
+      "expectedSymbol": "USDC",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 2431
+    },
+    "USDT": {
+      "address": "0xC81800b77D91391Ef03d7868cB81204E753093a9",
+      "name": "Tether",
+      "symbol": "USDT",
+      "expectedSymbol": "USDT",
+      "decimals": 18,
+      "bytecodePresent": true,
+      "bytecodeLength": 2431
+    }
+  },
+  "contracts": {
+    "l1GasPriceOracle": {
+      "address": "0x5300000000000000000000000000000000000002",
+      "bytecodePresent": true,
+      "bytecodeLength": 3690
+    },
+    "muchFiV2Factory": {
+      "address": "0x7864071B532894216e3C045a74814EafEB92ae20",
+      "bytecodePresent": true,
+      "bytecodeLength": 11679
+    },
+    "muchFiV2UsdcWdoge": {
+      "address": "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+      "bytecodePresent": true,
+      "bytecodeLength": 8783
+    },
+    "muchFiV2UsdtWdoge": {
+      "address": "0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4",
+      "bytecodePresent": true,
+      "bytecodeLength": 8783
+    },
+    "muchFiV3PositionManager": {
+      "address": "0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5",
+      "bytecodePresent": true,
+      "bytecodeLength": 24466
+    },
+    "muchFiV3Factory": {
+      "address": "0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B",
+      "bytecodePresent": true,
+      "bytecodeLength": 4815
+    },
+    "muchFiV3RouterCandidate": {
+      "address": "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+      "bytecodePresent": true,
+      "bytecodeLength": 24316
+    },
+    "muchFiV3UsdcWdoge500": {
+      "address": "0x4F1c638952a23DB25a13167B83810201c4BC7299",
+      "bytecodePresent": true,
+      "bytecodeLength": 22718
+    },
+    "muchFiV3UsdcWdoge2500": {
+      "address": "0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC",
+      "bytecodePresent": true,
+      "bytecodeLength": 22718
+    },
+    "muchFiV3UsdtWdoge500": {
+      "address": "0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F",
+      "bytecodePresent": true,
+      "bytecodeLength": 22718
+    },
+    "barkswapNewFactory": {
+      "address": "0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457",
+      "bytecodePresent": true,
+      "bytecodeLength": 10699
+    },
+    "barkswapNewPositionManager": {
+      "address": "0x4Bb4A5CF44028519908D6B4A90C570fEaA8c9a07",
+      "bytecodePresent": true,
+      "bytecodeLength": 21976
+    },
+    "barkswapUsdcWdogeNew": {
+      "address": "0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1",
+      "bytecodePresent": true,
+      "bytecodeLength": 22493
+    },
+    "barkswapUsdtWdogeNew": {
+      "address": "0x5DC3eB0e452f464e134F854EAeDf9431B93Da624",
+      "bytecodePresent": true,
+      "bytecodeLength": 22493
+    }
+  },
+  "l1GasPriceOracle": {
+    "sampleL1FeeForRouterSelector": "81270814597"
+  },
+  "muchFiV2": {
+    "allPairsLength": "2",
+    "getPairUsdcWdoge": "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+    "getPairUsdtWdoge": "0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4",
+    "usdcWdoge": {
+      "address": "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+      "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "reserves": [
+        "1676458611269892249",
+        "14428511485958945241",
+        "1779422067"
+      ]
+    },
+    "usdtWdoge": {
+      "address": "0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4",
+      "token0": "0xC81800b77D91391Ef03d7868cB81204E753093a9",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "reserves": [
+        "1074867006284313073",
+        "18773093621172823670",
+        "1779422067"
+      ]
+    }
+  },
+  "muchFiV3": {
+    "getPoolUsdcWdoge500": "0x4F1c638952a23DB25a13167B83810201c4BC7299",
+    "getPoolUsdcWdoge2500": "0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC",
+    "getPoolUsdtWdoge500": "0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F",
+    "usdcWdoge500": {
+      "address": "0x4F1c638952a23DB25a13167B83810201c4BC7299",
+      "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "fee": "500",
+      "liquidity": "10647327690857269408930",
+      "slot0": [
+        "197392514872974376150255944470",
+        "18258",
+        "0",
+        "1",
+        "1",
+        "72",
+        true
+      ]
+    },
+    "usdcWdoge2500": {
+      "address": "0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC",
+      "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "fee": "2500",
+      "liquidity": "463818676025040102",
+      "slot0": [
+        "871098748324908400902214718014",
+        "47950",
+        "0",
+        "1",
+        "1",
+        "128",
+        true
+      ]
+    },
+    "usdtWdoge500": {
+      "address": "0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F",
+      "token0": "0xC81800b77D91391Ef03d7868cB81204E753093a9",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "fee": "500",
+      "liquidity": "18027060895450073182",
+      "slot0": [
+        "289869881123142332848570839691",
+        "25943",
+        "0",
+        "1",
+        "1",
+        "72",
+        true
+      ]
+    }
+  },
+  "barkswap": {
+    "poolByPairUsdcWdoge": "0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1",
+    "poolByPairUsdtWdoge": "0x5DC3eB0e452f464e134F854EAeDf9431B93Da624",
+    "usdcWdoge": {
+      "address": "0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1",
+      "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "fee": "15000",
+      "liquidity": "88686073153802143299",
+      "globalState": [
+        "99315958146252495809696137212",
+        "4519",
+        "500",
+        "193",
+        "30",
+        true
+      ]
+    },
+    "usdtWdoge": {
+      "address": "0x5DC3eB0e452f464e134F854EAeDf9431B93Da624",
+      "token0": "0xC81800b77D91391Ef03d7868cB81204E753093a9",
+      "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+      "fee": "15000",
+      "liquidity": "229702854402763647754",
+      "globalState": [
+        "81563334571332080555401024127",
+        "580",
+        "500",
+        "195",
+        "30",
+        true
+      ]
+    }
+  },
+  "blockscout": {
+    "muchFiV3RouterCandidate": {
+      "label": "MuchFi V3 router candidate",
+      "address": "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": false,
+      "name": null
+    },
+    "muchFiV3Factory": {
+      "label": "MuchFi V3 factory",
+      "address": "0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": false,
+      "name": null
+    },
+    "muchFiV2Factory": {
+      "label": "MuchFi V2 factory",
+      "address": "0x7864071B532894216e3C045a74814EafEB92ae20",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": false,
+      "name": null
+    },
+    "barkswapNewFactory": {
+      "label": "Barkswap factory",
+      "address": "0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": false,
+      "name": null
+    },
+    "barkswapNewPositionManager": {
+      "label": "Barkswap position manager",
+      "address": "0x4Bb4A5CF44028519908D6B4A90C570fEaA8c9a07",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": false,
+      "name": "Barkswap Positions NFT-V2"
+    },
+    "dogeosSwapRouter": {
+      "label": "DogeOSSwapRouter deployment",
+      "address": "0xBBf7ECC134350a9aF2BCA49A1420ac5E15fe54c3",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": true,
+      "name": "DogeOSSwapRouter"
+    },
+    "dogeosV2PairAdapter": {
+      "label": "DogeOSV2PairAdapter deployment",
+      "address": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+      "httpStatus": 200,
+      "isContract": true,
+      "isVerified": true,
+      "name": "DogeOSV2PairAdapter"
+    }
+  },
+  "deployments": {
+    "router": {
+      "address": "0xBBf7ECC134350a9aF2BCA49A1420ac5E15fe54c3",
+      "blockNumber": 5094556,
+      "transactionHash": "0x19156ceee4ef1f4dcd8c4c8870a8a76b206eb3b3907221f00772f207868c839a"
+    },
+    "adapter": {
+      "address": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+      "blockNumber": 5094563,
+      "transactionHash": "0x42658effb209e5b72cd57c8a33d054dcd3ed2ef94d46c5c92ad4d7d5cab8d82a",
+      "factory": "0x7864071B532894216e3C045a74814EafEB92ae20"
+    }
+  },
+  "decision": {
+    "routerDeployment": "deployed-and-source-verified-check-required",
+    "externalExecution": "disabled",
+    "reason": "Adapter allowlist execution remains disabled until explicit approval and route preflight. Adapter deployment/source verification evidence is included when available."
+  }
+}

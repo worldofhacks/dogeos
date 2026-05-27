@@ -1,0 +1,41 @@
+{
+  "blockNumber": 5094560,
+  "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
+  "chainId": 6281971,
+  "deployerAddress": "0x00B6F77d55967669Ea37f47Fc469FF47782007E4",
+  "estimatedCostWei": "12091088079880",
+  "estimatedGas": "771110",
+  "gasPriceWei": "15680108",
+  "muchFiV2FactoryAddress": "0x7864071B532894216e3C045a74814EafEB92ae20",
+  "muchFiV2UsdcWdogePairAddress": "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+  "nonce": 1,
+  "predictedAdapterAddress": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+  "rpcUrl": "https://rpc.testnet.dogeos.com",
+  "timestamp": "2026-05-23T04:36:07.833Z",
+  "usdcAddress": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+  "wDogeAddress": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+  "pairState": {
+    "factoryCodeBytes": 11679,
+    "factoryCodeHash": "0xe8dea29a3db02ade352a6a816a93646b5c906a22c1208c56d2bc2a6e123c5ede",
+    "pairCodeBytes": 8783,
+    "pairCodeHash": "0x3057b72e0e16890ad37e168f87a3e93ae3bf618dc59c2a79f9d5eed0c1ac378f",
+    "token0": "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+    "token1": "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+    "reserve0": "1676458611269892249",
+    "reserve1": "14428511485958945241",
+    "blockTimestampLast": 1779422067
+  },
+  "adapter": {
+    "adapterAddress": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+    "adapterCodeBytes": 3205,
+    "adapterCodeHash": "0x95ab8e3610d5f3f474b2394a8af242406914e7e815b482f123b717d6b6639460",
+    "factory": "0x7864071B532894216e3C045a74814EafEB92ae20"
+  },
+  "adapterAddress": "0xe3D7979C510a3eBc7e3C60dB0F9f69c60E3D7A0E",
+  "deployedBlockNumber": 5094563,
+  "effectiveGasPrice": "15680108",
+  "explorerUrl": "https://blockscout.testnet.dogeos.com/tx/0x42658effb209e5b72cd57c8a33d054dcd3ed2ef94d46c5c92ad4d7d5cab8d82a",
+  "gasUsed": "771110",
+  "status": 1,
+  "transactionHash": "0x42658effb209e5b72cd57c8a33d054dcd3ed2ef94d46c5c92ad4d7d5cab8d82a"
+}

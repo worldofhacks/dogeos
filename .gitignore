@@ -1,2 +1,10 @@
 .tmp/
 
+.env
+.env.*
+!.env.example
+artifacts/
+cache/
+coverage/
+coverage.json
+node_modules/
