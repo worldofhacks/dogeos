@@ -69,6 +69,33 @@ describe("DogeOS faucet funding plan", () => {
     ]);
   });
 
+  test("can treat the configured amount as a top-up above the live wallet balance", () => {
+    const now = new Date("2026-05-28T12:00:00.000Z");
+    const plan = buildFundingPlan({
+      addresses: [DEPLOYER],
+      balancesWeiByAddress: {
+        [DEPLOYER]: 42_068_782_673_100_144_711n
+      },
+      lastClaimedAtByAddress: {},
+      now,
+      targetDoge: "40",
+      targetMode: "top-up"
+    });
+
+    expect(plan.targetMode).toBe("top-up");
+    expect(plan.targetInputDoge).toBe("40.0");
+    expect(plan.summary.totalDeficitDoge).toBe("40.0");
+    expect(plan.summary.fundingRecommendedWallets).toBe(1);
+    expect(plan.wallets[0]).toMatchObject({
+      balanceDoge: "42.068782673100144711",
+      deficitDoge: "40.0",
+      fundingRecommended: true,
+      targetDoge: "82.068782673100144711",
+      targetInputDoge: "40.0",
+      targetMode: "top-up"
+    });
+  });
+
   test("refuses an interval shorter than the official faucet cadence", () => {
     expect(() =>
       buildFundingPlan({

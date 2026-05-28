@@ -55,6 +55,18 @@ function parseTargetDogeWei(value) {
   return parseEther(parseTargetDoge(value));
 }
 
+function normalizeTargetMode(value = "absolute") {
+  const mode = String(value || "absolute").trim().toLowerCase();
+  if (mode === "topup") {
+    return "top-up";
+  }
+  if (mode !== "absolute" && mode !== "top-up") {
+    throw new Error("DOGEOS_FAUCET_TARGET_MODE must be absolute or top-up");
+  }
+
+  return mode;
+}
+
 function assertMinimumInterval(minimumIntervalHours) {
   const interval = Number(minimumIntervalHours || OFFICIAL_MINIMUM_INTERVAL_HOURS);
   if (!Number.isFinite(interval) || interval < OFFICIAL_MINIMUM_INTERVAL_HOURS) {
@@ -167,11 +179,13 @@ function buildFundingPlan({
   lastClaimedAtByAddress = {},
   minimumIntervalHours = OFFICIAL_MINIMUM_INTERVAL_HOURS,
   now = new Date(),
-  targetDoge
+  targetDoge,
+  targetMode = "absolute"
 }) {
   const interval = assertMinimumInterval(minimumIntervalHours);
   const normalizedAddresses = normalizeFundingAddresses(addresses);
-  const targetWei = parseTargetDogeWei(targetDoge);
+  const normalizedTargetMode = normalizeTargetMode(targetMode);
+  const targetInputWei = parseTargetDogeWei(targetDoge);
   const balances = normalizedValueMap(balancesWeiByAddress, "balancesWeiByAddress", (value) =>
     toWei(value, "balance")
   );
@@ -182,6 +196,7 @@ function buildFundingPlan({
 
   const wallets = normalizedAddresses.map((address) => {
     const balanceWei = balances[address] || 0n;
+    const targetWei = normalizedTargetMode === "top-up" ? balanceWei + targetInputWei : targetInputWei;
     const deficitWei = balanceWei >= targetWei ? 0n : targetWei - balanceWei;
     const lastClaimedAt = lastClaims[address];
     const waitHours = hoursUntilEligible(lastClaimedAt, now, interval);
@@ -202,7 +217,10 @@ function buildFundingPlan({
       hoursUntilEligible: waitHours,
       lastClaimedAt: lastClaimedAt || null,
       nextEligibleAt: nextEligibleAt(lastClaimedAt, now, interval),
+      targetInputDoge: formatEther(targetInputWei),
+      targetInputWei: targetInputWei.toString(),
       targetDoge: formatEther(targetWei),
+      targetMode: normalizedTargetMode,
       targetWei: targetWei.toString()
     };
   });
@@ -216,6 +234,9 @@ function buildFundingPlan({
       captchaBypass: false,
       note: "Manual faucet claim required; this planner records cadence, balances, and evidence only."
     },
+    targetInputDoge: formatEther(targetInputWei),
+    targetInputWei: targetInputWei.toString(),
+    targetMode: normalizedTargetMode,
     summary: {
       eligibleWallets: wallets.filter((wallet) => wallet.eligibleNow).length,
       fundingRecommendedWallets: wallets.filter((wallet) => wallet.fundingRecommended).length,
@@ -235,6 +256,8 @@ function formatFundingMarkdown(plan) {
       [
         wallet.address,
         wallet.balanceDoge,
+        wallet.targetMode,
+        wallet.targetInputDoge,
         wallet.targetDoge,
         wallet.deficitDoge,
         wallet.eligibleNow ? "yes" : "no",
@@ -258,14 +281,16 @@ Manual claim required. The DogeOS testnet faucet is protected by reCAPTCHA and t
 - Wallets tracked: ${plan.summary.walletCount}
 - Eligible now: ${plan.summary.eligibleWallets}
 - Funding recommended: ${plan.summary.fundingRecommendedWallets}
+- Target mode: ${plan.targetMode}
+- Target input: ${plan.targetInputDoge} DOGE
 - Total balance: ${plan.summary.totalBalanceDoge} DOGE
 - Target deficit: ${plan.summary.totalDeficitDoge} DOGE
 - Minimum claim interval: ${plan.minimumIntervalHours} hours
 
 ## Wallets
 
-address | balance DOGE | target DOGE | deficit DOGE | eligible now | funding recommended | hours until eligible | last claim
---- | ---: | ---: | ---: | --- | --- | ---: | ---
+address | balance DOGE | target mode | target input DOGE | target DOGE | deficit DOGE | eligible now | funding recommended | hours until eligible | last claim
+--- | ---: | --- | ---: | ---: | ---: | --- | --- | ---: | ---
 ${rows}
 
 ## Operator Steps

@@ -144,13 +144,16 @@ async function main() {
     readBalances(provider, addresses)
   ]);
 
+  const targetMode = env.DOGEOS_FAUCET_TARGET_MODE || (env.DOGEOS_FAUCET_TOP_UP_DOGE ? "top-up" : "absolute");
+  const targetDoge = env.DOGEOS_FAUCET_TOP_UP_DOGE || env.DOGEOS_FAUCET_TARGET_DOGE || DEFAULT_TARGET_DOGE;
   const plan = buildFundingPlan({
     addresses,
     balancesWeiByAddress,
     lastClaimedAtByAddress: lastClaimedAtByAddressFromState(claimState),
     minimumIntervalHours: env.DOGEOS_FAUCET_MIN_INTERVAL_HOURS || 24,
     now,
-    targetDoge: env.DOGEOS_FAUCET_TARGET_DOGE || DEFAULT_TARGET_DOGE
+    targetDoge,
+    targetMode
   });
   plan.blockNumber = blockNumber;
   plan.blockscoutUrl = blockscoutUrl;
@@ -175,6 +178,8 @@ async function main() {
   console.log(`blockNumber: ${blockNumber}`);
   console.log(`wallets: ${plan.summary.walletCount}`);
   console.log(`eligibleNow: ${plan.summary.eligibleWallets}`);
+  console.log(`targetMode: ${plan.targetMode}`);
+  console.log(`targetInputDOGE: ${plan.targetInputDoge}`);
   console.log(`targetDeficitDOGE: ${plan.summary.totalDeficitDoge}`);
   console.log(`faucet: ${plan.faucetUrl}`);
   console.log(`stateFile: ${path.relative(cwd, statePath)}`);

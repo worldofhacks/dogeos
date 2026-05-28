@@ -1,6 +1,6 @@
 # DogeOS Chikyu Faucet Funding Plan
 
-Generated: 2026-05-28T04:13:58.364Z
+Generated: 2026-05-28T04:29:42.498Z
 
 Official faucet: https://faucet.testnet.dogeos.com/
 
@@ -10,16 +10,18 @@ Manual claim required. The DogeOS testnet faucet is protected by reCAPTCHA and t
 
 - Wallets tracked: 1
 - Eligible now: 1
-- Funding recommended: 0
+- Funding recommended: 1
+- Target mode: top-up
+- Target input: 40.0 DOGE
 - Total balance: 42.068782673100144711 DOGE
-- Target deficit: 0.0 DOGE
+- Target deficit: 40.0 DOGE
 - Minimum claim interval: 24 hours
 
 ## Wallets
 
-address | balance DOGE | target DOGE | deficit DOGE | eligible now | funding recommended | hours until eligible | last claim
---- | ---: | ---: | ---: | --- | --- | ---: | ---
-0x00B6F77d55967669Ea37f47Fc469FF47782007E4 | 42.068782673100144711 | 5.0 | 0.0 | yes | no | 0 | not recorded
+address | balance DOGE | target mode | target input DOGE | target DOGE | deficit DOGE | eligible now | funding recommended | hours until eligible | last claim
+--- | ---: | --- | ---: | ---: | ---: | --- | --- | ---: | ---
+0x00B6F77d55967669Ea37f47Fc469FF47782007E4 | 42.068782673100144711 | top-up | 40.0 | 82.068782673100144711 | 40.0 | yes | yes | 0 | not recorded
 
 ## Operator Steps
 

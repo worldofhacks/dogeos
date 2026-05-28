@@ -1,19 +1,22 @@
 {
   "faucetUrl": "https://faucet.testnet.dogeos.com/",
-  "generatedAt": "2026-05-28T04:13:58.364Z",
+  "generatedAt": "2026-05-28T04:29:42.498Z",
   "minimumIntervalHours": 24,
   "policy": {
     "automatedClaiming": false,
     "captchaBypass": false,
     "note": "Manual faucet claim required; this planner records cadence, balances, and evidence only."
   },
+  "targetInputDoge": "40.0",
+  "targetInputWei": "40000000000000000000",
+  "targetMode": "top-up",
   "summary": {
     "eligibleWallets": 1,
-    "fundingRecommendedWallets": 0,
+    "fundingRecommendedWallets": 1,
     "totalBalanceDoge": "42.068782673100144711",
     "totalBalanceWei": "42068782673100144711",
-    "totalDeficitDoge": "0.0",
-    "totalDeficitWei": "0",
+    "totalDeficitDoge": "40.0",
+    "totalDeficitWei": "40000000000000000000",
     "walletCount": 1
   },
   "wallets": [
@@ -21,18 +24,21 @@
       "address": "0x00B6F77d55967669Ea37f47Fc469FF47782007E4",
       "balanceDoge": "42.068782673100144711",
       "balanceWei": "42068782673100144711",
-      "deficitDoge": "0.0",
-      "deficitWei": "0",
+      "deficitDoge": "40.0",
+      "deficitWei": "40000000000000000000",
       "eligibleNow": true,
-      "fundingRecommended": false,
+      "fundingRecommended": true,
       "hoursUntilEligible": 0,
       "lastClaimedAt": null,
-      "nextEligibleAt": "2026-05-28T04:13:58.364Z",
-      "targetDoge": "5.0",
-      "targetWei": "5000000000000000000"
+      "nextEligibleAt": "2026-05-28T04:29:42.498Z",
+      "targetInputDoge": "40.0",
+      "targetInputWei": "40000000000000000000",
+      "targetDoge": "82.068782673100144711",
+      "targetMode": "top-up",
+      "targetWei": "82068782673100144711"
     }
   ],
-  "blockNumber": 5199533,
+  "blockNumber": 5199798,
   "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
   "chainId": 6281971,
   "rpcUrl": "https://rpc.testnet.dogeos.com",
