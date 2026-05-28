@@ -1,6 +1,6 @@
 # DogeOS Swap Frontend
 
-This implements the Claude Design `Prototype.html` handoff as a local DogeOS Chikyu swap surface.
+This implements the Claude Design handoff as a production-oriented local DogeOS Chikyu swap surface.
 
 Run it with:
 
@@ -10,7 +10,7 @@ pnpm frontend:swap
 
 The first screen is the swap app, not a landing page. The UI keeps the handoff's dark warm amber visual system, swap card, route intelligence panel, token selector, review modal, transaction states, mobile shell, and source status rows.
 
-Design preview controls are hidden by default so the app opens as a product surface. Append `?preview=1` to show the state rail and tweak panel from the handoff.
+Prototype preview controls are disabled in the product build so the app opens directly into the live swap surface.
 
 Repo-grounded details:
 

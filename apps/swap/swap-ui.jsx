@@ -495,7 +495,7 @@ function ActivityRow({ a }) {
 }
 
 /* ============================================================
-   SETTINGS POPOVER (slippage / deadline / mev)
+   SETTINGS POPOVER (live slippage + router deadline)
    ============================================================ */
 function SettingsPopover({ open, onClose, settings, setSettings }) {
   const ref = useRef(null);
@@ -558,20 +558,15 @@ function SettingsPopover({ open, onClose, settings, setSettings }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>MEV protection</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Route via private mempool</div>
-          </div>
-          <Toggle on={settings.mev} onChange={(v) => setSettings({ ...settings, mev: v })}/>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>Expert mode</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>High-slippage warnings off</div>
-          </div>
-          <Toggle on={settings.expert} onChange={(v) => setSettings({ ...settings, expert: v })}/>
+        <div style={{
+          border: '1px solid var(--border-soft)',
+          borderRadius: 10,
+          padding: 10,
+          fontSize: 11.5,
+          color: 'var(--muted)',
+          lineHeight: 1.45,
+        }}>
+          Only controls that alter the live quote or router calldata are shown here. Private mempool and expert-mode controls stay disabled until there is a verified DogeOS execution path for them.
         </div>
       </div>
     </div>

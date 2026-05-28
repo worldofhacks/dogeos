@@ -3,7 +3,7 @@
           Icons, TokenGlyph, SourceMark, SOURCES, TOKEN_PALETTE, Modal, Tooltip, TopNav,
           TOKENS, SwapInput, SwapArrow, NetworkButton, WalletButton, SettingsPopover, Toggle,
           RoutePanel, TokenSelector, ReviewSwapModal, TxStepper, DogeOSWalletConnectors */
-// app.jsx — DogeOS Swap interactive prototype. State machine + scenarios + Tweaks.
+// app.jsx — DogeOS Swap production testnet surface. State machine + live routing.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -20,7 +20,7 @@ const PROJECT_WALLET_ADDRESS = '0x00B6F77d55967669Ea37f47Fc469FF47782007E4';
 const WEI_PER_DOGE = 1000000000000000000n;
 const DEFAULT_VIEW_MODE = window.innerWidth < 760 ? 'mobile' : 'desktop';
 const DEFAULT_SCENARIO = 'disconnected';
-const ENABLE_DESIGN_PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
+const ENABLE_DESIGN_PREVIEW = false;
 
 /* ============================================================
    TWEAK DEFAULTS
@@ -96,7 +96,7 @@ function App() {
   const [recv, setRecv]       = useState({ sym: 'USDC',  amount: '0.1203' });
   const [picker, setPicker]   = useState(null); // 'pay' | 'recv' | null
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState({ slippage: 0.5, auto: true, deadline: '20', mev: true, expert: false });
+  const [settings, setSettings] = useState({ slippage: 0.5, auto: true, deadline: '20' });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [routeExpanded, setRouteExpanded] = useState(true);
   const [selectedSource, setSelectedSource] = useState('muchfi_v2');
@@ -249,6 +249,7 @@ function App() {
       amountIn: rawAmount,
       recipient: activeWalletAddress,
       slippageBps: String(Math.round(Number(settings.slippage || 0.5) * 100)),
+      deadlineSeconds: String(deadlineSecondsFromMinutes(settings.deadline)),
     });
 
     setRouteQuote((current) => ({ ...current, state: 'loading', error: null }));
@@ -284,7 +285,7 @@ function App() {
       });
 
     return () => controller.abort();
-  }, [pay.sym, pay.amount, recv.sym, activeWalletAddress, settings.slippage]);
+  }, [pay.sym, pay.amount, recv.sym, activeWalletAddress, settings.slippage, settings.deadline]);
 
   // derived: connection state from scenario
   const conn = useMemo(() => {
@@ -435,7 +436,7 @@ function App() {
     setScenario('loading');
   };
 
-  const showApproval = scenario === 'review' && pay.sym !== 'DOGE';
+  const showApproval = scenario === 'review' && Boolean(selectedExecutableRoute(route, selectedSource)?.transaction?.approvalRequired);
 
   /* ============================================================
      MOBILE BRANCH — primary view
@@ -571,7 +572,7 @@ function App() {
         </div>
       )}
 
-      <TopNav active="prototype">
+      <TopNav active="swap">
         <NetworkButton
           wrong={conn.wrongNetwork}
           onClick={() => conn.wrongNetwork
@@ -1125,6 +1126,11 @@ function rawBalance(sym, walletBalance, tokenBalances = {}) {
   if (sym === 'DOGE' && walletBalance) return walletBalance.replace(/,/g, '');
   const t = TOKENS.find(x => x.sym === sym);
   return (t?.bal || '0').replace(/,/g, '');
+}
+function deadlineSecondsFromMinutes(value) {
+  const parsed = Number(String(value || '').trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return 20 * 60;
+  return Math.max(60, Math.min(24 * 60 * 60, Math.round(parsed * 60)));
 }
 function usdFor({ sym, amount }) {
   const value = String(amount || '0');

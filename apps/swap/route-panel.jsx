@@ -306,7 +306,7 @@ function ReviewSwapModal({ open, onClose, onConfirm, payment, receive, route, se
             ['Quote status', <span className="mono tnum" style={{ color: 'var(--success)' }}>{route.status || 'live'}</span>],
             ['Network fee', <span className="mono tnum">{route.gasUsd}</span>],
             ['Max slippage', <span className="mono tnum">{settings.auto ? 'Auto · ' : ''}{settings.slippage}%</span>],
-            ['MEV protection', settings.mev ? <span style={{ color: 'var(--success)' }}>On</span> : <span style={{ color: 'var(--muted)' }}>Off</span>],
+            ['Tx deadline', <span className="mono tnum">{settings.deadline || '20'} min</span>],
           ].map((row, i, arr) => (
             <div key={i} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',

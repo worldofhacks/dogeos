@@ -1,6 +1,6 @@
 # DogeOS Open-Source Security Tooling 2026-05-28
 
-Generated: `2026-05-28T15:44:46.602Z`
+Generated: `2026-05-28T15:51:49.343Z`
 
 This is a zero-dependency local tooling gate. It does not add scanners to `package.json`; it records whether the audit workstation has the external open-source tools needed for deeper checks.
 

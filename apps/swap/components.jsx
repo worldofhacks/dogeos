@@ -148,9 +148,9 @@ function Modal({ open, onClose, children, width = 480, label }) {
 }
 
 /* ============================================================
-   TOP NAV — shared header for prototype + frames
+   TOP NAV
    ============================================================ */
-function TopNav({ active = 'prototype', children }) {
+function TopNav({ active = 'swap', children }) {
   return (
     <header className="topnav">
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
@@ -162,7 +162,7 @@ function TopNav({ active = 'prototype', children }) {
       </div>
 
       <nav className="tab-switch" aria-label="View">
-        <a href="./" aria-current={active === 'prototype' ? 'page' : undefined}>
+        <a href="./" aria-current={active === 'swap' ? 'page' : undefined}>
           <Icons.Lightning size={14}/> Swap
         </a>
       </nav>

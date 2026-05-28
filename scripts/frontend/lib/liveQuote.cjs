@@ -20,6 +20,7 @@ const ROUTER_IFACE = new Interface([
 
 const ERC20_IFACE = new Interface([
   "function approve(address spender,uint256 amount) returns (bool)",
+  "function allowance(address owner,address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)"
 ]);
 
@@ -286,6 +287,16 @@ async function quoteAdapterExactInput(ctx, { adapter, pair, tokenIn, tokenOut, a
   return BigInt(amountOut);
 }
 
+async function readAllowance(ctx, { token, owner, spender }) {
+  const result = await ethCall(
+    ctx,
+    token,
+    ERC20_IFACE.encodeFunctionData("allowance", [normalizeAddress(owner), normalizeAddress(spender)])
+  );
+  const [allowance] = ERC20_IFACE.decodeFunctionResult("allowance", result);
+  return BigInt(allowance);
+}
+
 function buildSwapTransaction({
   config,
   tokenIn,
@@ -296,7 +307,8 @@ function buildSwapTransaction({
   pair,
   slippageBps,
   nowSeconds,
-  deadlineSeconds
+  deadlineSeconds,
+  allowance = null
 }) {
   const minAmountOut = calculateMinAmountOut(amountOut, slippageBps);
   const deadline = BigInt(nowSeconds) + BigInt(deadlineSeconds);
@@ -315,22 +327,26 @@ function buildSwapTransaction({
     deadline
   ]);
   const value = tokenIn.native ? BigInt(amountIn) : 0n;
-  const approvalTransaction = tokenIn.native
-    ? null
-    : {
+  const approvalRequired = !tokenIn.native && (allowance === null || BigInt(allowance) < BigInt(amountIn));
+  const approvalTransaction = approvalRequired
+    ? {
       to: normalizeAddress(tokenIn.address),
       data: ERC20_IFACE.encodeFunctionData("approve", [
         normalizeAddress(config.deployments.routerAddress),
         BigInt(amountIn)
       ]),
       value: "0"
-    };
+    }
+    : null;
 
   return {
     to: normalizeAddress(config.deployments.routerAddress),
     data,
     value: value.toString(),
+    approvalRequired,
     approvalTransaction,
+    approvalSpender: tokenIn.native ? null : normalizeAddress(config.deployments.routerAddress),
+    allowance: allowance === null ? null : BigInt(allowance).toString(),
     deadline: deadline.toString(),
     minAmountOut: minAmountOut.toString()
   };
@@ -422,6 +438,15 @@ async function readMuchFiV2Routes(ctx, { config, tokenIn, tokenOut, amountIn, re
     }
 
     if (amountOut <= 0n) continue;
+    let allowance = null;
+    if (recipient && !tokenIn.native) {
+      allowance = await readAllowance(ctx, {
+        token: tokenIn.address,
+        owner: recipient,
+        spender: config.deployments.routerAddress
+      }).catch(() => null);
+    }
+
     const transaction = recipient
       ? buildSwapTransaction({
         config,
@@ -433,7 +458,8 @@ async function readMuchFiV2Routes(ctx, { config, tokenIn, tokenOut, amountIn, re
         pair: pairState.pair,
         slippageBps,
         nowSeconds,
-        deadlineSeconds
+        deadlineSeconds,
+        allowance
       })
       : null;
 

@@ -99,7 +99,8 @@ async function handleApiRequest(req, res) {
         tokenOut: parsed.searchParams.get("tokenOut"),
         amountIn: parsed.searchParams.get("amountIn"),
         recipient: parsed.searchParams.get("recipient") || undefined,
-        slippageBps: Number(parsed.searchParams.get("slippageBps") || 50)
+        slippageBps: Number(parsed.searchParams.get("slippageBps") || 50),
+        deadlineSeconds: Number(parsed.searchParams.get("deadlineSeconds") || 600)
       });
       sendJson(res, 200, quote);
     } catch (error) {

@@ -27,6 +27,7 @@ const ROUTER_IFACE = new Interface([
 ]);
 
 const ERC20_IFACE = new Interface([
+  "function allowance(address owner,address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)"
 ]);
 
@@ -126,6 +127,74 @@ describe("live frontend quote engine", () => {
     expect(estimateV2ExactIn({ amountIn: 1000n, reserveIn: 1_000_000n, reserveOut: 2_000_000n })).toBe(1992n);
     expect(formatUnitsTrimmed(16_075_550_163_793n, 18)).toBe("0.000016075550163793");
     expect(formatUnitsTrimmed(42_000_000_000_000_000_000n, 18)).toBe("42");
+  });
+
+  test("only includes ERC20 approval calldata when live allowance is insufficient", async () => {
+    const amountIn = parseUnits("1", 18);
+    const quotedAmountOut = parseUnits("6.12", 18);
+    const pair = DEFAULT_LIVE_QUOTE_CONFIG.sources.muchfiV2.pairs[0];
+    const adapter = DEFAULT_LIVE_QUOTE_CONFIG.deployments.adapterAddress;
+    const owner = "0x00B6F77d55967669Ea37f47Fc469FF47782007E4";
+
+    const buildFixtures = (allowance: bigint) => ({
+      [`${pair.toLowerCase()}:${selector(PAIR_IFACE, "token0")}`]: PAIR_IFACE.encodeFunctionResult("token0", [
+        DEFAULT_LIVE_QUOTE_CONFIG.tokens.USDC.address
+      ]),
+      [`${pair.toLowerCase()}:${selector(PAIR_IFACE, "token1")}`]: PAIR_IFACE.encodeFunctionResult("token1", [
+        DEFAULT_LIVE_QUOTE_CONFIG.tokens.WDOGE.address
+      ]),
+      [`${pair.toLowerCase()}:${selector(PAIR_IFACE, "getReserves")}`]: PAIR_IFACE.encodeFunctionResult("getReserves", [
+        parseUnits("100", 18),
+        parseUnits("612", 18),
+        1_779_634_317
+      ]),
+      [`${adapter.toLowerCase()}:${selector(ADAPTER_IFACE, "quoteExactInput")}`]: ADAPTER_IFACE.encodeFunctionResult(
+        "quoteExactInput",
+        [quotedAmountOut]
+      ),
+      [`${DEFAULT_LIVE_QUOTE_CONFIG.tokens.USDC.address.toLowerCase()}:${selector(ERC20_IFACE, "allowance")}`]:
+        ERC20_IFACE.encodeFunctionResult("allowance", [allowance])
+    });
+
+    const approvedQuote = await buildLiveQuote({
+      fetchImpl: buildRpcFetch(buildFixtures(amountIn)),
+      tokenIn: "USDC",
+      tokenOut: "DOGE",
+      amountIn: "1",
+      recipient: owner,
+      nowSeconds: 1_779_883_000,
+      deadlineSeconds: 1_200
+    });
+
+    const needsApprovalQuote = await buildLiveQuote({
+      fetchImpl: buildRpcFetch(buildFixtures(amountIn - 1n)),
+      tokenIn: "USDC",
+      tokenOut: "DOGE",
+      amountIn: "1",
+      recipient: owner,
+      nowSeconds: 1_779_883_000,
+      deadlineSeconds: 1_200
+    });
+
+    expect(approvedQuote.routes[0].transaction).toMatchObject({
+      approvalRequired: false,
+      approvalTransaction: null,
+      allowance: amountIn.toString()
+    });
+
+    expect(needsApprovalQuote.routes[0].transaction).toMatchObject({
+      approvalRequired: true,
+      allowance: (amountIn - 1n).toString()
+    });
+    expect(needsApprovalQuote.routes[0].transaction.approvalTransaction).toMatchObject({
+      to: DEFAULT_LIVE_QUOTE_CONFIG.tokens.USDC.address,
+      value: "0"
+    });
+
+    const decoded = ROUTER_IFACE.decodeFunctionData("exactInput", approvedQuote.routes[0].transaction.data);
+    expect(decoded[1].tokenIn).toBe(DEFAULT_LIVE_QUOTE_CONFIG.tokens.USDC.address);
+    expect(decoded[1].tokenOut).toBe(ZeroAddress);
+    expect(decoded[2]).toBe(1_779_884_200n);
   });
 
   test("quotes a two-hop MuchFi V2 route through WDOGE without marking it executable", async () => {
