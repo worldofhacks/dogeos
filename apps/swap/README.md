@@ -28,6 +28,7 @@ The local server proxies `/rpc/dogeos` to the official Chikyu RPC so balances an
 Live quote and transaction calldata endpoints:
 
 - `GET /api/config` exposes non-secret Chikyu token/source/deployment metadata.
+- `GET /api/balances?address=0x...` reads native DOGE plus configured ERC-20 balances from Chikyu.
 - `GET /api/quote?tokenIn=DOGE&tokenOut=USDC&amountIn=0.0001&recipient=0x...` reads MuchFi V2 pair state and adapter quotes from Chikyu, then returns router calldata for wallet execution when the route is executable.
 
-Current execution support is limited to the verified MuchFi V2 route through the deployed router and adapter. Unsupported pairs return no executable live route instead of mock pricing.
+Current execution support is limited to direct verified MuchFi V2 routes through the deployed router and adapter. MuchFi V2 two-hop routes such as `USDC -> WDOGE -> USDT` are returned as live quote-only alternatives until a multihop adapter/router path is deployed, allowlisted, preflighted, and canaried.

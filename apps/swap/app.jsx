@@ -12,6 +12,7 @@ const DOGEOS_CHAIN_ID_HEX = '0x5fdaf3';
 const DOGEOS_RPC_URL = 'https://rpc.testnet.dogeos.com';
 const DOGEOS_RPC_PROXY_URL = '/rpc/dogeos';
 const DOGEOS_BLOCKSCOUT_URL = 'https://blockscout.testnet.dogeos.com';
+const DOGEOS_FAUCET_URL = 'https://faucet.testnet.dogeos.com';
 const DOGEOS_DOCS_URL = 'https://github.com/worldofhacks/dogeos/tree/dogeos-dex-v1-security/docs/dexv3';
 const DOGEOS_SOURCES_URL = 'https://github.com/worldofhacks/dogeos/blob/dogeos-dex-v1-security/docs/dogeos-testnet-dex-map.md';
 const CANARY_TX_URL = `${DOGEOS_BLOCKSCOUT_URL}/tx/0x5249ba34c3a021a243d01ade3080575f86d3eeaeb98423c86236d37db744d832`;
@@ -111,15 +112,20 @@ function App() {
   const [liveStatus, setLiveStatus] = useState({
     blockNumber: 5200125,
     balanceDoge: '42.068782673100144711',
+    tokens: [],
+    balancesBySymbol: {},
     loading: true,
   });
   const activeWalletAddress = walletAddress || PROJECT_WALLET_ADDRESS;
   const compactWalletBalance = liveStatus.balanceDoge ? formatCompactDoge(liveStatus.balanceDoge) : '';
-  const walletTokens = useMemo(() => TOKENS.map((token) => (
-    token.sym === 'DOGE'
-      ? { ...token, bal: liveStatus.balanceDoge || '0', usd: 'live RPC' }
-      : token
-  )), [liveStatus.balanceDoge]);
+  const walletTokens = useMemo(() => TOKENS.map((token) => {
+    const liveToken = liveStatus.balancesBySymbol?.[token.sym];
+    return {
+      ...token,
+      bal: liveToken ? liveToken.balanceFormatted : '0',
+      usd: liveToken ? 'live RPC' : 'not read',
+    };
+  }), [liveStatus.balancesBySymbol]);
 
   useEffect(() => {
     walletProviderRef.current = walletProvider;
@@ -478,6 +484,7 @@ function App() {
                 route={route}
                 selectedSource={selectedSource}
                 walletBalance={compactWalletBalance}
+                tokenBalances={liveStatus.balancesBySymbol}
               />
 
               {/* Mobile route panel under the card */}
@@ -538,6 +545,7 @@ function App() {
           walletLabel={walletLabel}
           blockNumber={liveStatus.blockNumber}
           nativeBalance={liveStatus.balanceDoge}
+          faucetUrl={DOGEOS_FAUCET_URL}
           tokens={walletTokens}
         />
         {ENABLE_DESIGN_PREVIEW && <DesignTweaks t={t} setTweak={setTweak}/>}
@@ -564,7 +572,12 @@ function App() {
       )}
 
       <TopNav active="prototype">
-        <NetworkButton wrong={conn.wrongNetwork} onClick={() => conn.wrongNetwork && handleSwitchNetwork()}/>
+        <NetworkButton
+          wrong={conn.wrongNetwork}
+          onClick={() => conn.wrongNetwork
+            ? handleSwitchNetwork()
+            : window.open(DOGEOS_BLOCKSCOUT_URL, '_blank', 'noopener,noreferrer')}
+        />
         <WalletButton
           connected={conn.connected}
           address={shortAddress(walletAddress || activeWalletAddress)}
@@ -612,6 +625,7 @@ function App() {
               route={route}
               selectedSource={selectedSource}
               walletBalance={compactWalletBalance}
+              tokenBalances={liveStatus.balancesBySymbol}
               lastTx={lastTx}
             />
 
@@ -683,6 +697,7 @@ function App() {
         walletLabel={walletLabel}
         blockNumber={liveStatus.blockNumber}
         nativeBalance={liveStatus.balanceDoge}
+        faucetUrl={DOGEOS_FAUCET_URL}
         tokens={walletTokens}
       />
 
@@ -725,7 +740,7 @@ function SwapHero(props) {
   const { scenario, pay, recv, onAmount, onSelectPay, onSelectRecv, onSwap, arrowRot,
           settingsOpen, setSettingsOpen, settings, setSettings,
           connected, wrongNetwork, onConnect, onSwitch, onReview, onReset,
-          mascotVisible, route, selectedSource, walletBalance, lastTx } = props;
+          mascotVisible, route, selectedSource, walletBalance, tokenBalances, lastTx } = props;
 
   // Status row above the card
   return (
@@ -766,10 +781,10 @@ function SwapHero(props) {
                 token={pay.sym}
                 amount={pay.amount}
                 usd={usdFor(pay)}
-                balance={balanceFor(pay.sym, walletBalance)}
+                balance={balanceFor(pay.sym, walletBalance, tokenBalances)}
                 onAmount={onAmount}
                 onSelect={onSelectPay}
-                max={() => onAmount(rawBalance(pay.sym, walletBalance))}
+                max={() => onAmount(rawBalance(pay.sym, walletBalance, tokenBalances))}
               />
               <SwapArrow onClick={onSwap} rotating={arrowRot}/>
               <SwapInput
@@ -777,7 +792,7 @@ function SwapHero(props) {
                 token={recv.sym}
                 amount={scenario === 'loading' ? '' : recv.amount}
                 usd={scenario === 'loading' ? '' : usdFor(recv)}
-                balance={balanceFor(recv.sym, walletBalance)}
+                balance={balanceFor(recv.sym, walletBalance, tokenBalances)}
                 onSelect={onSelectRecv}
                 loading={scenario === 'loading'}
               />
@@ -1036,7 +1051,7 @@ function Footnotes({ liveStatus }) {
         <span style={{ display: 'flex', gap: 18 }}>
           <a href={DOGEOS_DOCS_URL} style={{ color: 'inherit' }}>Docs</a>
           <a href={DOGEOS_SOURCES_URL} style={{ color: 'inherit' }}>Sources</a>
-          <a href="#status" style={{ color: 'inherit' }}>Status</a>
+          <a href={DOGEOS_BLOCKSCOUT_URL} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>Status</a>
           <a href={DOGEOS_BLOCKSCOUT_URL} style={{ color: 'inherit' }}>Explorer</a>
         </span>
       </div>
@@ -1097,12 +1112,16 @@ function DesignTweaks({ t, setTweak }) {
 /* ============================================================
    HELPERS
    ============================================================ */
-function balanceFor(sym, walletBalance) {
+function balanceFor(sym, walletBalance, tokenBalances = {}) {
+  const live = tokenBalances?.[sym];
+  if (live) return compactTokenAmount(live.balanceFormatted);
   if (sym === 'DOGE' && walletBalance) return walletBalance;
   const t = TOKENS.find(x => x.sym === sym);
   return t?.bal || '0';
 }
-function rawBalance(sym, walletBalance) {
+function rawBalance(sym, walletBalance, tokenBalances = {}) {
+  const live = tokenBalances?.[sym];
+  if (live) return live.balanceFormatted;
   if (sym === 'DOGE' && walletBalance) return walletBalance.replace(/,/g, '');
   const t = TOKENS.find(x => x.sym === sym);
   return (t?.bal || '0').replace(/,/g, '');
@@ -1209,6 +1228,18 @@ async function waitForReceipt(txHash, { attempts = 80, intervalMs = 1500 } = {})
 }
 
 async function readRpcStatus(address) {
+  const balancesResponse = await fetch(`/api/balances?address=${encodeURIComponent(address)}`).catch(() => null);
+  if (balancesResponse?.ok) {
+    const snapshot = await balancesResponse.json();
+    const balancesBySymbol = Object.fromEntries((snapshot.tokens || []).map((token) => [token.symbol, token]));
+    return {
+      balanceDoge: snapshot.nativeBalanceFormatted,
+      blockNumber: snapshot.blockNumber,
+      tokens: snapshot.tokens || [],
+      balancesBySymbol,
+    };
+  }
+
   const balanceReq = {
     jsonrpc: '2.0',
     id: 1,
@@ -1241,6 +1272,8 @@ async function readRpcStatus(address) {
   return {
     balanceDoge: formatWeiAsDoge(BigInt(byId[1].result)),
     blockNumber: Number(BigInt(byId[2].result)),
+    tokens: [],
+    balancesBySymbol: {},
   };
 }
 
@@ -1251,9 +1284,16 @@ function formatWeiAsDoge(value) {
 }
 
 function formatCompactDoge(value) {
+  return compactTokenAmount(value);
+}
+
+function compactTokenAmount(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return value;
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  if (numeric > 0 && numeric < 0.0001) return '<0.0001';
+  return numeric.toLocaleString(undefined, {
+    maximumFractionDigits: numeric >= 1 ? 4 : 8,
+  });
 }
 
 function shortAddress(address) {

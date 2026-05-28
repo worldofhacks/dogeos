@@ -32,7 +32,7 @@ function FloatGlyph({ glyph, size = 84, top, left, right, bottom, rotate = 0, de
 /* ============================================================
    MOBILE SWAP CARD (390-wide)
    ============================================================ */
-function MobileSwapCard({ scenario, pay, recv, onAmount, onSelectPay, onSelectRecv, onSwap, arrowRot, settings, conn, onConnect, onReview, route, selectedSource, walletBalance }) {
+function MobileSwapCard({ scenario, pay, recv, onAmount, onSelectPay, onSelectRecv, onSwap, arrowRot, settings, conn, onConnect, onReview, route, selectedSource, walletBalance, tokenBalances }) {
   const showTx = ['approve', 'signing', 'pending', 'confirmed', 'error'].includes(scenario);
   return (
     <div className="card" style={{
@@ -52,10 +52,10 @@ function MobileSwapCard({ scenario, pay, recv, onAmount, onSelectPay, onSelectRe
               token={pay.sym}
               amount={pay.amount}
               usd={usdFor(pay)}
-              balance={balanceFor(pay.sym, walletBalance)}
+              balance={balanceFor(pay.sym, walletBalance, tokenBalances)}
               onAmount={onAmount}
               onSelect={onSelectPay}
-              max={() => onAmount(rawBalance(pay.sym, walletBalance))}
+              max={() => onAmount(rawBalance(pay.sym, walletBalance, tokenBalances))}
             />
             <SwapArrow onClick={onSwap} rotating={arrowRot}/>
             <SwapInput
@@ -63,7 +63,7 @@ function MobileSwapCard({ scenario, pay, recv, onAmount, onSelectPay, onSelectRe
               token={recv.sym}
               amount={scenario === 'loading' ? '' : recv.amount}
               usd={scenario === 'loading' ? '' : usdFor(recv)}
-              balance={balanceFor(recv.sym, walletBalance)}
+              balance={balanceFor(recv.sym, walletBalance, tokenBalances)}
               onSelect={onSelectRecv}
               loading={scenario === 'loading'}
             />
@@ -429,15 +429,27 @@ function MobileScenarioRail({ value, onChange }) {
 /* ============================================================
    HELPERS (duplicated for the mobile-app scope)
    ============================================================ */
-function balanceFor(sym, walletBalance) {
+function balanceFor(sym, walletBalance, tokenBalances = {}) {
+  const live = tokenBalances?.[sym];
+  if (live) return compactTokenAmount(live.balanceFormatted);
   if (sym === 'DOGE' && walletBalance) return walletBalance;
   const t = TOKENS.find(x => x.sym === sym);
   return t?.bal || '0';
 }
-function rawBalance(sym, walletBalance) {
+function rawBalance(sym, walletBalance, tokenBalances = {}) {
+  const live = tokenBalances?.[sym];
+  if (live) return live.balanceFormatted;
   if (sym === 'DOGE' && walletBalance) return walletBalance.replace(/,/g, '');
   const t = TOKENS.find(x => x.sym === sym);
   return (t?.bal || '0').replace(/,/g, '');
+}
+function compactTokenAmount(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  if (numeric > 0 && numeric < 0.0001) return '<0.0001';
+  return numeric.toLocaleString(undefined, {
+    maximumFractionDigits: numeric >= 1 ? 4 : 8,
+  });
 }
 function usdFor({ sym, amount }) {
   const value = String(amount || '0');

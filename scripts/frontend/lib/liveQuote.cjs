@@ -189,6 +189,37 @@ async function rpcRequest({ fetchImpl, rpcUrl, method, params = [] }) {
   return payload.result;
 }
 
+async function rpcBatchRequest({ fetchImpl, rpcUrl, calls }) {
+  const request = calls.map((call, index) => ({
+    jsonrpc: "2.0",
+    id: call.id || index + 1,
+    method: call.method,
+    params: call.params || []
+  }));
+  const response = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw new Error(`RPC_HTTP_${response.status}`);
+  }
+
+  const payload = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("RPC_BATCH_RESPONSE_INVALID");
+  }
+
+  const byId = new Map(payload.map((item) => [item.id, item]));
+  for (const call of request) {
+    const item = byId.get(call.id);
+    if (!item) throw new Error(`RPC_BATCH_MISSING_${call.id}`);
+    if (item.error) throw new Error(item.error.message || `RPC_ERROR_${item.error.code}`);
+  }
+
+  return byId;
+}
+
 async function ethCall(ctx, to, data) {
   return rpcRequest({
     ...ctx,
@@ -233,6 +264,14 @@ function reservesFor(pairState, tokenInAddress, tokenOutAddress) {
     return { reserveIn: pairState.reserve1, reserveOut: pairState.reserve0 };
   }
   return undefined;
+}
+
+function findV2Leg(pairStates, tokenInAddress, tokenOutAddress) {
+  for (const pairState of pairStates) {
+    const reserves = reservesFor(pairState, tokenInAddress, tokenOutAddress);
+    if (reserves) return { pairState, reserves };
+  }
+  return null;
 }
 
 async function quoteAdapterExactInput(ctx, { adapter, pair, tokenIn, tokenOut, amountIn }) {
@@ -295,6 +334,60 @@ function buildSwapTransaction({
     deadline: deadline.toString(),
     minAmountOut: minAmountOut.toString()
   };
+}
+
+function readMuchFiV2MultiHopRoutes({ config, pairStates, tokenIn, tokenOut, amountIn, slippageBps }) {
+  const tokenInAddress = quoteTokenAddress(config, tokenIn);
+  const tokenOutAddress = quoteTokenAddress(config, tokenOut);
+  const intermediateTokens = Object.values(config.tokens).filter((token) => {
+    if (token.native) return false;
+    const address = quoteTokenAddress(config, token);
+    return address !== tokenInAddress && address !== tokenOutAddress;
+  });
+  const routes = [];
+
+  for (const intermediateToken of intermediateTokens) {
+    const intermediateAddress = quoteTokenAddress(config, intermediateToken);
+    const firstLeg = findV2Leg(pairStates, tokenInAddress, intermediateAddress);
+    const secondLeg = findV2Leg(pairStates, intermediateAddress, tokenOutAddress);
+    if (!firstLeg || !secondLeg) continue;
+    if (firstLeg.pairState.pair === secondLeg.pairState.pair) continue;
+
+    const amountMid = estimateV2ExactIn({
+      amountIn,
+      reserveIn: firstLeg.reserves.reserveIn,
+      reserveOut: firstLeg.reserves.reserveOut
+    });
+    const amountOut = estimateV2ExactIn({
+      amountIn: amountMid,
+      reserveIn: secondLeg.reserves.reserveIn,
+      reserveOut: secondLeg.reserves.reserveOut
+    });
+    if (amountOut <= 0n) continue;
+
+    routes.push({
+      sourceId: config.sources.muchfiV2.sourceId,
+      sourceName: config.sources.muchfiV2.displayName,
+      protocol: config.sources.muchfiV2.protocol,
+      status: "multi-hop-quote",
+      executable: false,
+      path: [tokenIn.symbol, intermediateToken.symbol, tokenOut.symbol],
+      legs: [
+        { pair: firstLeg.pairState.pair, tokenIn: tokenIn.symbol, tokenOut: intermediateToken.symbol },
+        { pair: secondLeg.pairState.pair, tokenIn: intermediateToken.symbol, tokenOut: tokenOut.symbol }
+      ],
+      pair: null,
+      routeData: null,
+      amountIn: amountIn.toString(),
+      amountOut: amountOut.toString(),
+      amountOutFormatted: formatUnitsTrimmed(amountOut, tokenOut.decimals),
+      minAmountOut: calculateMinAmountOut(amountOut, slippageBps).toString(),
+      gasEstimate: "multi-hop-adapter-needed",
+      transaction: null
+    });
+  }
+
+  return routes;
 }
 
 async function readMuchFiV2Routes(ctx, { config, tokenIn, tokenOut, amountIn, recipient, slippageBps, nowSeconds, deadlineSeconds }) {
@@ -362,6 +455,15 @@ async function readMuchFiV2Routes(ctx, { config, tokenIn, tokenOut, amountIn, re
     });
   }
 
+  routes.push(...readMuchFiV2MultiHopRoutes({
+    config,
+    pairStates,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    slippageBps
+  }));
+
   return routes.sort((a, b) => (BigInt(a.amountOut) > BigInt(b.amountOut) ? -1 : 1));
 }
 
@@ -412,11 +514,65 @@ async function buildLiveQuote({
   };
 }
 
+async function readWalletSnapshot({
+  fetchImpl = fetch,
+  rpcUrl,
+  config = DEFAULT_LIVE_QUOTE_CONFIG,
+  address
+}) {
+  const resolvedRpcUrl = rpcUrl || config.chain.rpcUrl;
+  const account = normalizeAddress(address);
+  const tokens = Object.values(config.tokens);
+  const erc20Tokens = tokens.filter((token) => !token.native);
+  const calls = [
+    { id: "block", method: "eth_blockNumber" },
+    { id: "native", method: "eth_getBalance", params: [account, "latest"] },
+    ...erc20Tokens.map((token) => ({
+      id: `balance:${token.symbol}`,
+      method: "eth_call",
+      params: [{
+        to: normalizeAddress(token.address),
+        data: ERC20_IFACE.encodeFunctionData("balanceOf", [account])
+      }, "latest"]
+    }))
+  ];
+
+  const results = await rpcBatchRequest({ fetchImpl, rpcUrl: resolvedRpcUrl, calls });
+  const nativeBalance = BigInt(results.get("native").result);
+  const balancesBySymbol = new Map([["DOGE", nativeBalance]]);
+
+  for (const token of erc20Tokens) {
+    const [balance] = ERC20_IFACE.decodeFunctionResult("balanceOf", results.get(`balance:${token.symbol}`).result);
+    balancesBySymbol.set(token.symbol, BigInt(balance));
+  }
+
+  return {
+    chainId: config.chain.id,
+    address: account,
+    blockNumber: Number(BigInt(results.get("block").result)),
+    nativeBalance: nativeBalance.toString(),
+    nativeBalanceFormatted: formatUnitsTrimmed(nativeBalance, config.tokens.DOGE.decimals),
+    tokens: tokens.map((token) => {
+      const balance = balancesBySymbol.get(token.symbol) || 0n;
+      return {
+        symbol: token.symbol,
+        name: token.name,
+        address: token.address,
+        decimals: token.decimals,
+        native: Boolean(token.native),
+        balance: balance.toString(),
+        balanceFormatted: formatUnitsTrimmed(balance, token.decimals)
+      };
+    })
+  };
+}
+
 module.exports = {
   DEFAULT_LIVE_QUOTE_CONFIG,
   calculateMinAmountOut,
   buildLiveQuote,
   encodePairRouteData,
   estimateV2ExactIn,
-  formatUnitsTrimmed
+  formatUnitsTrimmed,
+  readWalletSnapshot
 };

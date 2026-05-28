@@ -196,11 +196,13 @@ function WalletDrawer({
   walletLabel = '',
   nativeBalance = '',
   blockNumber = null,
+  faucetUrl = 'https://faucet.testnet.dogeos.com',
   tokens = [],
   activity = [],
 }) {
   const [tab, setTab] = useState('tokens'); // 'tokens' | 'activity'
   const [copied, setCopied] = useState(false);
+  const [receiveCopied, setReceiveCopied] = useState(false);
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
 
@@ -308,11 +310,17 @@ function WalletDrawer({
               </span>
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
+              <button onClick={() => window.open(faucetUrl, '_blank', 'noopener,noreferrer')}
+                className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
                 <Icons.Plus size={14}/> Fund testnet
               </button>
-              <button className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
-                <Icons.External size={14}/> Receive
+              <button onClick={() => {
+                if (fullAddress) navigator.clipboard?.writeText(fullAddress);
+                setReceiveCopied(true);
+                setTimeout(() => setReceiveCopied(false), 1400);
+              }} className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
+                {receiveCopied ? <Icons.Check size={14}/> : <Icons.Copy size={14}/>}
+                {receiveCopied ? 'Copied' : 'Receive'}
               </button>
             </div>
           </div>
@@ -330,7 +338,7 @@ function WalletDrawer({
 
         {/* TAB BODY */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {tab === 'tokens' && <TokensTab tokens={heldTokens}/>}
+          {tab === 'tokens' && <TokensTab tokens={heldTokens} faucetUrl={faucetUrl}/>}
           {tab === 'activity' && <ActivityTab items={activity}/>}
         </div>
 
@@ -383,11 +391,11 @@ function formatDrawerAmount(value) {
   });
 }
 
-function TokensTab({ tokens }) {
+function TokensTab({ tokens, faucetUrl }) {
   if (!tokens.length) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-        No tokens held yet. <a href="#" style={{ color: 'var(--primary)' }}>Fund this testnet wallet</a> to start swapping.
+        No tokens held yet. <a href={faucetUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>Fund this testnet wallet</a> to start swapping.
       </div>
     );
   }
@@ -416,6 +424,13 @@ function TokensTab({ tokens }) {
 }
 
 function ActivityTab({ items }) {
+  if (!items.length) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        No recent in-app transactions for this session.
+      </div>
+    );
+  }
   return (
     <div style={{ padding: 8 }}>
       {items.map((a, i) => <ActivityRow key={i} a={a}/>)}

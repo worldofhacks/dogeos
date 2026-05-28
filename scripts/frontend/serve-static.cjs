@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
-const { DEFAULT_LIVE_QUOTE_CONFIG, buildLiveQuote } = require("./lib/liveQuote.cjs");
+const { DEFAULT_LIVE_QUOTE_CONFIG, buildLiveQuote, readWalletSnapshot } = require("./lib/liveQuote.cjs");
 
 const rootArg = process.argv[2] || "apps/swap";
 const requestedPort = Number(process.argv[3] || process.env.PORT || 5173);
@@ -102,6 +102,26 @@ async function handleApiRequest(req, res) {
         slippageBps: Number(parsed.searchParams.get("slippageBps") || 50)
       });
       sendJson(res, 200, quote);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+    }
+    return;
+  }
+
+  if (parsed.pathname === "/api/balances") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const address = parsed.searchParams.get("address");
+      if (!address) throw new Error("address is required");
+      const snapshot = await readWalletSnapshot({
+        rpcUrl: dogeosRpcUrl,
+        address
+      });
+      sendJson(res, 200, snapshot);
     } catch (error) {
       sendJson(res, 400, { error: error.message });
     }
