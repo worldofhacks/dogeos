@@ -9,3 +9,4 @@ cache/
 coverage/
 coverage.json
 node_modules/
+deployments/dogeos-chikyu/faucet-funding-state.json

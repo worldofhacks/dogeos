@@ -31,7 +31,8 @@
     "deploy:preflight:allowlist:adapter": "hardhat run --network dogeosTestnet scripts/deploy/preflight-allowlist-adapter.cjs",
     "deploy:allowlist:adapter": "hardhat run --network dogeosTestnet scripts/deploy/allowlist-adapter.cjs",
     "deploy:preflight:route:v2": "hardhat run --network dogeosTestnet scripts/deploy/preflight-route-v2.cjs",
-    "deploy:canary:swap:v2": "hardhat run --network dogeosTestnet scripts/deploy/canary-swap-v2.cjs"
+    "deploy:canary:swap:v2": "hardhat run --network dogeosTestnet scripts/deploy/canary-swap-v2.cjs",
+    "faucet:plan": "node scripts/faucet/plan-funding.cjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "2.0.8",
