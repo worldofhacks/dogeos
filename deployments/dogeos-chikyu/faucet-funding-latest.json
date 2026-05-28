@@ -1,6 +1,6 @@
 {
   "faucetUrl": "https://faucet.testnet.dogeos.com/",
-  "generatedAt": "2026-05-28T04:29:42.498Z",
+  "generatedAt": "2026-05-28T04:33:05.381Z",
   "minimumIntervalHours": 24,
   "policy": {
     "automatedClaiming": false,
@@ -30,7 +30,7 @@
       "fundingRecommended": true,
       "hoursUntilEligible": 0,
       "lastClaimedAt": null,
-      "nextEligibleAt": "2026-05-28T04:29:42.498Z",
+      "nextEligibleAt": "2026-05-28T04:33:05.381Z",
       "targetInputDoge": "40.0",
       "targetInputWei": "40000000000000000000",
       "targetDoge": "82.068782673100144711",
@@ -38,7 +38,7 @@
       "targetWei": "82068782673100144711"
     }
   ],
-  "blockNumber": 5199798,
+  "blockNumber": 5199852,
   "blockscoutUrl": "https://blockscout.testnet.dogeos.com",
   "chainId": 6281971,
   "rpcUrl": "https://rpc.testnet.dogeos.com",
