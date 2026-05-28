@@ -8,18 +8,13 @@ const { useState, useEffect, useRef, useMemo } = React;
    DATA
    ============================================================ */
 const TOKENS = [
-  { sym: 'DOGE',   name: 'Dogecoin',           bal: '42.0688',     usd: '$5.08',    fav: true,  chain: 'Chikyu' },
-  { sym: 'WDOGE',  name: 'Wrapped Doge',       bal: '0.0',         usd: '$0.00',    fav: true,  chain: 'Chikyu' },
-  { sym: 'USDC',   name: 'USD Coin',           bal: '1,204.18',    usd: '$1,204.18',fav: true,  chain: 'Chikyu' },
-  { sym: 'USDT',   name: 'Tether USD',         bal: '482.00',      usd: '$482.00',  fav: false, chain: 'Chikyu' },
-  { sym: 'WBTC',   name: 'Wrapped Bitcoin',    bal: '0.0086',      usd: '$558.40',  fav: false, chain: 'Chikyu' },
-  { sym: 'WETH',   name: 'Wrapped Ether',      bal: '0.4218',      usd: '$1,407.62',fav: false, chain: 'Chikyu' },
-  { sym: 'BARK',   name: 'Barkswap',           bal: '0.0',         usd: '$0.00',    fav: false, chain: 'Chikyu' },
-  { sym: 'CHIKYU', name: 'Chikyu',             bal: '14,000.0',    usd: '$140.00',  fav: false, chain: 'Chikyu' },
-  { sym: 'MUCH',   name: 'MuchFi',             bal: '0.0',         usd: '$0.00',    fav: false, chain: 'Chikyu' },
-  { sym: 'SHIB',   name: 'Shiba (bridged)',    bal: '0.0',         usd: '$0.00',    fav: false, chain: 'Chikyu' },
-  { sym: 'PEPE',   name: 'Pepe (bridged)',     bal: '0.0',         usd: '$0.00',    fav: false, chain: 'Chikyu' },
-  { sym: 'DAI',    name: 'Dai Stablecoin',     bal: '0.0',         usd: '$0.00',    fav: false, chain: 'Chikyu' },
+  { sym: 'DOGE',   name: 'Dogecoin',           bal: 'live',        usd: 'Chikyu',   fav: true,  chain: 'Chikyu' },
+  { sym: 'WDOGE',  name: 'Wrapped Doge',       bal: '—',           usd: 'on-chain', fav: true,  chain: 'Chikyu' },
+  { sym: 'USDC',   name: 'USD Coin',           bal: '—',           usd: 'on-chain', fav: true,  chain: 'Chikyu' },
+  { sym: 'USDT',   name: 'Tether',             bal: '—',           usd: 'on-chain', fav: false, chain: 'Chikyu' },
+  { sym: 'USD1',   name: 'World Liberty USD',  bal: '—',           usd: 'on-chain', fav: false, chain: 'Chikyu' },
+  { sym: 'WETH',   name: 'Wrapped Ethereum',   bal: '—',           usd: 'on-chain', fav: false, chain: 'Chikyu' },
+  { sym: 'LBTC',   name: 'Lombard Staked BTC', bal: '—',           usd: 'on-chain', fav: false, chain: 'Chikyu' },
 ];
 
 /* ============================================================
@@ -113,7 +108,7 @@ function SwapInput({ kind, token, amount, usd, balance, onAmount, onSelect, disa
               <circle cx="7" cy="7" r="5" fill="none" stroke="var(--primary)" strokeOpacity="0.35" strokeWidth="2"/>
               <path d="M 7 2 A 5 5 0 0 1 12 7" stroke="var(--primary)" strokeWidth="2" fill="none" strokeLinecap="round"/>
             </svg>
-            fetching quotes from <span style={{ color: 'var(--text-2)' }}>3 sources</span>
+            reading live Chikyu route
           </span>
         ) : (
           <span className="mono tnum">{usd}</span>
@@ -192,13 +187,18 @@ function WalletButton({ connected, address = '0x00B6…07E4', balance = '42.0688
 /* ============================================================
    WALLET DRAWER — Uniswap-style slide-out right pane
    ============================================================ */
-const WALLET_ACTIVITY = [
-  { kind: 'swap',     pay: { sym: 'DOGE', amount: '0.0001' }, recv: { sym: 'USDC', amount: 'dust' }, status: 'confirmed', when: 'canary', block: '#5,184,451', source: 'muchfi_v2' },
-  { kind: 'approve',  pay: { sym: 'USDC', amount: 'adapter allowlist' }, recv: null, status: 'confirmed', when: 'setup', block: '#5,184,415', source: null },
-  { kind: 'receive',  pay: null, recv: { sym: 'DOGE', amount: '42.0688' }, status: 'confirmed', when: 'funded', block: '#5,179,xxx', source: null },
-];
-
-function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', tokens = [], activity = WALLET_ACTIVITY }) {
+function WalletDrawer({
+  open,
+  onClose,
+  onDisconnect,
+  address = '0x00B6...07E4',
+  fullAddress = '',
+  walletLabel = '',
+  nativeBalance = '',
+  blockNumber = null,
+  tokens = [],
+  activity = [],
+}) {
   const [tab, setTab] = useState('tokens'); // 'tokens' | 'activity'
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(open);
@@ -227,11 +227,11 @@ function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', 
 
   if (!mounted) return null;
 
-  const totalUsd = tokens
-    .reduce((sum, t) => sum + (parseFloat((t.usd || '$0').replace(/[$,]/g, '')) || 0), 0)
-    .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   const heldTokens = tokens.filter(t => parseFloat((t.bal || '0').replace(/,/g, '')) > 0);
+  const balanceLabel = nativeBalance ? `${formatDrawerAmount(nativeBalance)} DOGE` : 'No live balance';
+  const explorerHref = fullAddress
+    ? `https://blockscout.testnet.dogeos.com/address/${fullAddress}`
+    : 'https://blockscout.testnet.dogeos.com';
 
   return (
     <>
@@ -267,7 +267,7 @@ function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', 
               }}/>
               <div>
                 <button onClick={() => {
-                  navigator.clipboard?.writeText('0x00B6F77d55967669Ea37f47Fc469FF47782007E4');
+                  if (fullAddress) navigator.clipboard?.writeText(fullAddress);
                   setCopied(true); setTimeout(() => setCopied(false), 1400);
                 }} style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -279,9 +279,9 @@ function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', 
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, fontSize: 11, color: 'var(--muted)' }}>
                   <span className="dot gold" style={{ width: 6, height: 6, boxShadow: 'none' }}/>
-                  <span>Chikyu Testnet</span>
+                  <span>{walletLabel || 'Injected wallet'}</span>
                   <span style={{ opacity: 0.4 }}>·</span>
-                  <a href="#explorer" style={{ color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  <a href={explorerHref} target="_blank" rel="noreferrer" style={{ color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                     Explorer <Icons.External size={10}/>
                   </a>
                 </div>
@@ -301,10 +301,10 @@ function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', 
             <div className="eyebrow" style={{ marginBottom: 6 }}>NET WORTH · TESTNET</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
               <span className="mono tnum" style={{ fontSize: 34, fontWeight: 600, letterSpacing: 0, color: 'var(--text)' }}>
-                ${totalUsd}
+                {balanceLabel}
               </span>
-              <span className="mono tnum" style={{ fontSize: 13, color: 'var(--success)' }}>
-                +$12.42 · 24h
+              <span className="mono tnum" style={{ fontSize: 13, color: 'var(--muted)' }}>
+                live RPC
               </span>
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
@@ -341,7 +341,7 @@ function WalletDrawer({ open, onClose, onDisconnect, address = '0x00B6…07E4', 
           background: 'var(--bg-soft)',
         }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)' }} className="mono">
-            block <span style={{ color: 'var(--text-2)' }}>#5,184,451</span>
+            block <span style={{ color: 'var(--text-2)' }}>{blockNumber ? `#${Number(blockNumber).toLocaleString()}` : 'pending'}</span>
           </span>
           <button onClick={onDisconnect} style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
@@ -372,6 +372,15 @@ function DrawerTab({ active, onClick, children }) {
       marginRight: 18,
     }}>{children}</button>
   );
+}
+
+function formatDrawerAmount(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value || '0');
+  return numeric.toLocaleString(undefined, {
+    minimumFractionDigits: numeric >= 1 ? 2 : 0,
+    maximumFractionDigits: numeric >= 1 ? 6 : 10,
+  });
 }
 
 function TokensTab({ tokens }) {

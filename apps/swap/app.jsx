@@ -2,7 +2,7 @@
           Logo, DogeMark, DogeMascot, DogeSilhouette, Wordmark,
           Icons, TokenGlyph, SourceMark, SOURCES, TOKEN_PALETTE, Modal, Tooltip, TopNav,
           TOKENS, SwapInput, SwapArrow, NetworkButton, WalletButton, SettingsPopover, Toggle,
-          RoutePanel, TokenSelector, ReviewSwapModal, TxStepper */
+          RoutePanel, TokenSelector, ReviewSwapModal, TxStepper, DogeOSWalletConnectors */
 // app.jsx — DogeOS Swap interactive prototype. State machine + scenarios + Tweaks.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -18,6 +18,7 @@ const CANARY_TX_URL = `${DOGEOS_BLOCKSCOUT_URL}/tx/0x5249ba34c3a021a243d01ade308
 const PROJECT_WALLET_ADDRESS = '0x00B6F77d55967669Ea37f47Fc469FF47782007E4';
 const WEI_PER_DOGE = 1000000000000000000n;
 const DEFAULT_VIEW_MODE = window.innerWidth < 760 ? 'mobile' : 'desktop';
+const DEFAULT_SCENARIO = 'disconnected';
 const ENABLE_DESIGN_PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
 
 /* ============================================================
@@ -32,7 +33,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   bgTexture: 'doge3d',
   routeLayout: 'inline',
   mascotVisible: true,
-  scenario: 'route-found',
+  scenario: DEFAULT_SCENARIO,
   viewMode: DEFAULT_VIEW_MODE,
 }/*EDITMODE-END*/;
 
@@ -54,6 +55,7 @@ const FONT_PAIRS = {
    ============================================================ */
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [viewportMode, setViewportMode] = useState(DEFAULT_VIEW_MODE);
 
   // Apply tweaks as CSS vars + attrs on <html>
   useEffect(() => {
@@ -72,11 +74,21 @@ function App() {
     root.style.setProperty('--font-display', fp.display);
   }, [t.theme, t.density, t.radiusScale, t.accent, t.fontPair]);
 
+  useEffect(() => {
+    const onResize = () => setViewportMode(window.innerWidth < 760 ? 'mobile' : 'desktop');
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // ---- SCENARIO is a one-click way to jump to a state for review ---
   // scenario values match the State spec exactly:
   //  disconnected, wrong-network, idle, loading, route-found, review, approve, signing, pending, confirmed, quote-only, error
-  const [scenario, setScenarioRaw] = useState(t.scenario || 'connected');
-  useEffect(() => { setScenarioRaw(t.scenario || 'connected'); }, [t.scenario]);
+  const [scenario, setScenarioRaw] = useState(t.scenario || DEFAULT_SCENARIO);
+  useEffect(() => { setScenarioRaw(t.scenario || DEFAULT_SCENARIO); }, [t.scenario]);
+  const setScenario = useCallback((s) => {
+    setScenarioRaw(s);
+    setTweak('scenario', s);
+  }, [setTweak]);
 
   // ---- CORE STATE -------------
   const [pay, setPay]         = useState({ sym: 'DOGE',  amount: '1' });
@@ -89,7 +101,13 @@ function App() {
   const [selectedSource, setSelectedSource] = useState('muchfi_v2');
   const [arrowRot, setArrowRot] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
-  const [walletAddress, setWalletAddress] = useState(PROJECT_WALLET_ADDRESS);
+  const [walletAddress, setWalletAddress] = useState(null);
+  const [walletProvider, setWalletProvider] = useState(null);
+  const [walletLabel, setWalletLabel] = useState('');
+  const [walletProviders, setWalletProviders] = useState([]);
+  const walletProviderRef = useRef(null);
+  const [lastTx, setLastTx] = useState(null);
+  const [routeQuote, setRouteQuote] = useState({ state: 'idle', quote: null, error: null });
   const [liveStatus, setLiveStatus] = useState({
     blockNumber: 5200125,
     balanceDoge: '42.068782673100144711',
@@ -97,6 +115,109 @@ function App() {
   });
   const activeWalletAddress = walletAddress || PROJECT_WALLET_ADDRESS;
   const compactWalletBalance = liveStatus.balanceDoge ? formatCompactDoge(liveStatus.balanceDoge) : '';
+  const walletTokens = useMemo(() => TOKENS.map((token) => (
+    token.sym === 'DOGE'
+      ? { ...token, bal: liveStatus.balanceDoge || '0', usd: 'live RPC' }
+      : token
+  )), [liveStatus.balanceDoge]);
+
+  useEffect(() => {
+    walletProviderRef.current = walletProvider;
+  }, [walletProvider]);
+
+  const refreshWalletProviders = useCallback(() => {
+    const discovered = window.DogeOSWalletConnectors?.discoverInjectedProviders?.(window) || [];
+    setWalletProviders(discovered);
+    return discovered;
+  }, []);
+
+  const chooseWalletProvider = useCallback((candidates = walletProviders) => {
+    return window.DogeOSWalletConnectors?.choosePreferredProvider?.(candidates) || null;
+  }, [walletProviders]);
+
+  const clearWalletSession = useCallback(() => {
+    setWalletAddress(null);
+    setWalletProvider(null);
+    setWalletLabel('');
+    setWalletOpen(false);
+    setReviewOpen(false);
+    setScenario('disconnected');
+  }, [setScenario]);
+
+  useEffect(() => {
+    window.__dogeosEip6963Providers = Array.isArray(window.__dogeosEip6963Providers)
+      ? window.__dogeosEip6963Providers
+      : [];
+
+    const onAnnounceProvider = (event) => {
+      const detail = event.detail;
+      if (!detail?.provider) return;
+      const known = window.__dogeosEip6963Providers.some((entry) => entry.provider === detail.provider);
+      if (!known) window.__dogeosEip6963Providers.push({ info: detail.info || {}, provider: detail.provider });
+      refreshWalletProviders();
+    };
+
+    window.addEventListener('eip6963:announceProvider', onAnnounceProvider);
+    refreshWalletProviders();
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+    const id = setTimeout(refreshWalletProviders, 100);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener('eip6963:announceProvider', onAnnounceProvider);
+    };
+  }, [refreshWalletProviders]);
+
+  useEffect(() => {
+    if (walletAddress || !walletProviders.length) return;
+    const selected = chooseWalletProvider(walletProviders);
+    const provider = selected?.provider;
+    if (!provider?.request) return;
+
+    let active = true;
+    provider.request({ method: 'eth_accounts' })
+      .then(async (accounts) => {
+        if (!active || !accounts?.[0]) return;
+        const chainId = await provider.request({ method: 'eth_chainId' }).catch(() => null);
+        if (!active) return;
+        setWalletProvider(provider);
+        setWalletLabel(selected.label || window.DogeOSWalletConnectors?.labelForProvider?.(provider) || 'Injected wallet');
+        setWalletAddress(accounts[0]);
+        setScenario(chainId === DOGEOS_CHAIN_ID_HEX ? 'idle' : 'wrong-network');
+      })
+      .catch(() => {});
+
+    return () => { active = false; };
+  }, [chooseWalletProvider, setScenario, walletAddress, walletProviders]);
+
+  useEffect(() => {
+    const provider = walletProvider;
+    if (!provider?.on) return;
+
+    const onAccountsChanged = (accounts = []) => {
+      const [account] = accounts;
+      if (!account) {
+        clearWalletSession();
+        return;
+      }
+      setWalletAddress(account);
+    };
+    const onChainChanged = (chainId) => {
+      setScenario(chainId === DOGEOS_CHAIN_ID_HEX ? 'idle' : 'wrong-network');
+    };
+    const onDisconnect = () => clearWalletSession();
+
+    provider.on('accountsChanged', onAccountsChanged);
+    provider.on('chainChanged', onChainChanged);
+    provider.on('disconnect', onDisconnect);
+
+    return () => {
+      const remove = provider.removeListener || provider.off;
+      if (!remove) return;
+      remove.call(provider, 'accountsChanged', onAccountsChanged);
+      remove.call(provider, 'chainChanged', onChainChanged);
+      remove.call(provider, 'disconnect', onDisconnect);
+    };
+  }, [clearWalletSession, setScenario, walletProvider]);
 
   useEffect(() => {
     let active = true;
@@ -107,6 +228,58 @@ function App() {
     return () => { active = false; };
   }, [activeWalletAddress]);
 
+  useEffect(() => {
+    const rawAmount = String(pay.amount || '').trim();
+    if (!rawAmount || rawAmount === '0') {
+      setRouteQuote({ state: 'idle', quote: null, error: null });
+      setRecv((current) => ({ ...current, amount: '0' }));
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      tokenIn: pay.sym,
+      tokenOut: recv.sym,
+      amountIn: rawAmount,
+      recipient: activeWalletAddress,
+      slippageBps: String(Math.round(Number(settings.slippage || 0.5) * 100)),
+    });
+
+    setRouteQuote((current) => ({ ...current, state: 'loading', error: null }));
+    if (!['disconnected', 'wrong-network', 'review', 'approve', 'signing', 'pending', 'confirmed'].includes(scenario)) {
+      setScenarioRaw('loading');
+    }
+
+    fetch(`/api/quote?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Live quote failed');
+        return payload;
+      })
+      .then((quote) => {
+        if (controller.signal.aborted) return;
+        setRouteQuote({ state: quote.routes.length ? 'found' : 'empty', quote, error: null });
+        const best = quote.bestRoute;
+        if (best) {
+          setRecv((current) => ({ ...current, amount: best.amountOutFormatted }));
+          setSelectedSource(sourceIdToUiId(best.sourceId));
+          if (!['disconnected', 'wrong-network', 'review', 'approve', 'signing', 'pending', 'confirmed'].includes(scenario)) {
+            setScenarioRaw('route-found');
+          }
+        }
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setRouteQuote({ state: 'error', quote: null, error: error.message });
+        setRecv((current) => ({ ...current, amount: '0' }));
+        if (!['disconnected', 'wrong-network', 'review', 'approve', 'signing', 'pending', 'confirmed'].includes(scenario)) {
+          setScenarioRaw('error');
+        }
+      });
+
+    return () => controller.abort();
+  }, [pay.sym, pay.amount, recv.sym, activeWalletAddress, settings.slippage]);
+
   // derived: connection state from scenario
   const conn = useMemo(() => {
     if (scenario === 'disconnected') return { connected: false, wrongNetwork: false };
@@ -114,8 +287,8 @@ function App() {
     return { connected: true, wrongNetwork: false };
   }, [scenario]);
 
-  // derived: route data based on scenario
-  const route = useMemo(() => buildRouteData(scenario, pay, recv, selectedSource), [scenario, pay, recv, selectedSource]);
+  // derived: route data based on live Chikyu quote API
+  const route = useMemo(() => buildRouteData(scenario, routeQuote, selectedSource, pay, recv), [scenario, routeQuote, selectedSource, pay, recv]);
 
   // open modals based on scenarios
   useEffect(() => {
@@ -123,8 +296,6 @@ function App() {
   }, [scenario]);
 
   /* ---- ACTIONS ---- */
-  const setScenario = (s) => { setScenarioRaw(s); setTweak('scenario', s); };
-
   const handleSwapDirection = () => {
     setArrowRot((r) => !r);
     setPay({ sym: recv.sym, amount: pay.amount });
@@ -132,25 +303,33 @@ function App() {
   };
 
   const handleConnect = async () => {
-    const provider = window.ethereum;
+    const candidates = walletProviders.length ? walletProviders : refreshWalletProviders();
+    const selected = chooseWalletProvider(candidates);
+    const provider = selected?.provider;
     if (!provider?.request) {
-      setScenario('idle');
+      setScenario('disconnected');
       return;
     }
     try {
       const accounts = await provider.request({ method: 'eth_requestAccounts' });
       const [account] = accounts || [];
-      if (account) setWalletAddress(account);
+      if (!account) {
+        clearWalletSession();
+        return;
+      }
+      setWalletProvider(provider);
+      setWalletLabel(selected.label || window.DogeOSWalletConnectors?.labelForProvider?.(provider) || 'Injected wallet');
+      setWalletAddress(account);
       const chainId = await provider.request({ method: 'eth_chainId' });
       setScenario(chainId === DOGEOS_CHAIN_ID_HEX ? 'idle' : 'wrong-network');
     } catch {
-      setScenario('disconnected');
+      clearWalletSession();
     }
   };
   const handleSwitchNetwork = async () => {
-    const provider = window.ethereum;
+    const provider = walletProviderRef.current || chooseWalletProvider(walletProviders)?.provider;
     if (!provider?.request) {
-      setScenario('idle');
+      setScenario('disconnected');
       return;
     }
     try {
@@ -175,13 +354,63 @@ function App() {
       }
     }
   };
-  const handleReview = () => setScenario('review');
-  const handleConfirm = () => {
-    // This handoff UI exercises the state machine before live router tx assembly is wired.
-    setScenario('approve');
-    setTimeout(() => setScenario('signing'), 1500);
-    setTimeout(() => setScenario('pending'), 3000);
-    setTimeout(() => setScenario('confirmed'), 6500);
+  const handleDisconnect = async () => {
+    const provider = walletProviderRef.current;
+    try {
+      if (typeof provider?.disconnect === 'function') {
+        await provider.disconnect();
+      } else if (typeof provider?.close === 'function') {
+        await provider.close();
+      } else if (provider?.request) {
+        await provider.request({
+          method: 'wallet_revokePermissions',
+          params: [{ eth_accounts: {} }],
+        }).catch(() => {});
+      }
+    } finally {
+      clearWalletSession();
+    }
+  };
+  const handleReview = () => {
+    const selected = selectedExecutableRoute(route, selectedSource);
+    if (!selected?.transaction) return;
+    setScenario('review');
+  };
+  const handleConfirm = async () => {
+    const provider = walletProviderRef.current;
+    const selected = selectedExecutableRoute(route, selectedSource);
+    if (!provider?.request || !walletAddress || !selected?.transaction) {
+      setScenario('error');
+      return;
+    }
+
+    try {
+      const approval = selected.transaction.approvalTransaction;
+      if (approval) {
+        setScenario('approve');
+        const approvalHash = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [walletTxParams({ from: walletAddress, tx: approval })],
+        });
+        setLastTx({ hash: approvalHash, blockNumber: null });
+        await waitForReceipt(approvalHash);
+      }
+
+      setScenario('signing');
+      const txHash = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [walletTxParams({ from: walletAddress, tx: selected.transaction })],
+      });
+      setLastTx({ hash: txHash, blockNumber: null });
+      setScenario('pending');
+      const receipt = await waitForReceipt(txHash);
+      setLastTx({ hash: txHash, blockNumber: receipt?.blockNumber ? Number(BigInt(receipt.blockNumber)) : null });
+      setScenario(receipt?.status === '0x1' ? 'confirmed' : 'error');
+      readRpcStatus(walletAddress).then((next) => setLiveStatus({ ...next, loading: false })).catch(() => {});
+    } catch (error) {
+      setLastTx((current) => current || { hash: null, blockNumber: null, error: error.message });
+      setScenario('error');
+    }
   };
   const handleReset = () => { setScenario('idle'); };
 
@@ -192,18 +421,12 @@ function App() {
   };
   const handleAmount = (v) => {
     setPay((p) => ({ ...p, amount: v }));
-    // Refresh the route preview while the live quote service is being wired in.
     if (!v || v === '0') {
       setRecv((r) => ({ ...r, amount: '0' }));
       setScenario('idle');
       return;
     }
     setScenario('loading');
-    setTimeout(() => {
-      const num = parseFloat(v.replace(/,/g, '')) || 0;
-      setRecv((r) => ({ ...r, amount: (num * 0.12028).toFixed(4) }));
-      setScenario('route-found');
-    }, 900);
   };
 
   const showApproval = scenario === 'review' && pay.sym !== 'DOGE';
@@ -211,7 +434,8 @@ function App() {
   /* ============================================================
      MOBILE BRANCH — primary view
      ============================================================ */
-  if (t.viewMode === 'mobile') {
+  const effectiveViewMode = ENABLE_DESIGN_PREVIEW ? t.viewMode : viewportMode;
+  if (effectiveViewMode === 'mobile') {
     const mobileDeviceWidth = Math.min(402, Math.max(320, window.innerWidth - 32));
     const mobileDeviceHeight = Math.min(874, Math.max(720, window.innerHeight - 48));
     return (
@@ -234,6 +458,8 @@ function App() {
               scrollbarGutter: 'stable both-edges',
             }}>
               <MobileTopBar conn={conn}
+                address={shortAddress(walletAddress || activeWalletAddress)}
+                walletLabel={walletLabel}
                 onWalletClick={() => setWalletOpen(true)}
                 onConnectClick={handleConnect}/>
               <MobileHeading scenario={scenario}/>
@@ -255,7 +481,7 @@ function App() {
               />
 
               {/* Mobile route panel under the card */}
-              {route.state !== 'idle' && conn.connected && !conn.wrongNetwork &&
+              {route.state !== 'idle' && !conn.wrongNetwork &&
                 !['approve','signing','pending','confirmed','error'].includes(scenario) && (
                 <RoutePanel
                   data={route}
@@ -306,9 +532,13 @@ function App() {
         <WalletDrawer
           open={walletOpen && conn.connected}
           onClose={() => setWalletOpen(false)}
-          onDisconnect={() => { setWalletOpen(false); setScenario('disconnected'); }}
-          address={shortAddress(activeWalletAddress)}
-          tokens={TOKENS}
+          onDisconnect={handleDisconnect}
+          address={shortAddress(walletAddress || activeWalletAddress)}
+          fullAddress={walletAddress || activeWalletAddress}
+          walletLabel={walletLabel}
+          blockNumber={liveStatus.blockNumber}
+          nativeBalance={liveStatus.balanceDoge}
+          tokens={walletTokens}
         />
         {ENABLE_DESIGN_PREVIEW && <DesignTweaks t={t} setTweak={setTweak}/>}
       </div>
@@ -337,7 +567,7 @@ function App() {
         <NetworkButton wrong={conn.wrongNetwork} onClick={() => conn.wrongNetwork && handleSwitchNetwork()}/>
         <WalletButton
           connected={conn.connected}
-          address={shortAddress(activeWalletAddress)}
+          address={shortAddress(walletAddress || activeWalletAddress)}
           balance={liveStatus.balanceDoge ? `${formatCompactDoge(liveStatus.balanceDoge)} DOGE` : 'Chikyu wallet'}
           onClick={() => conn.connected ? setWalletOpen(true) : handleConnect()}
         />
@@ -382,9 +612,10 @@ function App() {
               route={route}
               selectedSource={selectedSource}
               walletBalance={compactWalletBalance}
+              lastTx={lastTx}
             />
 
-            {t.routeLayout === 'inline' && route.state !== 'idle' && conn.connected && !conn.wrongNetwork && (
+            {t.routeLayout === 'inline' && route.state !== 'idle' && !conn.wrongNetwork && (
               <RoutePanel
                 data={route}
                 expanded={routeExpanded}
@@ -404,7 +635,7 @@ function App() {
           {/* RIGHT: sidebar route panel */}
           {t.routeLayout === 'sidebar' && (
             <div style={{ position: 'sticky', top: 96 }}>
-              {route.state !== 'idle' && conn.connected && !conn.wrongNetwork ? (
+              {route.state !== 'idle' && !conn.wrongNetwork ? (
                 <RoutePanel
                   data={route}
                   expanded={true}
@@ -446,9 +677,13 @@ function App() {
       <WalletDrawer
         open={walletOpen && conn.connected}
         onClose={() => setWalletOpen(false)}
-        onDisconnect={() => { setWalletOpen(false); setScenario('disconnected'); }}
-        address={shortAddress(activeWalletAddress)}
-        tokens={TOKENS}
+        onDisconnect={handleDisconnect}
+        address={shortAddress(walletAddress || activeWalletAddress)}
+        fullAddress={walletAddress || activeWalletAddress}
+        walletLabel={walletLabel}
+        blockNumber={liveStatus.blockNumber}
+        nativeBalance={liveStatus.balanceDoge}
+        tokens={walletTokens}
       />
 
       {ENABLE_DESIGN_PREVIEW && <DesignTweaks t={t} setTweak={setTweak}/>}
@@ -490,7 +725,7 @@ function SwapHero(props) {
   const { scenario, pay, recv, onAmount, onSelectPay, onSelectRecv, onSwap, arrowRot,
           settingsOpen, setSettingsOpen, settings, setSettings,
           connected, wrongNetwork, onConnect, onSwitch, onReview, onReset,
-          mascotVisible, route, selectedSource, walletBalance } = props;
+          mascotVisible, route, selectedSource, walletBalance, lastTx } = props;
 
   // Status row above the card
   return (
@@ -522,7 +757,7 @@ function SwapHero(props) {
       <div className="card" style={{ padding: 'var(--pad-card, 24px)' }}>
         {/* in pending/confirmed/approve/signing — show the TX panel instead of inputs */}
         {(scenario === 'approve' || scenario === 'signing' || scenario === 'pending' || scenario === 'confirmed' || scenario === 'error') ? (
-          <TxView scenario={scenario} pay={pay} recv={recv} onReset={onReset} selectedSource={selectedSource} mascotVisible={mascotVisible}/>
+          <TxView scenario={scenario} pay={pay} recv={recv} onReset={onReset} selectedSource={selectedSource} mascotVisible={mascotVisible} lastTx={lastTx}/>
         ) : (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-stack, 12px)', position: 'relative' }}>
@@ -559,6 +794,7 @@ function SwapHero(props) {
                 connected={connected}
                 wrongNetwork={wrongNetwork}
                 scenario={scenario}
+                route={route}
                 onConnect={onConnect}
                 onSwitch={onSwitch}
                 onReview={onReview}
@@ -592,8 +828,8 @@ function RouteSummaryStrip({ route, pay, recv, selectedSource }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11.5, color: 'var(--muted)' }}>
         <span><Icons.Gas size={12}/> <span className="mono tnum" style={{ color: 'var(--text-2)' }}>{s.gasUsd}</span></span>
-        <span>impact <span className="mono tnum" style={{ color: 'var(--success)' }}>0.08%</span></span>
-        <span>min recv <span className="mono tnum" style={{ color: 'var(--text-2)' }}>{(parseFloat(recv.amount) * 0.995).toFixed(4)} {recv.sym}</span></span>
+        <span>status <span className="mono tnum" style={{ color: 'var(--success)' }}>{s.note || 'live'}</span></span>
+        <span>min recv <span className="mono tnum" style={{ color: 'var(--text-2)' }}>{(parseFloat(recv.amount) * 0.995).toFixed(6)} {recv.sym}</span></span>
       </div>
     </div>
   );
@@ -602,19 +838,24 @@ function RouteSummaryStrip({ route, pay, recv, selectedSource }) {
 /* ============================================================
    PRIMARY CTA
    ============================================================ */
-function PrimaryCTA({ connected, wrongNetwork, scenario, onConnect, onSwitch, onReview, hasAmount }) {
+function PrimaryCTA({ connected, wrongNetwork, scenario, route, onConnect, onSwitch, onReview, hasAmount }) {
   if (!connected) return <button className="btn btn-primary btn-xl" style={{ width: '100%' }} onClick={onConnect}><Icons.Wallet size={18}/> Connect wallet to swap</button>;
   if (wrongNetwork) return <button className="btn btn-xl" style={{ width: '100%', background: 'var(--danger)', color: 'var(--primary-fg)' }} onClick={onSwitch}><Icons.Alert size={18}/> Switch to Chikyu</button>;
   if (!hasAmount) return <button className="btn btn-xl" style={{ width: '100%', background: 'var(--surface-3)', color: 'var(--muted)' }} disabled>Enter an amount</button>;
   if (scenario === 'loading') return <button className="btn btn-xl" style={{ width: '100%', background: 'var(--surface-3)', color: 'var(--muted)' }} disabled><span className="dot pulse" style={{ background: 'var(--muted)', boxShadow: 'none' }}/> Finding best route…</button>;
+  if (route?.state === 'error') return <button className="btn btn-xl" style={{ width: '100%', background: 'var(--surface-3)', color: 'var(--danger)' }} disabled>No live route available</button>;
+  if (!route?.sources?.some((source) => source.executable && source.transaction)) return <button className="btn btn-xl" style={{ width: '100%', background: 'var(--surface-3)', color: 'var(--muted)' }} disabled>Live quote only</button>;
   return <button className="btn btn-primary btn-xl" style={{ width: '100%' }} onClick={onReview}>Review swap <Icons.ChevronR size={16}/></button>;
 }
 
 /* ============================================================
    TX VIEW (approve / signing / pending / confirmed / error)
    ============================================================ */
-function TxView({ scenario, pay, recv, onReset, selectedSource, mascotVisible }) {
+function TxView({ scenario, pay, recv, onReset, selectedSource, mascotVisible, lastTx }) {
   const needsApproval = pay.sym !== 'DOGE';
+  const txUrl = lastTx?.hash ? `${DOGEOS_BLOCKSCOUT_URL}/tx/${lastTx.hash}` : CANARY_TX_URL;
+  const txLabel = lastTx?.hash ? shortHash(lastTx.hash) : 'pending tx';
+  const blockLabel = lastTx?.blockNumber ? formatBlockNumber(lastTx.blockNumber) : 'latest Chikyu block';
   const status = (() => {
     if (scenario === 'approve')    return { current: 'approve' };
     if (scenario === 'signing')    return { current: needsApproval ? 'sign' : 'sign' };
@@ -666,9 +907,9 @@ function TxView({ scenario, pay, recv, onReset, selectedSource, mascotVisible })
         {scenario === 'approve' && <StatusBlock title="Approve in your wallet" body={`Sign the ${pay.sym} spend approval to continue.`} kind="info" mascot={mascotVisible}/>}
         {scenario === 'signing' && <StatusBlock title="Sign in your wallet" body="Open your wallet to sign the swap transaction." kind="info" mascot={mascotVisible}/>}
         {scenario === 'pending' && <StatusBlock title="Confirming on-chain"
-          body={<>Tx submitted. Waiting for Chikyu validators. <a href={CANARY_TX_URL} className="mono" style={{ color: 'var(--primary)' }} target="_blank" rel="noreferrer">0x5249…d832 <Icons.External size={10}/></a></>}
+          body={<>Tx submitted. Waiting for Chikyu validators. <a href={txUrl} className="mono" style={{ color: 'var(--primary)' }} target="_blank" rel="noreferrer">{txLabel} <Icons.External size={10}/></a></>}
           kind="info" mascot={mascotVisible}/>}
-        {scenario === 'confirmed' && <StatusBlock title="Swap complete" body={<>Received <span className="mono tnum" style={{ color: 'var(--text)' }}>{recv.amount} {recv.sym}</span> in canary block <span className="mono">#5,184,451</span>.</>} kind="success" mascot={mascotVisible}/>}
+        {scenario === 'confirmed' && <StatusBlock title="Swap complete" body={<>Received <span className="mono tnum" style={{ color: 'var(--text)' }}>{recv.amount} {recv.sym}</span> in <span className="mono">{blockLabel}</span>.</>} kind="success" mascot={mascotVisible}/>}
         {scenario === 'error' && <StatusBlock title="Transaction reverted" body="The route reverted on-chain — likely a slippage breach. Re-quote and try again." kind="error" mascot={mascotVisible}/>}
       </div>
 
@@ -677,7 +918,7 @@ function TxView({ scenario, pay, recv, onReset, selectedSource, mascotVisible })
         {scenario === 'confirmed' && (
           <>
             <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={onReset}>Swap again</button>
-            <a className="btn btn-outline btn-lg" style={{ flex: 1, textDecoration: 'none' }} href={CANARY_TX_URL} target="_blank" rel="noreferrer"><Icons.External size={14}/> View on explorer</a>
+            <a className="btn btn-outline btn-lg" style={{ flex: 1, textDecoration: 'none' }} href={txUrl} target="_blank" rel="noreferrer"><Icons.External size={14}/> View on explorer</a>
           </>
         )}
         {scenario === 'error' && (
@@ -867,34 +1108,56 @@ function rawBalance(sym, walletBalance) {
   return (t?.bal || '0').replace(/,/g, '');
 }
 function usdFor({ sym, amount }) {
-  const num = parseFloat(String(amount).replace(/,/g, '')) || 0;
-  const prices = { DOGE: 0.1207, WDOGE: 0.1207, USDC: 1, USDT: 1, DAI: 1, WBTC: 65000, WETH: 3340, BARK: 0.42, CHIKYU: 0.01, MUCH: 0.83, SHIB: 0.00002, PEPE: 0.0000094 };
-  const v = num * (prices[sym] || 0);
-  if (!v) return '$0.00';
-  return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const value = String(amount || '0');
+  if (!value || value === '0') return `0 ${sym}`;
+  return `${value} ${sym} · Chikyu`;
 }
 
-function buildRouteData(scenario, pay, recv, selectedSource) {
-  if (scenario === 'disconnected' || scenario === 'wrong-network' || scenario === 'idle') {
-    return { state: 'idle', sources: [] };
-  }
-  if (scenario === 'loading') {
-    return { state: 'loading', sources: [] };
-  }
-  // route-found and all post-quote scenarios
-  const base = parseFloat(String(recv.amount).replace(/,/g, '')) || 0;
-  const isQuoteOnly = scenario === 'quote-only';
-  const bestId = isQuoteOnly ? 'muchfi_v3' : (selectedSource || 'muchfi_v2');
+function buildRouteData(scenario, routeQuote, selectedSource, pay, recv) {
+  if (routeQuote.state === 'idle') return { state: 'idle', sources: [], error: null };
+  if (routeQuote.state === 'loading') return { state: 'loading', sources: [], error: null };
+  if (routeQuote.state === 'error') return { state: 'error', sources: [], error: routeQuote.error || 'Live quote failed' };
 
-  const sources = [
-    { id: 'muchfi_v2', status: 'ok', quote: fmt(base * 1.0000) + ' ' + recv.sym, delta: 0.00, gasUsd: '$0.04', hops: 1, share: 100, executable: true,  selected: bestId === 'muchfi_v2', path: [pay.sym, recv.sym] },
-    { id: 'muchfi_v3', status: 'ok', quote: fmt(base * 1.0014) + ' ' + recv.sym, delta: 0.14, gasUsd: '$0.06', hops: 1, share: null, executable: false, selected: bestId === 'muchfi_v3', path: [pay.sym, recv.sym], note: 'quote-only' },
-    { id: 'barkswap',  status: 'ok', quote: fmt(base * 0.9986) + ' ' + recv.sym, delta: -0.14, gasUsd: '$0.05', hops: 2, share: null, executable: false, selected: bestId === 'barkswap',  path: [pay.sym, 'WDOGE', recv.sym], note: 'quote-only' },
-  ];
-  return { state: 'found', bestId, sources };
+  const quote = routeQuote.quote;
+  const routes = quote?.routes || [];
+  if (!routes.length) {
+    return { state: 'error', sources: [], error: 'No live Chikyu route is available for this pair.' };
+  }
+
+  const bestAmount = BigInt(routes[0].amountOut || '0');
+  const bestId = selectedSource || sourceIdToUiId(routes[0].sourceId);
+  const sources = routes.map((liveRoute) => {
+    const amountOut = BigInt(liveRoute.amountOut || '0');
+    const delta = bestAmount > 0n ? Number(((amountOut - bestAmount) * 10000n) / bestAmount) / 100 : 0;
+    const id = sourceIdToUiId(liveRoute.sourceId);
+    return {
+      id,
+      status: liveRoute.status === 'live' ? 'ok' : 'warn',
+      quote: `${liveRoute.amountOutFormatted} ${recv.sym}`,
+      delta,
+      gasUsd: liveRoute.gasEstimate === 'live-wallet-estimate' ? 'wallet est.' : 'on-chain',
+      hops: Math.max(1, (liveRoute.path || [pay.sym, recv.sym]).length - 1),
+      share: liveRoute.executable ? 100 : null,
+      executable: Boolean(liveRoute.executable),
+      selected: id === bestId,
+      path: liveRoute.path || [pay.sym, recv.sym],
+      note: liveRoute.status,
+      transaction: liveRoute.transaction,
+      minAmountOut: liveRoute.minAmountOut,
+      amountOut: liveRoute.amountOut,
+      amountOutFormatted: liveRoute.amountOutFormatted,
+    };
+  });
+
+  return { state: 'found', bestId, sources, quote };
 }
-function fmt(n) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+function sourceIdToUiId(sourceId) {
+  return {
+    'muchfi-v2': 'muchfi_v2',
+    'muchfi-v3': 'muchfi_v3',
+    'barkswap-algebra': 'barkswap',
+  }[sourceId] || sourceId;
 }
 function selectedRouteDetails(route, pay, recv) {
   const s = route.sources.find(x => x.selected) || route.sources[0] || {};
@@ -905,9 +1168,44 @@ function selectedRouteDetails(route, pay, recv) {
     hops: s.hops || 1,
     rate: (num / payNum).toFixed(6),
     minReceive: (num * 0.995).toFixed(4),
-    priceImpact: '0.08',
+    status: s.note || 'live',
     gasUsd: s.gasUsd || '$0.05',
   };
+}
+
+function selectedExecutableRoute(route, selectedSource) {
+  const selected = route?.sources?.find((source) => source.id === selectedSource) || route?.sources?.[0];
+  if (!selected?.executable || !selected?.transaction) return null;
+  return selected;
+}
+
+function toHexQuantity(value) {
+  return `0x${BigInt(value || 0).toString(16)}`;
+}
+
+function walletTxParams({ from, tx }) {
+  return {
+    from,
+    to: tx.to,
+    data: tx.data,
+    value: toHexQuantity(tx.value || '0'),
+  };
+}
+
+async function waitForReceipt(txHash, { attempts = 80, intervalMs = 1500 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    const response = await fetch(DOGEOS_RPC_PROXY_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
+    });
+    if (response.ok) {
+      const payload = await response.json();
+      if (payload.result) return payload.result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('Timed out waiting for Chikyu transaction receipt');
 }
 
 async function readRpcStatus(address) {
@@ -961,6 +1259,11 @@ function formatCompactDoge(value) {
 function shortAddress(address) {
   if (!address) return '0x0000…0000';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+function shortHash(hash) {
+  if (!hash) return 'pending tx';
+  return `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 }
 
 function formatBlockNumber(blockNumber) {

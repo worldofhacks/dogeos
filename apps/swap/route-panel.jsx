@@ -34,7 +34,7 @@ function RoutePanel({ data, expanded, onToggle, onSelectSource, paymentSym, rece
             <Icons.Route size={14}/>
           </span>
           <span style={{ fontSize: 13, fontWeight: 600 }}>
-            {data.state === 'loading' ? 'Scanning routes…' : 'Route intelligence'}
+            {data.state === 'loading' ? 'Scanning routes…' : data.state === 'error' ? 'No live route' : 'Route intelligence'}
           </span>
           {data.state === 'found' && (
             <span className="pill ok" style={{ marginLeft: 6 }}>
@@ -57,6 +57,11 @@ function RoutePanel({ data, expanded, onToggle, onSelectSource, paymentSym, rece
               onSelectSource={onSelectSource}
               paymentSym={paymentSym} receiveSym={receiveSym}/>
           )}
+          {data.state === 'error' && (
+            <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)' }}>
+              {data.error || 'No executable Chikyu testnet route is available for this pair yet.'}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -64,7 +69,7 @@ function RoutePanel({ data, expanded, onToggle, onSelectSource, paymentSym, rece
 }
 
 function RouteLoadingList() {
-  const items = ['muchfi_v2', 'muchfi_v3', 'barkswap'];
+  const items = ['muchfi_v2'];
   return (
     <div style={{ padding: 8 }}>
       {items.map((id, i) => (
@@ -101,7 +106,7 @@ function RouteFoundList({ sources, bestId, onSelectSource, paymentSym, receiveSy
         fontSize: 11.5, color: 'var(--muted)',
       }}>
         <Icons.Info size={13}/>
-        <span>Quote-only sources cannot be executed on Chikyu testnet yet. Pricing data still used for scoring.</span>
+        <span>Rows are built from live Chikyu RPC reads. Executable routes include wallet transaction calldata.</span>
       </div>
     </div>
   );
@@ -298,7 +303,7 @@ function ReviewSwapModal({ open, onClose, onConfirm, payment, receive, route, se
             </span>],
             ['Rate', <span className="mono tnum">1 {payment.sym} = {route.rate} {receive.sym}</span>],
             ['Min received', <span className="mono tnum">{route.minReceive} {receive.sym}</span>],
-            ['Price impact', <span className="mono tnum" style={{ color: 'var(--success)' }}>{route.priceImpact}%</span>],
+            ['Quote status', <span className="mono tnum" style={{ color: 'var(--success)' }}>{route.status || 'live'}</span>],
             ['Network fee', <span className="mono tnum">{route.gasUsd}</span>],
             ['Max slippage', <span className="mono tnum">{settings.auto ? 'Auto · ' : ''}{settings.slippage}%</span>],
             ['MEV protection', settings.mev ? <span style={{ color: 'var(--success)' }}>On</span> : <span style={{ color: 'var(--muted)' }}>Off</span>],

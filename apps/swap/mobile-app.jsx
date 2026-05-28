@@ -74,7 +74,7 @@ function MobileSwapCard({ scenario, pay, recv, onAmount, onSelectPay, onSelectRe
           )}
 
           <div style={{ marginTop: 14 }}>
-            <MobilePrimaryCTA conn={conn} scenario={scenario}
+            <MobilePrimaryCTA conn={conn} scenario={scenario} route={route}
               onConnect={onConnect} onReview={onReview}
               hasAmount={!!pay.amount && pay.amount !== '0'}/>
           </div>
@@ -104,7 +104,7 @@ function MobileRouteStrip({ route, selectedSource, pay, recv }) {
           <span className="pill gold" style={{ height: 18, padding: '0 7px', fontSize: 10.5 }}>BEST</span>
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-          much route, very best · <span className="mono">{others}</span> sources scored · gas <span className="mono tnum">{s.gasUsd}</span>
+          live route · <span className="mono">{others}</span> source scored · gas <span className="mono tnum">{s.gasUsd}</span>
         </div>
       </div>
       <Icons.ChevronR size={14}/>
@@ -115,7 +115,7 @@ function MobileRouteStrip({ route, selectedSource, pay, recv }) {
 /* ============================================================
    MOBILE PRIMARY CTA — Big, friendly, gold rim
    ============================================================ */
-function MobilePrimaryCTA({ conn, scenario, onConnect, onReview, hasAmount }) {
+function MobilePrimaryCTA({ conn, scenario, route, onConnect, onReview, hasAmount }) {
   if (!conn.connected) {
     return (
       <button className="btn btn-primary" onClick={onConnect} style={{
@@ -149,8 +149,16 @@ function MobilePrimaryCTA({ conn, scenario, onConnect, onReview, hasAmount }) {
         background: 'var(--surface-3)', color: 'var(--muted)',
       }}>
         <span className="dot pulse" style={{ background: 'var(--muted)', boxShadow: 'none' }}/>
-        Sniffing for liquidity…
+        Reading live liquidity…
       </button>
+    );
+  }
+  if (route?.state === 'error' || !route?.sources?.some((source) => source.executable && source.transaction)) {
+    return (
+      <button className="btn" disabled style={{
+        width: '100%', padding: '18px 20px', fontSize: 16, borderRadius: 20,
+        background: 'var(--surface-3)', color: route?.state === 'error' ? 'var(--danger)' : 'var(--muted)',
+      }}>No executable live route</button>
     );
   }
   return (
@@ -221,7 +229,7 @@ function MobileStatusLine({ scenario }) {
     approve:   { title: 'Open your wallet',     body: 'Approve the spend to continue.',          kind: 'info'    },
     signing:   { title: 'Sign in your wallet',  body: 'Confirm the swap to broadcast it.',        kind: 'info'    },
     pending:   { title: 'On-chain · ~14s',      body: <>tx <span className="mono">0x5249…d832</span> waiting</>, kind: 'info' },
-    confirmed: { title: 'Such swap, very done', body: <>Block <span className="mono">#5,184,451</span> · canary</>, kind: 'success' },
+    confirmed: { title: 'Swap complete', body: 'Confirmed on Chikyu.', kind: 'success' },
     error:     { title: 'Reverted',             body: 'Slippage breach. Re-quote and retry.',     kind: 'error'   },
   };
   const l = lines[scenario]; if (!l) return null;
@@ -248,7 +256,7 @@ function MobileStatusLine({ scenario }) {
 /* ============================================================
    MOBILE TOP BAR (inside iOS frame)
    ============================================================ */
-function MobileTopBar({ conn, onWalletClick, onConnectClick }) {
+function MobileTopBar({ conn, address = '0x00B6...07E4', walletLabel = '', onWalletClick, onConnectClick }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -275,7 +283,7 @@ function MobileTopBar({ conn, onWalletClick, onConnectClick }) {
               width: 18, height: 18, borderRadius: '50%',
               background: 'linear-gradient(135deg, oklch(0.62 0.19 35), oklch(0.82 0.14 84))',
             }}/>
-            <span className="mono">0x00B6…07E4</span>
+            <span className="mono">{address}</span>
           </>
         ) : (
           <><Icons.Wallet size={13}/> Connect</>
@@ -290,15 +298,15 @@ function MobileTopBar({ conn, onWalletClick, onConnectClick }) {
    ============================================================ */
 function MobileHeading({ scenario }) {
   const headings = {
-    disconnected:  { eyebrow: 'WELCOME, SHIBE', title: 'Swap on Chikyu', sub: 'Connect to do all the swap.' },
+    disconnected:  { eyebrow: 'CONNECT WALLET', title: 'Swap on Chikyu', sub: 'Live quotes are ready before execution.' },
     'wrong-network': { eyebrow: 'WRONG NETWORK', title: 'Switch to Chikyu', sub: 'You must to be on Chikyu testnet.' },
     idle:          { eyebrow: 'READY',         title: 'Swap on Chikyu',       sub: 'Enter an amount to begin.' },
-    loading:       { eyebrow: 'SCANNING',      title: 'Many sources…',         sub: 'Sniffing for the best route.' },
-    'route-found': { eyebrow: 'ROUTE READY',   title: 'Best route found',      sub: 'Much liquidity, very fast.' },
+    loading:       { eyebrow: 'SCANNING',      title: 'Reading routes',        sub: 'Checking live Chikyu liquidity.' },
+    'route-found': { eyebrow: 'ROUTE READY',   title: 'Best route found',      sub: 'Executable routes include wallet calldata.' },
     approve:       { eyebrow: 'APPROVE',       title: 'Approve the spend',     sub: 'One-time wallet sign.' },
     signing:       { eyebrow: 'SIGN',          title: 'Sign the swap',         sub: 'Open your wallet to confirm.' },
-    pending:       { eyebrow: 'BROADCASTING',  title: 'On its way',            sub: 'Such block, very confirm.' },
-    confirmed:     { eyebrow: 'COMPLETE',      title: 'Wow, much swap!',       sub: 'Confirmed on-chain.' },
+    pending:       { eyebrow: 'BROADCASTING',  title: 'Confirming',            sub: 'Waiting for Chikyu finality.' },
+    confirmed:     { eyebrow: 'COMPLETE',      title: 'Swap complete',         sub: 'Confirmed on-chain.' },
     error:         { eyebrow: 'REVERTED',      title: 'Try again',             sub: 'Route reverted on confirm.' },
     review:        { eyebrow: 'REVIEW',        title: 'Confirm your swap',     sub: 'Last look before signing.' },
   };
@@ -432,11 +440,9 @@ function rawBalance(sym, walletBalance) {
   return (t?.bal || '0').replace(/,/g, '');
 }
 function usdFor({ sym, amount }) {
-  const num = parseFloat(String(amount).replace(/,/g, '')) || 0;
-  const prices = { DOGE: 0.1207, WDOGE: 0.1207, USDC: 1, USDT: 1, DAI: 1, WBTC: 65000, WETH: 3340, BARK: 0.42, CHIKYU: 0.01, MUCH: 0.83, SHIB: 0.00002, PEPE: 0.0000094 };
-  const v = num * (prices[sym] || 0);
-  if (!v) return '$0.00';
-  return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const value = String(amount || '0');
+  if (!value || value === '0') return `0 ${sym}`;
+  return `${value} ${sym} · Chikyu`;
 }
 
 Object.assign(window, { MobileStage, MobileTopBar, MobileHeading, MobileSwapCard, MobileScenarioRail, MobileBackdrop, FloatGlyph });

@@ -49,6 +49,8 @@ const TOKEN_PALETTE = {
   WDOGE: { bg: 'oklch(0.62 0.12 60)',  fg: 'oklch(0.98 0.01 80)', label: 'wÐ' },
   USDC:  { bg: 'oklch(0.62 0.14 240)', fg: 'oklch(0.98 0.01 80)', label: '$' },
   USDT:  { bg: 'oklch(0.62 0.14 165)', fg: 'oklch(0.98 0.01 80)', label: '₮' },
+  USD1:  { bg: 'oklch(0.64 0.13 190)', fg: 'oklch(0.98 0.01 80)', label: 'U1' },
+  LBTC:  { bg: 'oklch(0.64 0.12 45)',  fg: 'oklch(0.98 0.01 80)', label: 'LB' },
   WBTC:  { bg: 'oklch(0.66 0.15 50)',  fg: 'oklch(0.98 0.01 80)', label: '₿' },
   WETH:  { bg: 'oklch(0.50 0.07 270)', fg: 'oklch(0.98 0.01 80)', label: 'Ξ' },
   BARK:  { bg: 'oklch(0.62 0.16 320)', fg: 'oklch(0.98 0.01 80)', label: 'BK' },

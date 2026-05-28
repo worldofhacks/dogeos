@@ -18,9 +18,16 @@ Repo-grounded details:
 - RPC: `https://rpc.testnet.dogeos.com`
 - Explorer: `https://blockscout.testnet.dogeos.com`
 - Executable source: MuchFi V2
-- Quote-only sources: MuchFi V3, Barkswap Algebra
-- Project wallet shown by default: `0x00B6F77d55967669Ea37f47Fc469FF47782007E4`
+- Planned sources: MuchFi V3, Barkswap Algebra
+- Read-only fallback wallet for disconnected quote context: `0x00B6F77d55967669Ea37f47Fc469FF47782007E4`
 
-Wallet connection uses `window.ethereum` when available and requests/switches to DogeOS Chikyu. The local server proxies `/rpc/dogeos` to the official Chikyu RPC so the header balance and block height can be read live without exposing private keys.
+Wallet connection discovers injected EIP-1193 providers, EIP-6963 announced wallets, and MyDoge/DogeOS-style injected providers. Connect calls `eth_requestAccounts`, validates `eth_chainId`, and sends swap transactions through the selected provider. Disconnect clears local session state and calls provider `disconnect`, `close`, or `wallet_revokePermissions` when the wallet supports it. WalletConnect QR support needs a project id and is intentionally not bundled yet.
 
-Quote and swap execution are state-machine driven until the router transaction builder is wired into the frontend.
+The local server proxies `/rpc/dogeos` to the official Chikyu RPC so balances and block height can be read live without exposing private keys.
+
+Live quote and transaction calldata endpoints:
+
+- `GET /api/config` exposes non-secret Chikyu token/source/deployment metadata.
+- `GET /api/quote?tokenIn=DOGE&tokenOut=USDC&amountIn=0.0001&recipient=0x...` reads MuchFi V2 pair state and adapter quotes from Chikyu, then returns router calldata for wallet execution when the route is executable.
+
+Current execution support is limited to the verified MuchFi V2 route through the deployed router and adapter. Unsupported pairs return no executable live route instead of mock pricing.

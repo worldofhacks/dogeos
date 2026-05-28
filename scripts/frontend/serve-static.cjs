@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { DEFAULT_LIVE_QUOTE_CONFIG, buildLiveQuote } = require("./lib/liveQuote.cjs");
 
 const rootArg = process.argv[2] || "apps/swap";
 const requestedPort = Number(process.argv[3] || process.env.PORT || 5173);
@@ -69,7 +70,55 @@ async function proxyDogeosRpc(req, res) {
   res.end(Buffer.from(await upstream.arrayBuffer()));
 }
 
+function sendJson(res, status, payload) {
+  res.writeHead(status, {
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8"
+  });
+  res.end(`${JSON.stringify(payload)}\n`);
+}
+
+async function handleApiRequest(req, res) {
+  const parsed = new URL(req.url || "/", `http://${host}:${server.address()?.port || requestedPort}`);
+
+  if (parsed.pathname === "/api/config") {
+    sendJson(res, 200, DEFAULT_LIVE_QUOTE_CONFIG);
+    return;
+  }
+
+  if (parsed.pathname === "/api/quote") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const quote = await buildLiveQuote({
+        rpcUrl: dogeosRpcUrl,
+        tokenIn: parsed.searchParams.get("tokenIn"),
+        tokenOut: parsed.searchParams.get("tokenOut"),
+        amountIn: parsed.searchParams.get("amountIn"),
+        recipient: parsed.searchParams.get("recipient") || undefined,
+        slippageBps: Number(parsed.searchParams.get("slippageBps") || 50)
+      });
+      sendJson(res, 200, quote);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+    }
+    return;
+  }
+
+  sendJson(res, 404, { error: "Not found" });
+}
+
 const server = http.createServer((req, res) => {
+  if ((req.url || "").startsWith("/api/")) {
+    handleApiRequest(req, res).catch((error) => {
+      sendJson(res, 502, { error: "DogeOS frontend API failed", message: error.message });
+    });
+    return;
+  }
+
   if ((req.url || "").startsWith("/rpc/dogeos")) {
     proxyDogeosRpc(req, res).catch((error) => {
       res.writeHead(502, { "content-type": "application/json; charset=utf-8" });
