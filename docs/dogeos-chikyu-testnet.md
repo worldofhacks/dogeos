@@ -2,6 +2,8 @@
 
 Source basis: DogeOS ecosystem-team provided testnet details, rechecked against the official DogeOS docs and live DogeOS Chikyū Testnet RPC.
 
+Repository source of truth: `packages/config/src/chains.mjs` and `packages/config/src/tokens.mjs` now mirror these provided network endpoints and faucet-token addresses.
+
 ## Network
 
 | Field | Value |

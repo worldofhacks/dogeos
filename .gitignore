@@ -1,2 +1,8 @@
 .tmp/
-
+node_modules/
+apps/web/dist/
+.playwright-mcp/
+dogeos-*.png
+.env
+.env.local
+.env.*.local

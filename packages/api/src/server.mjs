@@ -1,0 +1,112 @@
+import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
+
+import { createAggregatorApiHandler } from "./handler.mjs";
+import { createLiveAggregatorApiHandler } from "./live.mjs";
+
+function hasBody(method) {
+  return !["GET", "HEAD"].includes(method ?? "GET");
+}
+
+function headersFromIncomingMessage(message) {
+  const headers = new Headers();
+
+  for (const [key, value] of Object.entries(message.headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(key, entry);
+    } else if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+
+  return headers;
+}
+
+function readIncomingBody(message) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    message.on("data", (chunk) => chunks.push(chunk));
+    message.on("end", () => resolve(Buffer.concat(chunks)));
+    message.on("error", reject);
+  });
+}
+
+async function requestFromIncomingMessage(message) {
+  const origin = `http://${message.headers.host ?? "127.0.0.1"}`;
+  const url = new URL(message.url ?? "/", origin);
+  const body = hasBody(message.method) ? await readIncomingBody(message) : undefined;
+
+  return new Request(url, {
+    method: message.method,
+    headers: headersFromIncomingMessage(message),
+    body,
+  });
+}
+
+async function writeFetchResponse(serverResponse, fetchResponse) {
+  serverResponse.writeHead(fetchResponse.status, Object.fromEntries(fetchResponse.headers));
+  const body = Buffer.from(await fetchResponse.arrayBuffer());
+  serverResponse.end(body);
+}
+
+export function createNodeRequestListener({ handle = createAggregatorApiHandler() } = {}) {
+  return async function nodeRequestListener(request, response) {
+    try {
+      const fetchRequest = await requestFromIncomingMessage(request);
+      const fetchResponse = await handle(fetchRequest);
+      await writeFetchResponse(response, fetchResponse);
+    } catch (error) {
+      const body = JSON.stringify({
+        error: {
+          code: "api-server-error",
+          message: error.message,
+        },
+      });
+
+      response.writeHead(500, {
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(body);
+    }
+  };
+}
+
+export function startAggregatorApiServer({
+  host = process.env.HOST ?? "127.0.0.1",
+  port = Number(process.env.PORT ?? 8787),
+  handle,
+  rpcUrl,
+  fetchFn,
+  nowMs,
+  quoteCandidateProvider,
+  outputWeiPerFeeWei,
+  calldataBuilder,
+} = {}) {
+  const resolvedHandle =
+    handle ??
+    createLiveAggregatorApiHandler({
+      rpcUrl,
+      fetchFn,
+      nowMs,
+      quoteCandidateProvider,
+      outputWeiPerFeeWei,
+      calldataBuilder,
+    });
+  const server = createServer(createNodeRequestListener({ handle: resolvedHandle }));
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const server = await startAggregatorApiServer();
+  const address = server.address();
+  const host = address.address === "127.0.0.1" ? "localhost" : address.address;
+
+  console.log(`DogeOS aggregator API listening on http://${host}:${address.port}`);
+}

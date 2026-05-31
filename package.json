@@ -1,0 +1,32 @@
+{
+  "name": "dogeos-dex-aggregator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:web": "vite build",
+    "test": "node --test \"packages/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
+    "dev:web": "vite --host 127.0.0.1 --port 8788",
+    "start:api": "node packages/api/src/server.mjs",
+    "start:web": "npm run build:web && node --env-file-if-exists=.env --env-file-if-exists=.env.local packages/web/src/server.mjs",
+    "verify:sources": "node scripts/verify-dogeos-sources.mjs"
+  },
+  "dependencies": {
+    "@dogeos/dogeos-sdk": "3.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "wagmi": "^2.19.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2"
+  },
+  "overrides": {
+    "axios": "1.16.1",
+    "bn.js": "5.2.3",
+    "protobufjs": "7.6.2",
+    "ws": "8.21.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

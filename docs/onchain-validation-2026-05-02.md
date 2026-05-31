@@ -43,7 +43,9 @@ All provided official faucet-token contracts had bytecode and standard metadata 
 
 ### Barkswap
 
-Status: confirmed V1 integration target, read-only until router/quoter/ABI confirmation.
+Status at this historical pass: confirmed V1 integration target, read-only until router/quoter/ABI confirmation.
+
+Current aggregator update: Barkswap Algebra is now an active execution source through the newer deployment. The active router is `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e`, with swap selectors and `factory()` / `poolDeployer()` relationship reads verified on-chain. Blockscout ABI is still pending, so execution depends on local typed builders plus sender-aware runtime simulation.
 
 | Surface | Address | Validation |
 | --- | --- | --- |
@@ -72,18 +74,20 @@ Position summary:
 | Older `0xeA67...` | USDT/WDOGE | `5` |
 | Older `0xeA67...` | USDC/WDOGE | `3` |
 
-Conclusion: Barkswap looks Algebra-style because `poolByPair`, `globalState`, `liquidity`, `fee`, `token0`, and `token1` reads work while vanilla Uniswap V3 factory/pool assumptions do not cleanly apply. Execution remains blocked on canonical router/quoter confirmation.
+Conclusion: Barkswap looks Algebra-style because `poolByPair`, `globalState`, `liquidity`, `fee`, `token0`, and `token1` reads work while vanilla Uniswap V3 factory/pool assumptions do not cleanly apply. Execution is no longer blocked for the active aggregator source because the newer router/quoter relationship and swap selectors are now pinned in the source registry.
 
 ### MuchFi
 
-Status: confirmed V1 integration target, read-only until router/quoter/ABI confirmation.
+Status at this historical pass: confirmed V1 integration target, read-only until router/quoter/ABI confirmation.
+
+Current aggregator update: MuchFi V2 and MuchFi V3 are now active execution sources. V2 uses router `0xC653e745FC613a03D156DACB924AE8e9148B18dc`; V3 uses router `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` and quoter `0x5DE1Ea595653419f295511DEb781b98387a77cc2`. Blockscout ABI is still pending for these routers, so execution depends on on-chain selectors, relationship reads, typed local calldata builders, and runtime simulation.
 
 | Surface | Address | Validation |
 | --- | --- | --- |
 | V3 position NFT | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply `8`, unverified. |
 | V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by V3 position NFT `factory()`, `getPool(address,address,uint24)` works. |
 | V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by V3 factory `poolDeployer()`. |
-| V3 router candidate | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Unverified; deployer activity includes `exactInputSingle(...)` selector, but this is not enough for execution. |
+| V3 router | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Blockscout ABI pending; exact-input/exact-output selectors plus `factory()` and `WETH9()` reads are pinned for active aggregator execution with runtime simulation. |
 | V2-style factory | `0x7864071B532894216e3C045a74814EafEB92ae20` | `allPairsLength()` returned `2`; `getPair(address,address)` works. |
 
 V3 pools found:
@@ -151,7 +155,7 @@ Selectors and reads used:
 
 1. The architecture now treats CLAMM adapters as V1-critical because Barkswap and MuchFi's strongest surfaces are concentrated-liquidity style.
 2. MuchFi V2 remains in V1 because it is simple, visible, and useful for price comparison.
-3. The V1 solver target is best single executable route across Barkswap, MuchFi V2, MuchFi V3, and owned CLAMM.
+3. The V1 solver target is best single executable route across Barkswap, MuchFi V2, and MuchFi V3.
 4. One-hop and split routing are staged later, after execution, adapter health, and quote-vs-fill telemetry are reliable.
 5. SuchSwap and DogeBox remain watchlist-only until DogeOS or the DEX teams confirm canonical routing surfaces.
 
@@ -161,7 +165,7 @@ The repository plan now aligns with the standards shown by top aggregators:
 
 | Standard | Repository implication |
 | --- | --- |
-| Uniswap V3 concentrated liquidity uses custom price ranges, ticks, and fee tiers. | Owned DEX should be CLAMM-first, with LP range/fee guidance in the UX. |
+| Uniswap V3 concentrated liquidity uses custom price ranges, ticks, and fee tiers. | External V3-style adapters need deterministic tick, liquidity, and fee-tier tests before route execution. |
 | Uniswap V3 core is mature but license-sensitive. | Do not copy code blindly; select a clean licensed/auditable implementation path. |
 | 0x and Kyber separate quote, route scoring, fee logic, and transaction build. | Keep Quote API, Route Solver, Fee Estimator, and Router Contract separate. |
 | ParaSwap DexLib requires state sync, pricing replication, calldata encoding, and E2E simulation per DEX. | Every DogeOS DEX adapter needs deterministic math tests and fork/testnet execution tests before routing real users. |

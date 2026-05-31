@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DogeOS Aggregator · ÐOGE·OS DEX</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="device-shell">
+        <span class="shell-screw shell-screw-tl" aria-hidden="true"></span>
+        <span class="shell-screw shell-screw-tr" aria-hidden="true"></span>
+        <span class="shell-screw shell-screw-bl" aria-hidden="true"></span>
+        <span class="shell-screw shell-screw-br" aria-hidden="true"></span>
+
+        <header class="topbar">
+          <a class="brand" href="/" aria-label="DogeOS DEX Aggregator home">
+            <span class="brand-mark" aria-hidden="true">Ð</span>
+            <span>ÐOGE·OS</span>
+            <small>aggregator</small>
+          </a>
+
+          <nav class="section-tabs" aria-label="App sections">
+            <button class="section-tab active" id="nav-swap" type="button" data-view="swap"><span>01</span>Swap</button>
+            <button class="section-tab" id="nav-tokens" type="button" data-view="tokens"><span>02</span>Tokens</button>
+            <button class="section-tab" id="nav-activity" type="button" data-view="activity"><span>03</span>Activity</button>
+            <button class="section-tab" id="nav-settings" type="button" data-view="settings"><span>04</span>Settings</button>
+          </nav>
+
+          <div class="top-actions">
+            <div class="chain-strip" aria-label="Network status">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="chain-label">Chikyū Testnet</span>
+              <span class="chain-id">6281971</span>
+            </div>
+            <button class="icon-button" id="refresh-data" type="button" aria-label="Refresh quotes">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6v5h-5"></path>
+                <path d="M4 18v-5h5"></path>
+                <path d="M19 11a7 7 0 0 0-11.8-4.1L4 10"></path>
+                <path d="M5 13a7 7 0 0 0 11.8 4.1L20 14"></path>
+              </svg>
+            </button>
+            <button class="wallet-button" id="connect-wallet" type="button">Connect</button>
+          </div>
+        </header>
+
+        <main class="workspace">
+          <section class="app-view active" id="view-swap" aria-labelledby="swap-title">
+            <div class="swap-layout">
+              <section class="swap-panel" aria-labelledby="swap-title">
+                <div class="panel-heading">
+                  <div>
+                    <p class="panel-kicker">single venue execution</p>
+                    <h1 id="swap-title">Swap</h1>
+                    <p id="quote-status">Loading live DogeOS sources</p>
+                  </div>
+                  <button class="chart-toggle" id="chart-toggle" type="button" aria-pressed="true">
+                    <span aria-hidden="true"></span>
+                    Chart
+                  </button>
+                </div>
+
+                <form id="swap-form" class="swap-form">
+                  <label class="field-block numbered-field" for="sell-amount">
+                    <span><b>01</b> You pay</span>
+                    <small id="sell-balance">balance loading</small>
+                    <div class="amount-row">
+                      <input id="sell-amount" name="sellAmount" type="text" inputmode="decimal" value="1" autocomplete="off">
+                      <button class="token-chip" id="sell-token-chip" type="button">Sell token</button>
+                      <select id="sell-token" name="sellToken" aria-label="Sell token"></select>
+                    </div>
+                  </label>
+
+                  <button class="swap-direction" id="flip-tokens" type="button" aria-label="Flip sell and buy tokens">
+                    <span aria-hidden="true">⇅</span>
+                  </button>
+
+                  <label class="field-block numbered-field" for="buy-amount">
+                    <span><b>02</b> You receive</span>
+                    <small id="quote-refresh-ring" class="quote-ring">live</small>
+                    <div class="amount-row amount-row-output">
+                      <input id="buy-amount" name="buyAmount" type="text" inputmode="decimal" value="" placeholder="0" autocomplete="off">
+                      <button class="token-chip" id="buy-token-chip" type="button">Buy token</button>
+                      <select id="buy-token" name="buyToken" aria-label="Buy token"></select>
+                    </div>
+                  </label>
+
+                  <div class="knob-grid" aria-label="Trade controls">
+                    <label class="knob-control" id="slippage-knob" for="slippage-bps">
+                      <span class="knob-face" aria-hidden="true"><i></i></span>
+                      <span class="knob-value" id="slippage-value">0.50%</span>
+                      <span class="knob-label">Slippage</span>
+                      <input id="slippage-bps" name="slippageBps" type="range" min="1" max="5000" step="1" value="50">
+                    </label>
+                    <div class="knob-control" id="gas-knob" aria-label="Gas priority">
+                      <span class="knob-face gas-face" aria-hidden="true"><i></i></span>
+                      <span class="knob-value" id="gas-priority-value">live</span>
+                      <span class="knob-label">Gas estimate</span>
+                    </div>
+                  </div>
+
+                  <div class="form-grid">
+                    <label for="recipient">
+                      <span>Recipient</span>
+                      <input id="recipient" name="recipient" type="text" value="" placeholder="Wallet address">
+                    </label>
+                  </div>
+
+                  <div class="actions">
+                    <button class="primary-button" id="quote-button" type="submit">Refresh</button>
+                    <button class="secondary-button" id="swap-button" type="button" disabled>Build swap</button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="market-panel" id="chart-panel" aria-labelledby="chart-title">
+                <div class="section-heading">
+                  <div>
+                    <p class="panel-kicker">pair signal</p>
+                    <h2 id="chart-title">Live route monitor</h2>
+                  </div>
+                  <button class="icon-button" id="chart-popout" type="button" aria-label="Open chart popout">⤢</button>
+                </div>
+                <div id="market-visual" class="market-visual" aria-label="Route comparison chart"></div>
+                <div class="market-stats">
+                  <span><b id="best-source-label">-</b><small>best venue</small></span>
+                  <span><b id="quote-latency-label">-</b><small>latency</small></span>
+                  <span><b id="source-issues-label">0</b><small>source issues</small></span>
+                </div>
+              </section>
+            </div>
+
+            <section class="routes-panel" aria-labelledby="routes-title">
+              <div class="section-heading">
+                <div>
+                  <p class="panel-kicker">best net output</p>
+                  <h2 id="routes-title">Routes</h2>
+                </div>
+                <span id="route-summary">No quote yet</span>
+              </div>
+              <div class="table-wrap">
+                <table id="route-table">
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Amount</th>
+                      <th>Limit</th>
+                      <th>DOGE fee</th>
+                      <th>Impact</th>
+                      <th>Status</th>
+                      <th>Link</th>
+                    </tr>
+                  </thead>
+                  <tbody id="route-rows"></tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <section class="app-view" id="view-tokens" aria-labelledby="tokens-title" hidden>
+            <section class="tokens-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="panel-kicker">official DogeOS assets</p>
+                  <h2 id="tokens-title">Tokens</h2>
+                </div>
+                <input class="panel-search" id="token-search" type="search" placeholder="Filter tokens">
+              </div>
+              <div id="token-list-view" class="token-list-view"></div>
+            </section>
+          </section>
+
+          <section class="app-view" id="view-activity" aria-labelledby="activity-title" hidden>
+            <section class="activity-panel">
+              <div class="section-heading">
+                <div>
+                  <p class="panel-kicker">local session</p>
+                  <h2 id="activity-title">Activity</h2>
+                </div>
+              </div>
+              <div id="activity-list" class="activity-list"></div>
+            </section>
+          </section>
+
+          <section class="app-view" id="view-settings" aria-labelledby="settings-title" hidden>
+            <div class="settings-grid">
+              <section class="timeline-panel" aria-labelledby="timeline-title">
+                <div class="section-heading">
+                  <div>
+                    <p class="panel-kicker">execution readiness</p>
+                    <h2 id="timeline-title">Readiness</h2>
+                  </div>
+                </div>
+                <ol id="timeline" class="timeline">
+                  <li class="done"><span></span><div><strong>Chain</strong><p>RPC chain ID verified</p></div></li>
+                  <li class="done"><span></span><div><strong>Quotes</strong><p>Live V2 and V3 quotes enabled</p></div></li>
+                  <li class="pending"><span></span><div><strong>ABI</strong><p>Blockscout verification pending</p></div></li>
+                  <li class="done"><span></span><div><strong>Execution</strong><p>Active route simulation enabled</p></div></li>
+                </ol>
+              </section>
+
+              <section class="sources-panel" aria-labelledby="sources-title">
+                <div class="section-heading">
+                  <div>
+                    <p class="panel-kicker">venue registry</p>
+                    <h2 id="sources-title">Sources</h2>
+                  </div>
+                  <span id="source-count">-</span>
+                </div>
+                <p id="verification-summary" class="verification-summary">Verification snapshot loading</p>
+                <div id="source-list" class="source-list"></div>
+              </section>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <nav class="bottom-nav" aria-label="Mobile app sections">
+        <button class="active" id="bottom-nav-swap" type="button" data-view="swap"><span>⇅</span>Swap</button>
+        <button id="bottom-nav-tokens" type="button" data-view="tokens"><span>◎</span>Tokens</button>
+        <button id="bottom-nav-activity" type="button" data-view="activity"><span>▸</span>Activity</button>
+        <button id="bottom-nav-settings" type="button" data-view="settings"><span>⚙</span>Settings</button>
+      </nav>
+    </div>
+
+    <div class="token-picker" id="token-picker" hidden>
+      <div class="modal-scrim" id="token-picker-scrim"></div>
+      <section class="token-picker-sheet" role="dialog" aria-modal="true" aria-labelledby="token-picker-title">
+        <span class="sheet-handle" aria-hidden="true"></span>
+        <div class="section-heading">
+          <div>
+            <p class="panel-kicker">verified assets</p>
+            <h2 id="token-picker-title">Select token</h2>
+          </div>
+          <button class="icon-button" id="token-picker-close" type="button" aria-label="Close token picker">×</button>
+        </div>
+        <input class="panel-search" id="token-picker-search" type="search" placeholder="Search symbol or address">
+        <div id="token-picker-list" class="token-picker-list"></div>
+      </section>
+    </div>
+
+    <div class="chart-popout" id="chart-popout-panel" hidden>
+      <div class="modal-scrim" id="chart-popout-scrim"></div>
+      <section class="chart-popout-sheet" role="dialog" aria-modal="true" aria-labelledby="chart-popout-title">
+        <div class="section-heading">
+          <div>
+            <p class="panel-kicker">expanded signal</p>
+            <h2 id="chart-popout-title">Route monitor</h2>
+          </div>
+          <button class="icon-button" id="chart-popout-close" type="button" aria-label="Close chart popout">×</button>
+        </div>
+        <div id="chart-popout-visual" class="market-visual large"></div>
+      </section>
+    </div>
+
+    <div id="sdk-wallet-root"></div>
+
+    <script src="/runtime-config.js"></script>
+    <script type="module" src="/main.jsx"></script>
+  </body>
+</html>

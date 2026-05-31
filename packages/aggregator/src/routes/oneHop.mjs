@@ -1,0 +1,121 @@
+function canCompose(firstLeg, secondLeg, viaToken) {
+  return (
+    firstLeg.buyToken === viaToken &&
+    secondLeg.sellToken === viaToken &&
+    firstLeg.amountOut === secondLeg.amountIn
+  );
+}
+
+function composeStatus(firstLeg, secondLeg) {
+  return firstLeg.status === "active" && secondLeg.status === "active" ? "active" : "readOnly";
+}
+
+function matchingChainId(firstLeg, secondLeg) {
+  return firstLeg.chainId === secondLeg.chainId ? firstLeg.chainId : undefined;
+}
+
+function earlierBlockNumber(firstLeg, secondLeg) {
+  if (firstLeg.blockNumber === undefined) return secondLeg.blockNumber;
+  if (secondLeg.blockNumber === undefined) return firstLeg.blockNumber;
+  return firstLeg.blockNumber < secondLeg.blockNumber ? firstLeg.blockNumber : secondLeg.blockNumber;
+}
+
+function combinedWarnings(firstLeg, secondLeg) {
+  return [...(firstLeg.warnings ?? []), ...(secondLeg.warnings ?? [])];
+}
+
+function legSummary(leg) {
+  return {
+    sourceId: leg.sourceId,
+    protocolType: leg.protocolType,
+    sellToken: leg.sellToken,
+    buyToken: leg.buyToken,
+    amountIn: leg.amountIn,
+    amountOut: leg.amountOut,
+  };
+}
+
+export function composeOneHopCandidates({ viaToken, firstLegQuotes, secondLegQuotes }) {
+  const candidates = [];
+
+  for (const firstLeg of firstLegQuotes) {
+    for (const secondLeg of secondLegQuotes) {
+      if (!canCompose(firstLeg, secondLeg, viaToken)) continue;
+
+      candidates.push({
+        routeType: "oneHop",
+        sourceId: `${firstLeg.sourceId}+${secondLeg.sourceId}`,
+        status: composeStatus(firstLeg, secondLeg),
+        chainId: matchingChainId(firstLeg, secondLeg),
+        sellToken: firstLeg.sellToken,
+        buyToken: secondLeg.buyToken,
+        viaToken,
+        amountIn: firstLeg.amountIn,
+        amountOut: secondLeg.amountOut,
+        gasUnits: firstLeg.gasUnits + secondLeg.gasUnits,
+        dataFinalityFeeWei: firstLeg.dataFinalityFeeWei + secondLeg.dataFinalityFeeWei,
+        ...(earlierBlockNumber(firstLeg, secondLeg) === undefined
+          ? {}
+          : { blockNumber: earlierBlockNumber(firstLeg, secondLeg) }),
+        quoteTimestampMs: Math.min(firstLeg.quoteTimestampMs, secondLeg.quoteTimestampMs),
+        ttlMs: Math.min(firstLeg.ttlMs, secondLeg.ttlMs),
+        warnings: combinedWarnings(firstLeg, secondLeg),
+        legs: [legSummary(firstLeg), legSummary(secondLeg)],
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function isUsableViaToken({ viaToken, sellToken, buyToken }) {
+  return viaToken && viaToken !== sellToken && viaToken !== buyToken;
+}
+
+export function createOneHopQuoteCandidateProvider({
+  enabled = false,
+  viaTokens = [],
+  directQuoteProvider,
+} = {}) {
+  return async function oneHopQuoteCandidateProvider(input) {
+    if (!enabled || typeof directQuoteProvider !== "function") return [];
+    if (input.quoteMode === "exactOutput") return [];
+
+    const candidates = [];
+    const usableViaTokens = viaTokens.filter((viaToken) =>
+      isUsableViaToken({
+        viaToken,
+        sellToken: input.sellToken,
+        buyToken: input.buyToken,
+      }),
+    );
+
+    for (const viaToken of usableViaTokens) {
+      const firstLegQuotes = await directQuoteProvider({
+        ...input,
+        buyToken: viaToken,
+      });
+      const secondLegQuoteGroups = await Promise.all(
+        firstLegQuotes.map((firstLeg) =>
+          directQuoteProvider({
+            ...input,
+            sellToken: viaToken,
+            amountIn: firstLeg.amountOut,
+          }),
+        ),
+      );
+
+      for (let index = 0; index < firstLegQuotes.length; index += 1) {
+        candidates.push(
+          ...composeOneHopCandidates({
+            viaToken,
+            firstLegQuotes: [firstLegQuotes[index]],
+            secondLegQuotes: secondLegQuoteGroups[index],
+          }),
+        );
+      }
+    }
+
+    return candidates;
+  };
+}

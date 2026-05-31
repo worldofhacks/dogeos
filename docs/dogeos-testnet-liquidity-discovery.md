@@ -49,13 +49,13 @@ Corrected DEX map: [dogeos-testnet-dex-map.md](./dogeos-testnet-dex-map.md)
 
 3. Barkswap-like position NFTs and factories expose real pools for official faucet token pairs, including USDT/WDOGE and USDC/WDOGE. Its contracts look Algebra-style rather than vanilla Uniswap V3.
 
-4. MuchFi is also visible on-chain. It has a V3 position NFT, a V3 factory with USDC/WDOGE and USDT/WDOGE pools, V2-style LP tokens for the same pairs, and a candidate V3 router call using `exactInputSingle`.
+4. MuchFi is also visible on-chain. It has a V3 position NFT, a V3 factory with USDC/WDOGE and USDT/WDOGE pools, V2-style LP tokens for the same pairs, and pinned V2/V3 routers used by the current aggregator.
 
-5. The likely Barkswap and MuchFi contracts are mostly unverified. We can discover factories and pools through RPC, but we should not ship execution until router/quoter contracts and ABIs are confirmed or verified.
+5. The likely Barkswap and MuchFi contracts are mostly unverified in Blockscout. The current aggregator still executes the active MuchFi V2, MuchFi V3, and Barkswap Algebra sources because their router selectors and relationship reads are verified on-chain, their typed calldata builders are pinned in the source registry, and swaps are simulated before wallet signing.
 
 6. Verified Vyper `router`, `pool`, `oracle`, and `lptoken` contracts exist, but their ABI shape suggests a non-standard pool/perps/structured product rather than a simple spot AMM. They should be reviewed with DogeOS/Derps context before inclusion.
 
-7. Three verified `univ2` contracts and one verified `univ2router` exist, but they live under `contracts/mock/`, include caller-gated swap behavior, and show no meaningful public routing activity. They are not V1 route candidates.
+7. Three verified `univ2` contracts and one verified `univ2router` exist, but they live under `contracts/mock/`, include caller-restricted swap behavior, and show no meaningful public routing activity. They are not V1 route candidates.
 
 8. Chainlink CCIP `Router` contracts are deployed and verified, but they are cross-chain messaging infrastructure. They are outside the current same-chain swap scope.
 
@@ -69,7 +69,7 @@ Corrected DEX map: [dogeos-testnet-dex-map.md](./dogeos-testnet-dex-map.md)
 
 Status: highest-priority spot DEX candidate.
 
-Confidence: medium-high that this is real DogeOS testnet spot liquidity; medium that it is Barkswap; low until router/quoter contracts are confirmed and verified.
+Confidence: medium-high that this is real DogeOS testnet spot liquidity; medium that it is Barkswap; medium for the pinned newer router/quoter because selector checks and relationship reads match, with Blockscout ABI still pending.
 
 Evidence:
 
@@ -103,7 +103,7 @@ Discovered pools:
 | `0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457` | USDC/WDOGE | `0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1` | Newer deployment; pool has token transfers/logs and callable CLAMM state. |
 | `0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457` | LAIKA/WDOGE | `0xd8E9B2cFBeF0EEeF0Ba409BdB81661BDCBEBbaF1` | Non-faucet token pair; useful for adapter validation, not default token list. |
 
-Observed positions in the newer position NFT include USDT/WDOGE, USDC/WDOGE, and LAIKA/WDOGE liquidity. This is enough to justify building a read-only Algebra-style discovery adapter first.
+Observed positions in the newer position NFT include USDT/WDOGE, USDC/WDOGE, and LAIKA/WDOGE liquidity. The newer deployment is now the active Barkswap Algebra source for the aggregator, with the older deployment retained only as discovery context.
 
 ### Barkswap Deep Dive Update
 
@@ -130,18 +130,18 @@ Factory ownership:
 
 Current Barkswap integration conclusion:
 
-1. We can confidently build read-only pool discovery for WDOGE/USDC and WDOGE/USDT.
-2. We cannot yet claim executable aggregator support because router and quoter contracts are not identified.
+1. We can confidently discover and quote WDOGE/USDC and WDOGE/USDT through the newer deployment.
+2. Executable aggregator support is enabled for the pinned Barkswap Algebra router and quoter, while Blockscout ABI remains pending.
 3. LBTC, WETH, and USD1 are official DogeOS faucet tokens, but no Barkswap-style pools were found for them in either factory during this pass.
 4. The older position manager contains many WDOGE/random-token pools. These should remain hidden behind token warnings until each token is verified.
 5. The likely Barkswap reward/gauge proxy at `0x772F5dF6EAD1c421c9A779812c4e173AD6342E9d` decoded to methods such as `distributeAll()`, `createGauge(address,uint256)`, `whitelist(address[])`, and `vote(uint256,address[],uint256[])`. This makes it more likely to be gauge/voting/reward infrastructure than a swap router.
 
-Open questions before execution:
+Open questions for production hardening:
 
 | Question | Why it matters |
 | --- | --- |
 | Which deployment is canonical: `0x88f730...` or `0x099F459...`? | We should not route across abandoned test deployments unless explicitly useful. |
-| What are the official swap router and quoter addresses? | Pool discovery is not enough; execution needs a trusted periphery path. |
+| Can Barkswap publicly confirm the pinned router and quoter addresses? | The aggregator already uses selector and relationship evidence; public confirmation would improve operator confidence. |
 | Are contracts intended to be verified on Blockscout? | Verification lowers integration risk and makes review easier for DogeOS engineering. |
 | Is the implementation Algebra Integral, a fork, or custom? | Quote math, fee model, tick spacing, and callback assumptions depend on this. |
 | Does Barkswap expect native DOGE wrapping/unwrapping in router flows? | The aggregator must handle native DOGE and WDOGE correctly. |
@@ -150,7 +150,7 @@ Open questions before execution:
 
 Status: second high-priority spot DEX candidate.
 
-Confidence: medium-high that MuchFi has real testnet spot liquidity; low until router/quoter contracts and ABIs are confirmed or verified.
+Confidence: medium-high that MuchFi has real testnet spot liquidity; medium that the pinned router/quoter contracts are correct because selector checks and relationship reads match, with Blockscout ABI still pending.
 
 This venue was surfaced after ecosystem input named MuchFi as one of the main DogeOS DEXes. A follow-up Blockscout and RPC pass found MuchFi contracts on-chain.
 
@@ -164,7 +164,9 @@ Evidence:
 | MuchFi V2-style factory | `0x7864071B532894216e3C045a74814EafEB92ae20` | `allPairsLength()` returned 2; `getPair(address,address)` returns MuchFi LP tokens. |
 | MuchFi LP | `0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4` | V2-style ERC-20 LP for USDC/WDOGE; `token0()`, `token1()`, and `getReserves()` work. |
 | MuchFi LP | `0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4` | V2-style ERC-20 LP for USDT/WDOGE; `token0()`, `token1()`, and `getReserves()` work. |
-| Candidate V3 router | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Unverified contract; deployer transactions include `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`. |
+| MuchFi V3 router | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Blockscout ABI pending; exact-input/exact-output selectors plus `factory()` and `WETH9()` relationship reads match the pinned MuchFi V3 deployment. |
+| MuchFi V3 quoter | `0x5DE1Ea595653419f295511DEb781b98387a77cc2` | QuoterV2-style exact-input and exact-output tuple quote selectors work against official-token pools. |
+| MuchFi V2 router | `0xC653e745FC613a03D156DACB924AE8e9148B18dc` | V2 router selectors plus `factory()` and `WETH()` relationship reads match the pinned MuchFi V2 deployment. |
 
 V3 pools found through `getPool(address,address,uint24)`:
 
@@ -192,8 +194,8 @@ Current MuchFi integration conclusion:
 1. MuchFi should be tracked as a real second DEX candidate, not merely an upcoming venue.
 2. MuchFi appears to have both V3-style concentrated-liquidity pools and V2-style LP/pair contracts on testnet.
 3. Like Barkswap, MuchFi currently appears to cover only WDOGE/USDC and WDOGE/USDT among the official faucet-token set.
-4. The router/quoter/periphery map still needs confirmation because contracts are unverified.
-5. The likely V3 router candidate is `0x54f7...`, but this must be confirmed before execution support.
+4. The router/quoter/periphery map is pinned in the source registry for execution and should still be confirmed publicly by the DEX team.
+5. Blockscout ABI verification remains the preferred provenance upgrade, but current execution is backed by selector evidence, relationship reads, typed builders, and runtime simulation.
 
 ### 2. Unverified Proxy Periphery Candidate
 
@@ -254,7 +256,7 @@ Confidence: high that these are fixtures, not real venues.
 
 | Contract | Address | Reason to exclude |
 | --- | --- | --- |
-| `univ2` | `0x04d031B63f0B6AFEe69e06564792222742BE9F03` | Verified Vyper mock at `contracts/mock/univ2.vy`; `swap` is caller-gated "for testnet"; transaction count was zero in discovery. |
+| `univ2` | `0x04d031B63f0B6AFEe69e06564792222742BE9F03` | Verified Vyper mock at `contracts/mock/univ2.vy`; `swap` is caller-restricted "for testnet"; transaction count was zero in discovery. |
 | `univ2` | `0x37be67906AF2F98B6d74284e47E423ae67FF8E2B` | Same mock pattern; no evidence of public liquidity. |
 | `univ2` | `0x77220D57A7E9FA55feeA4A603b72686C1Bd7Cdad` | Same mock pattern; token0/token1 are WDOGE/USDT, but source path is `contracts/mock/univ2.vy`. |
 | `univ2router` | `0x8569713F2C396d6F57775A37BF14d0ce529328FB` | Verified Vyper mock at `contracts/mock/univ2router.vy`; can return a simple quote but has zero transaction count and should not be treated as production liquidity. |
@@ -328,11 +330,11 @@ Token policy:
 | Challenge | Required response |
 | --- | --- |
 | Why are you calling this Algebra-style? | Because `poolByPair` works, Uniswap V3 `getPool`/`feeAmountTickSpacing` revert, NFT positions expose CLAMM-like position state, and pools expose `globalState`, `liquidity`, `fee`, `token0`, `token1`. |
-| Can you execute swaps safely yet? | Not yet. We need verified or confirmed router/quoter contracts and ABIs before execution. |
+| Can you execute swaps safely yet? | Yes for active MuchFi V2, MuchFi V3, and Barkswap Algebra direct routes. Execution uses the selected external venue router after source-registry provenance, relationship reads, typed calldata building, sender-aware simulation, and wallet signing. |
 | Are you relying on Blockscout names? | No. Names guide discovery only; RPC calls and contract behavior drive classification. |
-| How will you handle DogeOS fee differences? | Route scoring includes execution fee plus `L1GasPriceOracle` data/finality estimates. |
+| How will you handle DogeOS fee differences? | Route scoring includes execution fee plus per-route data/finality estimates from `L1GasPriceOracle.getL1Fee(bytes)`. |
 | What about reorgs? | Indexer buffers and analytics respect the documented 17-block reorg window. |
-| How do you avoid arbitrary calldata risk? | Typed adapters, allowlisted routers, on-chain min-out/deadline, and no user-supplied arbitrary calls in V1. |
+| How do you avoid arbitrary calldata risk? | Typed adapters pinned to source-registry routers, on-chain min-out/deadline, and no user-supplied arbitrary calls in V1. |
 
 ## Recommended V1 Discovery Architecture
 
@@ -378,8 +380,8 @@ Token policy:
                                     |
                                     v
          +--------------------------+---------------------------+
-         | Aggregator Router + UI/API                           |
-         | allowlisted adapters, min-out, deadlines, SDK wallet |
+         | Aggregator UI/API                                    |
+         | selected venue router, min-out, deadlines, SDK wallet |
          +------------------------------------------------------+
 ```
 
@@ -415,8 +417,8 @@ Token policy:
 
 ### P3: Execution
 
-1. Add only verified/confirmed routers to the on-chain allowlist.
-2. Enforce min-out, deadline, recipient, and adapter allowlist in the aggregator router.
+1. Add only verified/confirmed routers to the source registry.
+2. Build calldata only for the selected external venue router with min-out, deadline, and recipient bound into the transaction.
 3. Simulate every route before presenting it.
 4. Use DogeOS SDK for transaction submission and chain switching.
 5. Link every transaction and route component to Blockscout.
@@ -435,15 +437,15 @@ Token policy:
 | What is the canonical list of deployed DogeOS testnet DEXes and launchpads? | DogeOS ecosystem |
 | Are Barkswap contracts official or community/test deployments? | DogeOS ecosystem / Barkswap |
 | Which Barkswap factory should we treat as current? | Barkswap |
-| What are the Barkswap router and quoter addresses? | Barkswap |
+| Can Barkswap publicly confirm the pinned router `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e` and quoter `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D`? | Barkswap |
 | Are Barkswap contracts Algebra Integral, a fork, or custom? | Barkswap engineering |
 | Can contracts be verified on Blockscout? | Barkswap engineering |
 | Are LBTC, WETH, and USD1 expected to have Barkswap pools soon, or are they covered by another DEX? | DogeOS ecosystem / Barkswap |
 | Is there a canonical Barkswap subgraph/API/indexer, or should we index pools directly from logs and RPC? | Barkswap engineering |
 | Is `0x772F5dF6EAD1c421c9A779812c4e173AD6342E9d` Barkswap gauge/reward infrastructure, and should aggregators ignore it for swaps? | Barkswap engineering |
-| What are the canonical MuchFi V2 and V3 factory/router/quoter/position-manager addresses? | MuchFi engineering |
+| Can MuchFi publicly confirm the pinned V2 router, V3 router, V3 quoter, factories, and position manager? | MuchFi engineering |
 | Is MuchFi using vanilla Uniswap V2/V3 contracts, forks, or custom contracts? | MuchFi engineering |
-| Is `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` the MuchFi V3 swap router? | MuchFi engineering |
+| Can `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` be verified on Blockscout as the MuchFi V3 swap router? | MuchFi engineering |
 | Does MuchFi intend aggregators to use both V2-style and V3-style liquidity, or only one surface? | MuchFi engineering |
 | Can MuchFi contracts be verified on Blockscout? | MuchFi engineering |
 | Are the Vyper router/pool/oracle contracts associated with Derps? | DogeOS / Derps |
@@ -452,6 +454,6 @@ Token policy:
 
 ## Current Recommendation
 
-Build the first aggregator workstream around DogeOS-native discovery plus Barkswap and MuchFi read adapters only. Keep SuchSwap, DogeBox, and other DEX-like surfaces on a watchlist, but do not put them in V1 routing unless the DogeOS team explicitly confirms they should be supported. Do not ship execution until the router/quoter/periphery contracts are confirmed.
+Build the first aggregator workstream around DogeOS-native discovery plus active Barkswap and MuchFi execution adapters. Keep SuchSwap, DogeBox, and other DEX-like surfaces on a watchlist, but do not put them in V1 routing unless the DogeOS team explicitly confirms they should be supported. New execution sources require pinned router/quoter/periphery contracts, ABI provenance, selector checks, relationship reads, typed calldata builders, and runtime simulation.
 
 This path uses what DogeOS already provides: official RPC, Blockscout, faucet tokens, DogeOS SDK, DOGE-native fee semantics, and documented finality behavior. It also gives DogeOS leadership a clear, thoughtful answer: we are not blindly forking 1inch; we are building the routing layer around the actual chain, actual deployed liquidity, and the parts of DogeOS that generic EVM aggregators will miss.

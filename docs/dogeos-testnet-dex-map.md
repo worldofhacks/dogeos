@@ -2,7 +2,7 @@
 
 Research date: 2026-05-01
 
-Latest validation update: 2026-05-04, block `4668058`
+Latest validation update: 2026-05-31, live quote smoke on DogeOS RPC
 
 This is the current source-of-truth map for DogeOS Chikyū Testnet swap venues visible from the official RPC and Blockscout.
 
@@ -20,7 +20,7 @@ The corrected discovery process now scans:
 1. Official DogeOS docs and faucet token list.
 2. Blockscout verified contracts.
 3. Blockscout ERC-20, ERC-721, and ERC-1155 token names.
-4. DEX-ish names: `swap`, `dex`, `lp`, `pair`, `pool`, `position`, `v2`, `v3`, `uniswap`, `algebra`, `bark`, `much`, `munch`, `such`, `aero`, `velo`, `pancake`, `sushi`, `curve`, `balancer`, `launch`, `bond`.
+4. DEX-ish names: `swap`, `dex`, `lp`, `pair`, `pool`, `position`, `v2`, `v3`, `uniswap`, `algebra`, `bark`, `much`, `munch`, `such`, `aero`, `velo`, `sushi`, `curve`, `balancer`, `launch`, `bond`.
 5. RPC probes against candidate contracts:
    - ERC-20/721 metadata and total supply.
    - V2-style `factory()`, `token0()`, `token1()`, `getReserves()`.
@@ -60,7 +60,7 @@ DogeOS Chikyū Testnet
 |   |
 |   +-- Algebra-style CLAMM candidate
 |   +-- Official pairs: WDOGE/USDC, WDOGE/USDT
-|   +-- Status: V1 integration target, router/quoter unconfirmed
+|   +-- Status: active V1 execution source through pinned Algebra router/quoter
 |
 +-- MuchFi
 |   |
@@ -69,13 +69,7 @@ DogeOS Chikyū Testnet
 |   |
 |   +-- V2-style constant-product candidate
 |       +-- Official pairs: WDOGE/USDC, WDOGE/USDT
-|   +-- Status: V1 integration target, router/quoter unconfirmed
-|
-+-- Owned CLAMM
-|   |
-|   +-- Planned Uniswap V3-style DogeOS-native DEX
-|   +-- Initial target pairs: WDOGE/USDC, WDOGE/USDT
-|   +-- Status: V1 planned source, contracts not deployed yet
+|   +-- Status: active V1 execution source through pinned V2/V3 routers and V3 quoter
 |
 +-- SuchSwap
 |   |
@@ -118,6 +112,9 @@ Contracts:
 | Older factory | `0x88f7307dD42E603c2B4DDD1BFcc5cBe55A5Ed263` | Returned by older position manager `factory()`. |
 | Newer position manager | `0x4Bb4A5CF44028519908D6B4A90C570fEaA8c9a07` | `Barkswap Positions NFT-V2`, 10 total supply seen on 2026-05-04. |
 | Newer factory | `0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457` | Returned by newer position manager `factory()`. |
+| Newer pool deployer | `0xeb4E9b84990C7c07D5205D35647A29de1B33dE7e` | Returned by Barkswap router/quoter `poolDeployer()`. |
+| Newer Algebra router | `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e` | Exposes `exactInputSingle((address,address,address,address,uint256,uint256,uint256,uint160))`; active through typed calldata plus runtime swap simulation. |
+| Newer Algebra quoter | `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D` | `quoteExactInputSingle((address,address,address,uint256,uint160))` returns live official-token quotes with zero deployer sentinel. |
 | Gauge/reward candidate | `0x772F5dF6EAD1c421c9A779812c4e173AD6342E9d` | Methods decode to voting/gauge/distribution style, not swap router. |
 
 Official pools:
@@ -140,12 +137,10 @@ Position summary:
 | `0xeA672...` | USDC/WDOGE | 3 |
 | `0xeA672...` | Many random token/WDOGE positions | Many |
 
-Missing:
+Still missing:
 
-- Confirmed router.
-- Confirmed quoter.
-- Canonical deployment choice between older and newer contracts.
-- Verified source/ABI.
+- Blockscout verified source or venue-published ABI artifact.
+- Confirmation that older deployment should remain excluded from routing.
 
 ## MuchFi
 
@@ -166,8 +161,10 @@ Contracts:
 | V3 position manager | `0x7932C91f3BAD326ecd6C2bE81697D732714B9eC5` | `MuchFi V3 Positions NFT-V1`, total supply seen at 8 on 2026-05-04. |
 | V3 factory | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | Returned by V3 position manager `factory()`. |
 | V3 pool deployer | `0x6c04e808d5FfFb597cb6a5b539f2a1dDF3529348` | Returned by V3 factory `poolDeployer()`. |
-| V3 router candidate | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Deployer transactions include `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`. |
+| V3 router | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | Exposes `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))`, `factory()`, and `WETH9()`; active through typed calldata plus runtime swap simulation. |
+| V3 quoter | `0x5DE1Ea595653419f295511DEb781b98387a77cc2` | QuoterV2-style `quoteExactInputSingle((address,address,uint256,uint24,uint160))`; live quotes verified against official-token pools. |
 | V2-style factory | `0x7864071B532894216e3C045a74814EafEB92ae20` | `allPairsLength()` returned 2. |
+| V2-style router | `0xC653e745FC613a03D156DACB924AE8e9148B18dc` | `factory()` returns MuchFi V2 factory and `WETH()` returns WDOGE; active through typed calldata plus runtime swap simulation. |
 | V2-style USDC/WDOGE pair | `0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4` | `MuchFi LPs`, `getReserves()` works. |
 | V2-style USDT/WDOGE pair | `0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4` | `MuchFi LPs`, `getReserves()` works. |
 
@@ -200,13 +197,12 @@ Position summary:
 | `0x7932...` | USDC/WDOGE | 7 |
 | `0x7932...` | USDT/WDOGE | 1 |
 
-Missing:
+Still missing for strict audit provenance:
 
-- Confirmed router address.
-- Confirmed quoter address.
-- Confirmation whether aggregators should route through V2, V3, or both.
+- Blockscout verified source or venue-published ABI artifact.
 - Confirmation which MuchFi CLMM fee tiers should be considered canonical for routing.
-- Verified source/ABI.
+
+Live quote smoke on 2026-05-31 for `1 USDC -> WDOGE` returned active executable route candidates from MuchFi V2, MuchFi V3, and Barkswap Algebra. `/swap` still runs sender-aware simulation, gas estimation, data/finality fee resolution, and balance preflight before returning a transaction for wallet signing.
 
 ## SuchSwap
 
@@ -298,9 +294,9 @@ Ask these as confirmation, not as blind discovery questions.
 
 ## Current Integration Priority
 
-1. MuchFi V2 read adapter: simplest reserve-based integration if confirmed.
-2. MuchFi V3 read adapter: standard V3-style if ABI/source confirms compatibility.
-3. Barkswap Algebra-style read adapter: pool discovery and state reads are already visible.
+1. MuchFi V2 execution adapter: active for live quotes and typed calldata through pinned router `0xC653e745FC613a03D156DACB924AE8e9148B18dc`.
+2. MuchFi V3 execution adapter: active for live quotes and typed calldata through pinned router `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` and quoter `0x5DE1Ea595653419f295511DEb781b98387a77cc2`.
+3. Barkswap Algebra execution adapter: active for live quotes and typed calldata through pinned router `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e` and quoter `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D`.
 4. Keep SuchSwap, DogeBox, and other LP surfaces in watchlist discovery only.
 
-Do not ship execution support for any venue until router/quoter/periphery addresses are confirmed and ABIs are available or contracts are verified.
+Execution support requires router/quoter/periphery addresses in the source registry, ABI provenance, on-chain bytecode selector checks, relationship reads, typed calldata builders, and runtime simulation. Blockscout ABI verification remains the preferred provenance upgrade, but the current active venues use committed `adapter-fragment` ABI artifacts plus typed local builders until Blockscout publishes ABI payloads.

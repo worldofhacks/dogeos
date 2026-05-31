@@ -1,0 +1,21 @@
+export const DOGEOS_CHAIN = {
+  id: 6_281_971,
+  idHex: "0x5fdaf3",
+  name: "DogeOS Chikyu Testnet",
+  nativeCurrency: {
+    name: "DogeOS DOGE",
+    symbol: "DOGE",
+    decimals: 18,
+  },
+  rpcUrls: ["https://rpc.testnet.dogeos.com"],
+  wsRpcUrls: ["wss://ws.rpc.testnet.dogeos.com"],
+  fallbackRpcUrls: ["https://dogeos-testnet-public.unifra.io/"],
+  blockscoutBaseUrl: "https://blockscout.testnet.dogeos.com",
+  l2scanBaseUrl: "https://dogeos-testnet.l2scan.co",
+  docsUrl: "https://docs.dogeos.com",
+  faucetUrl: "https://faucet.testnet.dogeos.com",
+  devPortalUrl: "https://portal.testnet.dogeos.com",
+  unifraConsoleUrl: "https://console.unifra.io/",
+  l1GasPriceOracle: "0x5300000000000000000000000000000000000002",
+  documentedMaxReorgDepth: 17,
+};

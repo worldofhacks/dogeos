@@ -1,0 +1,729 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
+import { OFFICIAL_DOGEOS_TOKENS } from "../../config/src/tokens.mjs";
+import { createAggregatorApiHandler } from "../src/handler.mjs";
+
+const now = 1_780_000_000_000;
+const [wdoge, , , , usdc] = OFFICIAL_DOGEOS_TOKENS;
+
+function jsonRequest(path, body) {
+  return new Request(`https://aggregator.local${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function candidate(overrides = {}) {
+  return {
+    routeType: "direct",
+    sourceId: "muchfi-v3",
+    status: "active",
+    chainId: DOGEOS_CHAIN.id,
+    sellToken: usdc.address,
+    buyToken: wdoge.address,
+    amountIn: 1_000_000n,
+    amountOut: 1_050_000n,
+    gasUnits: 120_000n,
+    dataFinalityFeeWei: 5_000n,
+    failurePenalty: 0n,
+    blockNumber: 5_200_000n,
+    quoteTimestampMs: now,
+    ttlMs: 5_000,
+    warnings: [],
+    ...overrides,
+  };
+}
+
+test("GET /sources and /tokens expose UI metadata without executable custom venue surfaces", async () => {
+  const handle = createAggregatorApiHandler({ nowMs: () => now });
+
+  const sourcesResponse = await handle(new Request("https://aggregator.local/sources"));
+  const sourcesBody = await sourcesResponse.json();
+
+  assert.equal(sourcesResponse.status, 200);
+  assert.equal(sourcesBody.chainId, DOGEOS_CHAIN.id);
+  assert.equal(sourcesBody.data.every((source) => source.ownership === "external"), true);
+  assert.equal(sourcesBody.data.some((source) => source.sourceId === "muchfi-v3"), true);
+
+  const tokensResponse = await handle(new Request("https://aggregator.local/tokens"));
+  const tokensBody = await tokensResponse.json();
+
+  assert.equal(tokensResponse.status, 200);
+  assert.deepEqual(
+    tokensBody.data.map((token) => [token.symbol, token.decimals]),
+    [
+      ["WDOGE", 18],
+      ["LBTC", 18],
+      ["WETH", 18],
+      ["USD1", 18],
+      ["USDC", 18],
+      ["USDT", 18],
+    ],
+  );
+});
+
+test("GET /verification exposes router and token provenance snapshots without quote work", async () => {
+  let quoteProviderCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    quoteCandidateProvider: async () => {
+      quoteProviderCalled = true;
+      return [];
+    },
+    verificationSnapshotProvider: async () => ({
+      checkedAt: "2026-05-31T00:00:00.000Z",
+      expectedChainId: "0x5fdaf3",
+      summary: {
+        chainMatches: true,
+        relationshipMismatches: [],
+        tokenDecimalMismatches: [],
+        hasBlockingMismatch: false,
+      },
+      tokens: [
+        {
+          symbol: "USDC",
+          address: usdc.address,
+          expectedDecimals: 18,
+          actualDecimals: 18,
+          matches: true,
+        },
+      ],
+      sources: [
+        {
+          sourceId: "muchfi-v3",
+          role: "router",
+          address: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          blockscoutUrl:
+            "https://blockscout.testnet.dogeos.com/api/v2/addresses/0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          blockscoutContract: {
+            hasAbi: false,
+          },
+          readChecks: [
+            {
+              label: "factory()",
+              matches: true,
+            },
+          ],
+          verification: {
+            status: "readOnly",
+            isBlockscoutAbiAvailable: false,
+          },
+        },
+      ],
+    }),
+  });
+
+  const response = await handle(new Request("https://aggregator.local/verification"));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(quoteProviderCalled, false);
+  assert.equal(body.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.data.expectedChainId, "0x5fdaf3");
+  assert.equal(body.data.summary.hasBlockingMismatch, false);
+  assert.equal(body.data.tokens[0].symbol, "USDC");
+  assert.equal(body.data.sources[0].sourceId, "muchfi-v3");
+  assert.equal(body.data.sources[0].verification.status, "readOnly");
+});
+
+test("GET /venues exposes contract addresses with Blockscout and adapter ABI provenance without quote work", async () => {
+  let quoteProviderCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    quoteCandidateProvider: async () => {
+      quoteProviderCalled = true;
+      return [];
+    },
+    verificationSnapshotProvider: async () => ({
+      checkedAt: "2026-05-31T00:00:00.000Z",
+      sources: [
+        {
+          sourceId: "muchfi-v3",
+          role: "router",
+          address: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          blockscoutSmartContractUrl:
+            "https://blockscout.testnet.dogeos.com/api/v2/smart-contracts/0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          blockscoutAbiEndpointUrl:
+            "https://blockscout.testnet.dogeos.com/api?module=contract&action=getabi&address=0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          blockscoutAbi: {
+            status: "0",
+            message: "Contract source code not verified",
+            hasAbi: false,
+            abiFunctionSignatures: [],
+          },
+          readChecks: [{ label: "factory()", matches: true }],
+          verification: {
+            status: "active",
+            hasBytecode: true,
+            hasAdapterAbiArtifact: true,
+            isBlockscoutAbiAvailable: false,
+            selectorMatches: ["0x04e45aaf", "0x5023b4df"],
+            reason: "Router passed bytecode, adapter ABI fragment, selector, and relationship checks.",
+          },
+          executionEvidence: {
+            status: "active",
+            executable: true,
+            abiProof: {
+              provenance: "adapter-fragment",
+              adapterAbiArtifactVerified: true,
+              blockscoutAbiAvailable: false,
+              artifactHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            onchainProof: {
+              bytecodePresent: true,
+              selectorMatches: ["0x04e45aaf", "0x5023b4df"],
+              readChecksPassed: 1,
+              readChecksTotal: 1,
+            },
+            blockscout: {
+              abiAvailable: false,
+            },
+          },
+          abiArtifact: {
+            kind: "adapter-fragment",
+            status: "verified",
+            issuer: "dogeos-aggregator-adapter",
+            sourceUri: "packages/aggregator/src/abi/adapterAbiArtifacts.mjs",
+            artifactHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            matchesTarget: true,
+            selectorMatches: ["0x04e45aaf", "0x5023b4df"],
+            verified: true,
+          },
+        },
+      ],
+    }),
+  });
+
+  const response = await handle(new Request("https://aggregator.local/venues"));
+  const body = await response.json();
+  const muchFiV3 = body.data.find((venue) => venue.sourceId === "muchfi-v3");
+  const router = muchFiV3.contracts.find((contract) => contract.role === "router");
+
+  assert.equal(response.status, 200);
+  assert.equal(quoteProviderCalled, false);
+  assert.equal(body.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.checkedAt, "2026-05-31T00:00:00.000Z");
+  assert.equal(muchFiV3.protocolType, "v3");
+  assert.equal(muchFiV3.execution.enabled, true);
+  assert.equal(router.address, "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB");
+  assert.equal(router.abiProvenance, "adapter-fragment");
+  assert.equal(router.blockscoutSmartContractUrl.endsWith(router.address), true);
+  assert.match(router.blockscoutAbiEndpointUrl, /module=contract&action=getabi/);
+  assert.equal(router.blockscoutAbi.status, "0");
+  assert.match(router.blockscoutAbi.message, /not verified/i);
+  assert.equal(router.verification.isBlockscoutAbiAvailable, false);
+  assert.equal(router.verification.hasAdapterAbiArtifact, true);
+  assert.deepEqual(router.verification.selectorMatches, ["0x04e45aaf", "0x5023b4df"]);
+  assert.equal(router.abiArtifact.issuer, "dogeos-aggregator-adapter");
+  assert.equal(router.abiArtifact.verified, true);
+  assert.deepEqual(router.readChecks, [{ label: "factory()", matches: true }]);
+  assert.equal(router.executionEvidence.executable, true);
+  assert.equal(router.executionEvidence.abiProof.provenance, "adapter-fragment");
+  assert.equal(router.executionEvidence.abiProof.adapterAbiArtifactVerified, true);
+  assert.equal(router.executionEvidence.blockscout.abiAvailable, false);
+});
+
+test("POST /quote returns gas-aware quote responses with bigint values serialized as strings", async () => {
+  let providerInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      providerInput = input;
+      return [
+        candidate({ sourceId: "muchfi-v2", amountOut: 1_000_000n, gasUnits: 100_000n }),
+        candidate(),
+      ];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+      includeSources: ["muchfi-v2", "muchfi-v3"],
+      excludeSources: [],
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(providerInput.amountIn, 1_000_000n);
+  assert.deepEqual(providerInput.includeSources, ["muchfi-v2", "muchfi-v3"]);
+  assert.equal(body.status, "ok");
+  assert.equal(body.best.sourceId, "muchfi-v3");
+  assert.equal(body.best.amountOut, "1050000");
+  assert.equal(body.best.minimumOutput, "1044750");
+  assert.equal(body.best.minAmountOut, "1044750");
+  assert.deepEqual(body.best.feeEstimate, {
+    executionFeeWei: "120000",
+    dataFinalityFeeWei: "5000",
+    totalFeeWei: "125000",
+  });
+  assert.equal(body.best.score.netOutput, "925000");
+  assert.deepEqual(body.alternatives[0].feeEstimate, {
+    executionFeeWei: "100000",
+    dataFinalityFeeWei: "5000",
+    totalFeeWei: "105000",
+  });
+  assert.equal(body.expiresAtMs, now + 5_000);
+});
+
+test("POST /quote returns timing telemetry for speed monitoring", async () => {
+  const timingMarks = [10, 12, 20, 25, 30];
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    timingNowMs: () => timingMarks.shift(),
+    preQuoteVerifier: async () => {},
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async () => [candidate()],
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.telemetry, {
+    quoteLatencyMs: 20,
+    preQuoteVerificationMs: 2,
+    candidateProviderMs: 8,
+    feeResolutionMs: 5,
+    routeScoringMs: 5,
+    candidateCount: 1,
+    executableCandidateCount: 1,
+    rejectedCandidateCount: 0,
+    sourceErrorCount: 0,
+    sourceErrors: [],
+  });
+});
+
+test("POST /quote exposes per-request source diagnostics from live providers", async () => {
+  let providerInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      providerInput = input;
+      input.quoteDiagnostics.push({
+        type: "source-error",
+        sourceId: "barkswap-algebra",
+        protocolType: "algebra",
+        message: "Source barkswap-algebra timed out after 1000ms.",
+      });
+      return [candidate()];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(Array.isArray(providerInput.quoteDiagnostics), true);
+  assert.equal(body.status, "ok");
+  assert.equal(body.telemetry.sourceErrorCount, 1);
+  assert.deepEqual(body.telemetry.sourceErrors, [
+    {
+      type: "source-error",
+      sourceId: "barkswap-algebra",
+      protocolType: "algebra",
+      message: "Source barkswap-algebra timed out after 1000ms.",
+    },
+  ]);
+});
+
+test("POST /quote accepts exact-output requests", async () => {
+  let providerInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      providerInput = input;
+      return [
+        candidate({
+          quoteMode: "exactOutput",
+          sourceId: "muchfi-v2",
+          amountIn: 1_050_000n,
+          amountOut: input.amountOut,
+          gasUnits: 100_000n,
+          dataFinalityFeeWei: 1_000n,
+        }),
+        candidate({
+          quoteMode: "exactOutput",
+          sourceId: "muchfi-v3",
+          amountIn: 1_000_000n,
+          amountOut: input.amountOut,
+          gasUnits: 120_000n,
+          dataFinalityFeeWei: 5_000n,
+        }),
+      ];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      quoteMode: "exactOutput",
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountOut: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(providerInput.quoteMode, "exactOutput");
+  assert.equal(providerInput.amountOut, 1_000_000n);
+  assert.equal(body.status, "ok");
+  assert.equal(body.best.sourceId, "muchfi-v3");
+  assert.equal(body.best.amountIn, "1000000");
+  assert.equal(body.best.maxAmountIn, "1005000");
+  assert.equal(body.best.score.totalInput, "1125000");
+});
+
+test("POST /quote rejects wrong-chain requests before provider work", async () => {
+  let providerCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    quoteCandidateProvider: async () => {
+      providerCalled = true;
+      return [];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: 1,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(providerCalled, false);
+  assert.equal(body.error.code, "wrong-chain");
+});
+
+test("POST /approval derives exact-output approval bounds from the quote before swap building", async () => {
+  let plannerInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    approvalPlanner: async (input) => {
+      plannerInput = input;
+      return {
+        approvalRequired: true,
+        allowance: 5n,
+        transaction: {
+          to: input.token,
+          data: "0x095ea7b3",
+          value: 0n,
+        },
+      };
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/approval", {
+      owner: "0x2222222222222222222222222222222222222222",
+      quote: {
+        quoteMode: "exactOutput",
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        amountOut: "900000",
+        maxAmountIn: "1050000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(plannerInput, {
+    token: usdc.address,
+    owner: "0x2222222222222222222222222222222222222222",
+    spender: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+    amount: 1_050_000n,
+  });
+  assert.equal(body.approvalRequired, true);
+  assert.equal(body.allowance, "5");
+  assert.deepEqual(body.transaction, {
+    to: usdc.address,
+    data: "0x095ea7b3",
+    value: "0",
+  });
+});
+
+test("POST /approval refuses inactive quotes before reading allowance", async () => {
+  let plannerCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    approvalPlanner: async () => {
+      plannerCalled = true;
+      return { approvalRequired: false, allowance: 0n };
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/approval", {
+      owner: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "readOnly",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(plannerCalled, false);
+  assert.equal(body.error.code, "approval-not-buildable");
+  assert.match(body.error.message, /not active/i);
+});
+
+test("POST /swap refuses inactive quotes before calldata is built", async () => {
+  let calldataCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => {
+      calldataCalled = true;
+      return "0x1234";
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      quote: {
+        sourceId: "muchfi-v3",
+        status: "readOnly",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(calldataCalled, false);
+  assert.equal(body.error.code, "swap-not-buildable");
+  assert.match(body.error.message, /not active/i);
+});
+
+test("POST /swap attaches on-chain simulation and gas estimates for active quotes", async () => {
+  let verifierInput;
+  let balanceInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => "0x38ed1739",
+    swapVerifier: async (input) => {
+      verifierInput = input;
+      return {
+        status: "simulated",
+        estimatedGas: 100_000n,
+        gasLimit: 120_000n,
+        gasBufferBps: 12_000n,
+        blockTag: "latest",
+      };
+    },
+    balanceVerifier: async (input) => {
+      balanceInput = input;
+      return {
+        status: "sufficient",
+        requiredSellAmount: 1_000_000n,
+        sellTokenBalance: 2_000_000n,
+        requiredNativeWei: 120_000n,
+        nativeBalance: 1_000_000n,
+      };
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(verifierInput.sender, "0x2222222222222222222222222222222222222222");
+  assert.equal(verifierInput.transaction.to, "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB");
+  assert.equal(verifierInput.quote.sourceId, "muchfi-v3");
+  assert.equal(balanceInput.sender, "0x2222222222222222222222222222222222222222");
+  assert.equal(balanceInput.verification.gasLimit, 120_000n);
+  assert.equal(body.transaction.gas, "120000");
+  assert.deepEqual(body.verification, {
+    status: "simulated",
+    estimatedGas: "100000",
+    gasLimit: "120000",
+    gasBufferBps: "12000",
+    blockTag: "latest",
+    balance: {
+      status: "sufficient",
+      requiredSellAmount: "1000000",
+      sellTokenBalance: "2000000",
+      requiredNativeWei: "120000",
+      nativeBalance: "1000000",
+    },
+  });
+});
+
+test("POST /swap refuses insufficient balances after simulation", async () => {
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => "0x38ed1739",
+    swapVerifier: async () => ({
+      status: "simulated",
+      estimatedGas: 100_000n,
+      gasLimit: 120_000n,
+      gasBufferBps: 12_000n,
+      blockTag: "latest",
+    }),
+    balanceVerifier: async () => {
+      throw new Error("Insufficient sell-token balance: required 1000000, available 999999.");
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.error.code, "swap-not-buildable");
+  assert.match(body.error.message, /insufficient sell-token balance/i);
+});
+
+test("POST /swap normalizes exact-output quote bounds before calldata building", async () => {
+  let builderInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: (quote) => {
+      builderInput = quote;
+      return "0x5023b4df";
+    },
+    swapVerifier: async () => ({
+      status: "simulated",
+      estimatedGas: 100_000n,
+      gasLimit: 120_000n,
+      gasBufferBps: 12_000n,
+      blockTag: "latest",
+    }),
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        quoteMode: "exactOutput",
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        amountOut: "900000",
+        maxAmountIn: "1050000",
+        minAmountOut: "900000",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(builderInput.quoteMode, "exactOutput");
+  assert.equal(builderInput.amountOut, 900_000n);
+  assert.equal(builderInput.maxAmountIn, 1_050_000n);
+});

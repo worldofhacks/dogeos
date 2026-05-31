@@ -59,7 +59,7 @@ All team-provided DeFi builder token addresses have bytecode and standard ERC-20
 
 ### Barkswap
 
-Status: confirmed V1 integration target for read adapters; execution remains blocked on router/quoter confirmation.
+Historical status at this pass: confirmed V1 integration target for read adapters; execution was blocked on router/quoter confirmation. Current aggregator update: Barkswap Algebra is now an active execution source through the newer pinned router `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e` and quoter `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D`.
 
 | Surface | Address | Validation |
 | --- | --- | --- |
@@ -90,11 +90,11 @@ Position summary:
 | Older `0xeA67...` | USDC/WDOGE | `3` |
 | Older `0xeA67...` | Random token/WDOGE | Many one-off positions |
 
-Conclusion: Barkswap still looks Algebra-style rather than vanilla Uniswap V3. The repo is correct to treat it as a high-priority read-adapter target and not yet an executable route.
+Historical conclusion at this pass: Barkswap still looked Algebra-style rather than vanilla Uniswap V3, and the repo treated it as a high-priority read-adapter target until router/quoter confirmation. Current aggregator update: Barkswap Algebra is now an active execution source through pinned router/quoter contracts, committed adapter ABI fragments, typed calldata builders, and runtime simulation.
 
 ### MuchFi
 
-Status: confirmed V1 integration target for read adapters; execution remains blocked on router/quoter confirmation.
+Historical status at this pass: confirmed V1 integration target for read adapters; execution was blocked on router/quoter confirmation. Current aggregator update: MuchFi V2 and MuchFi V3 are now active execution sources through pinned routers, a V3 quoter, committed adapter ABI fragments, typed calldata builders, and runtime simulation.
 
 | Surface | Address | Validation |
 | --- | --- | --- |
@@ -157,7 +157,7 @@ Two `DogeBox LP` contracts still exist, but neither is an official WDOGE/USDC or
 | MuchFi DEX discovery | Still accurate; older liquidity-discovery text was patched to include the `USDC/WDOGE:2500` V3 pool. |
 | SuchSwap / DogeBox treatment | Correct as watchlist-only. |
 | L2scan treatment | Correct to keep as provided but not source-of-record because root still returns HTTP `404`. |
-| Execution readiness | Correctly blocked on canonical router/quoter/source verification. |
+| Execution readiness | Historical note at this pass: waiting on canonical router/quoter/source verification. Current aggregator update: active direct execution uses pinned MuchFi V2, MuchFi V3, and Barkswap Algebra router/quoter provenance plus runtime simulation. |
 
 ## Remaining Questions
 
