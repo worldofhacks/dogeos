@@ -163,7 +163,7 @@ V1 executes directly through the selected verified venue router. Transaction bui
 | Chain config | DogeOS chain ID, RPCs, explorer, native token, fee oracle. |
 | Token registry | Official tokens, decimals, symbols, bytecode, provenance. |
 | Source registry | Venue metadata, protocol type, status, addresses, verification state. |
-| Verification service | Shared cached verifier for the CLI and `GET /verification`; confirms router bytecode, selector presence, relationship reads, token decimals, Blockscout contract status, Blockscout ABI payloads, target-bound adapter ABI fragments, and venue ABI artifacts before execution. |
+| Verification service | Shared cached verifier for the CLI and `GET /verification`; confirms router bytecode, selector presence, relationship reads, pinned pool token/state proof, token decimals, Blockscout contract status, Blockscout ABI payloads, target-bound adapter ABI fragments, and venue ABI artifacts before execution. |
 | Pool discovery | Finds pools/pairs and captures state by block. |
 | Quote adapters | Convert source-specific pool state into quote candidates. |
 | Fee estimator | Adds execution gas and DogeOS data/finality fee from static values, injected providers, or the default DogeOS `L1GasPriceOracle` reader. |
@@ -192,14 +192,14 @@ Execution requires all of the following:
 3. ABI provenance recorded. Current active routers use committed `adapter-fragment` ABI artifacts that are target-bound to the DogeOS router address, selector list, and function signatures. Blockscout-verified ABI/source or a venue-authorized ABI artifact remains the preferred upgrade path.
 4. Expected swap selector or typed method exists.
 5. Factory/router/quoter relationship reads match the registry, including `factory()`, `WETH()`, `WETH9()`, or `poolDeployer()` where applicable.
-6. Factory/pool relationship confirmed.
+6. Factory/pool relationship confirmed, including pinned pool `token0`, `token1`, and state-read checks for `getReserves()`, `slot0()`/`liquidity()`, or `globalState()`/`liquidity()`.
 7. Token decimals verified on-chain.
 8. Source can be simulated for representative swaps.
 9. `/swap` performs sender-aware `eth_call`, `eth_estimateGas`, exact-calldata data/finality fee resolution, and balance preflight before returning a transaction.
 10. Source status is `active`.
 11. Blockscout links are present for support and transparency.
 
-Recent live checks on 2026-05-31 confirmed DogeOS RPC chain ID `0x5fdaf3` and real live quotes from MuchFi V2, MuchFi V3, and Barkswap Algebra. MuchFi V2 router `0xC653e745FC613a03D156DACB924AE8e9148B18dc`, MuchFi V3 router `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB`, MuchFi V3 quoter `0x5DE1Ea595653419f295511DEb781b98387a77cc2`, Barkswap router `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e`, and Barkswap quoter `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D` have bytecode, expected selectors, and matching address-returning relationship reads. They are active executable venues; `/swap` still simulates and estimates gas with the connected sender before wallet signing.
+Recent live checks on 2026-06-01 confirmed DogeOS RPC chain ID `0x5fdaf3`, official token decimals, pinned main-pair pool token/state proofs, and real live quotes from MuchFi V2, MuchFi V3, and Barkswap Algebra. MuchFi V2 router `0xC653e745FC613a03D156DACB924AE8e9148B18dc`, MuchFi V3 router `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB`, MuchFi V3 quoter `0x5DE1Ea595653419f295511DEb781b98387a77cc2`, Barkswap router `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e`, and Barkswap quoter `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D` have bytecode, expected selectors, and matching address-returning relationship reads. They are active executable venues; `/swap` still simulates and estimates gas with the connected sender before wallet signing.
 
 ## Performance Strategy
 
@@ -252,11 +252,11 @@ Returns official and verified token metadata with source provenance.
 
 ### `GET /venues`
 
-Returns the operator-facing contract map grouped by source. Each venue includes router, factory, quoter, position-manager, pool-deployer, and known pool addresses where available, expected selectors, relationship-read expectations, execution blockers, committed adapter or venue ABI artifact metadata when present, the latest Blockscout ABI/bytecode status when live verification is available, and a per-contract `executionEvidence` summary. This endpoint exists so router/pair/quoter provenance is visible without running quote work.
+Returns the operator-facing contract map grouped by source. Each venue includes router, factory, quoter, position-manager, pool-deployer, and known pool addresses where available, expected selectors, relationship-read expectations, pinned pool state proof, execution blockers, committed adapter or venue ABI artifact metadata when present, the latest Blockscout ABI/bytecode status when live verification is available, and a per-contract `executionEvidence` summary. This endpoint exists so router/pair/quoter provenance is visible without running quote work.
 
 ### `GET /verification`
 
-Returns the latest verification snapshot for DogeOS source targets and official tokens. The response includes router/factory/quoter/pool roles, Blockscout URLs, Blockscout ABI availability, selector/read-check status, token decimal reads, per-contract `executionEvidence`, and a machine-readable summary. This endpoint is separate from `/quote` so provenance checks can be displayed or refreshed without slowing live quote paths.
+Returns the latest verification snapshot for DogeOS source targets and official tokens. The response includes router/factory/quoter/pool roles, Blockscout URLs, Blockscout ABI availability, selector/read-check status, pinned pool `poolStateCheck` data, token decimal reads, per-contract `executionEvidence`, and a machine-readable summary. This endpoint is separate from `/quote` so provenance checks can be displayed or refreshed without slowing live quote paths.
 
 ### `POST /quote`
 

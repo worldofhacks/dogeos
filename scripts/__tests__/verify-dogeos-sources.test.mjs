@@ -159,7 +159,7 @@ test("summarizeTokenDecimalCheck decodes ERC-20 decimals reads", () => {
   });
 });
 
-test("summarizeVerificationReport blocks chain, relationship, or token decimal mismatches", () => {
+test("summarizeVerificationReport blocks chain, relationship, token decimal, or pool mismatches", () => {
   const summary = summarizeVerificationReport({
     chainMatches: true,
     sources: [
@@ -177,6 +177,23 @@ test("summarizeVerificationReport blocks chain, relationship, or token decimal m
           },
         ],
       },
+      {
+        sourceId: "muchfi-v2",
+        role: "pool",
+        address: "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+        poolStateCheck: {
+          pair: "WDOGE/USDC",
+          expectedToken0: "0xd19d2ffb1c284668b7afe72cddae1baf3bc03925",
+          expectedToken1: "0xf6bdb158a5ddf77f1b83bc9074f6a472c58d78ae",
+          actualToken0: "0xf6bdb158a5ddf77f1b83bc9074f6a472c58d78ae",
+          actualToken1: "0xd19d2ffb1c284668b7afe72cddae1baf3bc03925",
+          tokenMatches: false,
+          stateSelector: "0x0902f1ac",
+          stateKind: "v2-reserves",
+          hasLiveLiquidity: true,
+          matches: false,
+        },
+      },
     ],
     tokens: [
       {
@@ -193,6 +210,7 @@ test("summarizeVerificationReport blocks chain, relationship, or token decimal m
   assert.equal(summary.hasBlockingMismatch, true);
   assert.equal(summary.relationshipMismatches.length, 1);
   assert.equal(summary.tokenDecimalMismatches.length, 1);
+  assert.equal(summary.poolMismatches.length, 1);
   assert.deepEqual(summary.relationshipMismatches[0], {
     sourceId: "muchfi-v3",
     role: "router",
@@ -209,6 +227,19 @@ test("summarizeVerificationReport blocks chain, relationship, or token decimal m
     expectedDecimals: 18,
     actualDecimals: 6,
     hasBytecode: true,
+    error: null,
+  });
+  assert.deepEqual(summary.poolMismatches[0], {
+    sourceId: "muchfi-v2",
+    role: "pool",
+    address: "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+    pair: "WDOGE/USDC",
+    expectedToken0: "0xd19d2ffb1c284668b7afe72cddae1baf3bc03925",
+    expectedToken1: "0xf6bdb158a5ddf77f1b83bc9074f6a472c58d78ae",
+    actualToken0: "0xf6bdb158a5ddf77f1b83bc9074f6a472c58d78ae",
+    actualToken1: "0xd19d2ffb1c284668b7afe72cddae1baf3bc03925",
+    stateKind: "v2-reserves",
+    hasLiveLiquidity: true,
     error: null,
   });
 
@@ -262,6 +293,7 @@ test("summarizeVerificationReport allows read-only sources with missing external
   assert.equal(summary.hasBlockingMismatch, false);
   assert.deepEqual(summary.relationshipMismatches, []);
   assert.deepEqual(summary.tokenDecimalMismatches, []);
+  assert.deepEqual(summary.poolMismatches, []);
 });
 
 test("buildBlockscoutAddressUrl points at the DogeOS testnet explorer", () => {

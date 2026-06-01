@@ -13,12 +13,14 @@ import {
 
 const router = "0x1111111111111111111111111111111111111111";
 const factory = "0x2222222222222222222222222222222222222222";
+const pool = "0x3333333333333333333333333333333333333333";
 const token = {
   symbol: "USDC",
   name: "USD Coin",
   address: "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
   decimals: 18,
 };
+const wdoge = "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE";
 
 function word(value) {
   return BigInt(value).toString(16).padStart(64, "0");
@@ -26,6 +28,10 @@ function word(value) {
 
 function addressResult(address) {
   return `0x${address.toLowerCase().slice(2).padStart(64, "0")}`;
+}
+
+function words(...values) {
+  return `0x${values.map((value) => word(value)).join("")}`;
 }
 
 const v3RouterAbi = [
@@ -52,9 +58,12 @@ const v3RouterAbi = [
 
 function verificationFetch({
   routerBytecode = "0x6080604052600438ed1739",
+  poolBytecode = "0x608060405260040dfe1681d21220a70902f1ac",
   addressPayload = { is_contract: true, is_verified: false },
   smartContractPayload = { status: "success", has_abi: false },
   abiPayload = { message: "Contract source code not verified", result: null, status: "0" },
+  poolToken0 = token.address,
+  poolToken1 = wdoge,
 } = {}) {
   const calls = [];
 
@@ -68,12 +77,22 @@ function verificationFetch({
         let result;
         if (body.method === "eth_chainId") result = "0x5fdaf3";
         if (body.method === "eth_getCode") {
-          result = body.params[0].toLowerCase() === router.toLowerCase() ? routerBytecode : "0x6000";
+          if (body.params[0].toLowerCase() === router.toLowerCase()) result = routerBytecode;
+          else if (body.params[0].toLowerCase() === pool.toLowerCase()) result = poolBytecode;
+          else result = "0x6000";
         }
         if (body.method === "eth_call") {
           const selector = body.params[0].data.slice(0, 10);
           if (selector === "0xc45a0155") result = addressResult(factory);
           if (selector === TOKEN_DECIMALS_SELECTOR) result = `0x${word(18n)}`;
+          if (selector === "0x0dfe1681") result = addressResult(poolToken0);
+          if (selector === "0xd21220a7") result = addressResult(poolToken1);
+          if (selector === "0x0902f1ac") result = words(1_000_000n, 2_000_000n, 123n);
+          if (selector === "0x3850c7bd") result = words(79_228_162_514_264_337_593_543_950_336n, 0n);
+          if (selector === "0xe76c01e4") {
+            result = words(79_228_162_514_264_337_593_543_950_336n, 0n, 300n);
+          }
+          if (selector === "0x1a686502") result = words(5_000_000n);
         }
         if (!result) throw new Error(`unexpected RPC call ${body.method}`);
 
@@ -159,8 +178,93 @@ test("createVerificationSnapshotProvider verifies sources, token decimals, and c
     chainMatches: true,
     relationshipMismatches: [],
     tokenDecimalMismatches: [],
+    poolMismatches: [],
     hasBlockingMismatch: false,
   });
+});
+
+test("createVerificationSnapshotProvider verifies pinned V2 pool token sides and live state", async () => {
+  const fetcher = verificationFetch();
+  const provider = createVerificationSnapshotProvider({
+    fetchFn: fetcher.fetchFn,
+    verificationTargets: [
+      {
+        sourceId: "muchfi-v2",
+        protocolType: "v2",
+        displayName: "MuchFi V2",
+        role: "pool",
+        address: pool,
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x0902f1ac"],
+        expectedPool: {
+          pair: "WDOGE/USDC",
+          token0: token.address,
+          token1: wdoge,
+        },
+      },
+    ],
+    tokens: [],
+  });
+
+  const report = await provider();
+
+  assert.equal(report.sources[0].poolStateCheck.matches, true);
+  assert.deepEqual(report.sources[0].poolStateCheck, {
+    pair: "WDOGE/USDC",
+    expectedToken0: token.address.toLowerCase(),
+    expectedToken1: wdoge.toLowerCase(),
+    actualToken0: token.address.toLowerCase(),
+    actualToken1: wdoge.toLowerCase(),
+    tokenMatches: true,
+    stateSelector: "0x0902f1ac",
+    stateKind: "v2-reserves",
+    rawState: words(1_000_000n, 2_000_000n, 123n),
+    reserve0: "1000000",
+    reserve1: "2000000",
+    hasLiveLiquidity: true,
+    matches: true,
+  });
+  assert.equal(report.sources[0].executionEvidence.onchainProof.poolStateVerified, true);
+  assert.equal(report.sources[0].executionEvidence.onchainProof.poolHasLiveLiquidity, true);
+  assert.deepEqual(report.summary.poolMismatches, []);
+  assert.equal(report.summary.hasBlockingMismatch, false);
+});
+
+test("createVerificationSnapshotProvider verifies pinned V3 pool token sides and live state", async () => {
+  const fetcher = verificationFetch({
+    poolBytecode: "0x608060405260040dfe1681d21220a73850c7bd1a686502",
+  });
+  const provider = createVerificationSnapshotProvider({
+    fetchFn: fetcher.fetchFn,
+    verificationTargets: [
+      {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        displayName: "MuchFi V3",
+        role: "pool",
+        address: pool,
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x3850c7bd", "0x1a686502"],
+        expectedPool: {
+          pair: "WDOGE/USDC",
+          token0: token.address,
+          token1: wdoge,
+          feeTier: 2500,
+        },
+      },
+    ],
+    tokens: [],
+  });
+
+  const report = await provider();
+
+  assert.equal(report.sources[0].poolStateCheck.matches, true);
+  assert.equal(report.sources[0].poolStateCheck.feeTier, 2500);
+  assert.equal(report.sources[0].poolStateCheck.stateKind, "v3-slot0");
+  assert.equal(report.sources[0].poolStateCheck.sqrtPriceX96, "79228162514264337593543950336");
+  assert.equal(report.sources[0].poolStateCheck.liquidity, "5000000");
+  assert.equal(report.sources[0].executionEvidence.onchainProof.poolStateVerified, true);
+  assert.equal(report.sources[0].executionEvidence.onchainProof.poolHasLiveLiquidity, true);
 });
 
 test("createVerificationSnapshotProvider refreshes after cache expiry", async () => {

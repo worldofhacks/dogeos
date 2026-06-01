@@ -12,6 +12,15 @@ export const BLOCKSCOUT_BASE_URL = DOGEOS_CHAIN.blockscoutBaseUrl;
 export const DOGEOS_CHAIN_ID_HEX = DOGEOS_CHAIN.idHex;
 export const TOKEN_DECIMALS_SELECTOR = "0x313ce567";
 
+const POOL_SELECTORS = Object.freeze({
+  token0: "0x0dfe1681",
+  token1: "0xd21220a7",
+  getReserves: "0x0902f1ac",
+  liquidity: "0x1a686502",
+  slot0: "0x3850c7bd",
+  globalState: "0xe76c01e4",
+});
+
 export function defaultVerificationTargets() {
   return listVerificationTargets();
 }
@@ -67,6 +76,94 @@ function decodeSafeIntegerResult(result, fieldName) {
   return asNumber;
 }
 
+function decodeUint256Word(result, wordIndex, fieldName) {
+  const normalized = String(result ?? "").toLowerCase();
+  const wordStart = 2 + wordIndex * 64;
+  const word = normalized.slice(wordStart, wordStart + 64);
+
+  if (!/^0x[0-9a-f]*$/.test(normalized) || word.length !== 64) {
+    throw new Error(`${fieldName} must contain ABI-encoded uint256 words.`);
+  }
+
+  return BigInt(`0x${word}`);
+}
+
+function poolStateShape(protocolType) {
+  if (protocolType === "v2") {
+    return {
+      selector: POOL_SELECTORS.getReserves,
+      kind: "v2-reserves",
+      needsLiquidityRead: false,
+    };
+  }
+
+  if (protocolType === "algebra") {
+    return {
+      selector: POOL_SELECTORS.globalState,
+      kind: "algebra-global-state",
+      needsLiquidityRead: true,
+    };
+  }
+
+  return {
+    selector: POOL_SELECTORS.slot0,
+    kind: "v3-slot0",
+    needsLiquidityRead: true,
+  };
+}
+
+function summarizePoolState({ source, rawToken0, rawToken1, rawState, rawLiquidity = null }) {
+  const expectedPool = source.expectedPool ?? {};
+  const expectedToken0 = normalizeAddress(expectedPool.token0, "expectedPool.token0");
+  const expectedToken1 = normalizeAddress(expectedPool.token1, "expectedPool.token1");
+  const actualToken0 = decodeAddressResult(rawToken0, "pool token0 result");
+  const actualToken1 = decodeAddressResult(rawToken1, "pool token1 result");
+  const tokenMatches = actualToken0 === expectedToken0 && actualToken1 === expectedToken1;
+  const stateShape = poolStateShape(source.protocolType);
+
+  if (source.protocolType === "v2") {
+    const reserve0 = decodeUint256Word(rawState, 0, "getReserves result");
+    const reserve1 = decodeUint256Word(rawState, 1, "getReserves result");
+
+    return {
+      pair: expectedPool.pair ?? null,
+      expectedToken0,
+      expectedToken1,
+      actualToken0,
+      actualToken1,
+      tokenMatches,
+      stateSelector: stateShape.selector,
+      stateKind: stateShape.kind,
+      rawState,
+      reserve0: reserve0.toString(),
+      reserve1: reserve1.toString(),
+      hasLiveLiquidity: reserve0 > 0n && reserve1 > 0n,
+      matches: tokenMatches,
+    };
+  }
+
+  const sqrtPriceX96 = decodeUint256Word(rawState, 0, `${stateShape.kind} result`);
+  const liquidity = decodeUint256Word(rawLiquidity, 0, "liquidity result");
+
+  return {
+    pair: expectedPool.pair ?? null,
+    ...(expectedPool.feeTier !== undefined ? { feeTier: expectedPool.feeTier } : {}),
+    expectedToken0,
+    expectedToken1,
+    actualToken0,
+    actualToken1,
+    tokenMatches,
+    stateSelector: stateShape.selector,
+    stateKind: stateShape.kind,
+    rawState,
+    rawLiquidity,
+    sqrtPriceX96: sqrtPriceX96.toString(),
+    liquidity: liquidity.toString(),
+    hasLiveLiquidity: sqrtPriceX96 > 0n && liquidity > 0n,
+    matches: tokenMatches,
+  };
+}
+
 export function summarizeReadCheck(check, rawResult) {
   const expectedAddress = normalizeAddress(check.expectedAddress, `${check.label} expectedAddress`);
   const actualAddress = decodeAddressResult(rawResult, `${check.label} result`);
@@ -94,6 +191,25 @@ export function summarizeTokenDecimalCheck(token, rawResult, options = {}) {
     rawResult,
     hasBytecode,
     matches: hasBytecode && actualDecimals === token.decimals,
+  };
+}
+
+function summarizePoolStateError(source, error) {
+  const expectedPool = source.expectedPool ?? {};
+  const stateShape = poolStateShape(source.protocolType);
+
+  return {
+    pair: expectedPool.pair ?? null,
+    expectedToken0: expectedPool.token0 ? normalizeAddress(expectedPool.token0, "expectedPool.token0") : null,
+    expectedToken1: expectedPool.token1 ? normalizeAddress(expectedPool.token1, "expectedPool.token1") : null,
+    actualToken0: null,
+    actualToken1: null,
+    tokenMatches: false,
+    stateSelector: stateShape.selector,
+    stateKind: stateShape.kind,
+    hasLiveLiquidity: false,
+    matches: false,
+    error: error.message,
   };
 }
 
@@ -300,6 +416,7 @@ export function buildExecutionEvidence({
   blockscoutAbi = null,
   abiArtifact = null,
   readChecks = [],
+  poolStateCheck = null,
   bytecodeSizeBytes = 0,
   verification = {},
 }) {
@@ -338,6 +455,16 @@ export function buildExecutionEvidence({
       readChecksPassed: passedReadChecks.length,
       readChecksTotal: readChecks.length,
       readCheckLabels: passedReadChecks.map((check) => check.label),
+      ...(poolStateCheck
+        ? {
+            poolPair: poolStateCheck.pair ?? null,
+            poolStateVerified: poolStateCheck.matches === true,
+            poolTokenMatches: poolStateCheck.tokenMatches === true,
+            poolStateKind: poolStateCheck.stateKind ?? null,
+            ...(poolStateCheck.feeTier !== undefined ? { poolFeeTier: poolStateCheck.feeTier } : {}),
+            poolHasLiveLiquidity: poolStateCheck.hasLiveLiquidity === true,
+          }
+        : {}),
     },
     blockscout: {
       addressUrl: blockscoutUrl,
@@ -411,6 +538,58 @@ async function verifyReadCheck({ source, check, rpcUrl, fetchFn }) {
       matches: false,
       error: error.message,
     };
+  }
+}
+
+async function verifyPoolStateCheck({ source, rpcUrl, fetchFn }) {
+  if (source.role !== "pool" || !source.expectedPool) return null;
+
+  const stateShape = poolStateShape(source.protocolType);
+
+  try {
+    const calls = [
+      rpc({
+        method: "eth_call",
+        params: [{ to: source.address, data: POOL_SELECTORS.token0 }, "latest"],
+        rpcUrl,
+        fetchFn,
+      }),
+      rpc({
+        method: "eth_call",
+        params: [{ to: source.address, data: POOL_SELECTORS.token1 }, "latest"],
+        rpcUrl,
+        fetchFn,
+      }),
+      rpc({
+        method: "eth_call",
+        params: [{ to: source.address, data: stateShape.selector }, "latest"],
+        rpcUrl,
+        fetchFn,
+      }),
+    ];
+
+    if (stateShape.needsLiquidityRead) {
+      calls.push(
+        rpc({
+          method: "eth_call",
+          params: [{ to: source.address, data: POOL_SELECTORS.liquidity }, "latest"],
+          rpcUrl,
+          fetchFn,
+        }),
+      );
+    }
+
+    const [rawToken0, rawToken1, rawState, rawLiquidity] = await Promise.all(calls);
+
+    return summarizePoolState({
+      source,
+      rawToken0,
+      rawToken1,
+      rawState,
+      rawLiquidity,
+    });
+  } catch (error) {
+    return summarizePoolStateError(source, error);
   }
 }
 
@@ -490,9 +669,14 @@ export async function verifySource(source, options = {}) {
     fetchOptionalJson(fetchFn, blockscoutSmartContractUrl),
     fetchOptionalJson(fetchFn, blockscoutAbiEndpointUrl),
   ]);
-  const readChecks = await Promise.all(
-    (source.expectedReadChecks ?? []).map((check) => verifyReadCheck({ source, check, rpcUrl, fetchFn })),
-  );
+  const [readChecks, poolStateCheck] = await Promise.all([
+    Promise.all(
+      (source.expectedReadChecks ?? []).map((check) =>
+        verifyReadCheck({ source, check, rpcUrl, fetchFn }),
+      ),
+    ),
+    verifyPoolStateCheck({ source, rpcUrl, fetchFn }),
+  ]);
   const blockscoutAbi = summarizeBlockscoutAbi(blockscoutAbiBody ?? {});
   const blockscoutContract = mergeBlockscoutContractSummary(
     summarizeBlockscoutContract(blockscoutContractBody ?? {}),
@@ -521,6 +705,7 @@ export async function verifySource(source, options = {}) {
     blockscoutAbi,
     abiArtifact,
     readChecks,
+    poolStateCheck,
     bytecodeSizeBytes: Math.max(0, (bytecode.length - 2) / 2),
     verification,
     executionEvidence: buildExecutionEvidence({
@@ -532,6 +717,7 @@ export async function verifySource(source, options = {}) {
       blockscoutAbi,
       abiArtifact,
       readChecks,
+      poolStateCheck,
       bytecodeSizeBytes: Math.max(0, (bytecode.length - 2) / 2),
       verification,
     }),
@@ -563,13 +749,32 @@ export function summarizeVerificationReport(report) {
       hasBytecode: token.hasBytecode === true,
       error: token.error ?? null,
     }));
+  const poolMismatches = (report.sources ?? [])
+    .filter((source) => source.poolStateCheck && source.poolStateCheck.matches !== true)
+    .map((source) => ({
+      sourceId: source.sourceId,
+      role: source.role,
+      address: source.address,
+      pair: source.poolStateCheck.pair ?? null,
+      expectedToken0: source.poolStateCheck.expectedToken0 ?? null,
+      expectedToken1: source.poolStateCheck.expectedToken1 ?? null,
+      actualToken0: source.poolStateCheck.actualToken0 ?? null,
+      actualToken1: source.poolStateCheck.actualToken1 ?? null,
+      stateKind: source.poolStateCheck.stateKind ?? null,
+      hasLiveLiquidity: source.poolStateCheck.hasLiveLiquidity === true,
+      error: source.poolStateCheck.error ?? null,
+    }));
 
   return {
     chainMatches: report.chainMatches === true,
     relationshipMismatches,
     tokenDecimalMismatches,
+    poolMismatches,
     hasBlockingMismatch:
-      report.chainMatches !== true || relationshipMismatches.length > 0 || tokenDecimalMismatches.length > 0,
+      report.chainMatches !== true ||
+      relationshipMismatches.length > 0 ||
+      tokenDecimalMismatches.length > 0 ||
+      poolMismatches.length > 0,
   };
 }
 

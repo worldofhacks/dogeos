@@ -1,6 +1,6 @@
 # DogeOS Router Verification Runbook
 
-Status baseline: 2026-05-31
+Status baseline: 2026-06-01
 
 Use this runbook before enabling or reviewing executable swaps for any DogeOS DEX source.
 
@@ -12,7 +12,7 @@ Run the dependency-free verification script:
 node scripts/verify-dogeos-sources.mjs
 ```
 
-The command prints machine-readable `tokens`, `sources`, and `summary` sections. It exits nonzero when the DogeOS chain ID is wrong, an expected address-returning relationship read mismatches the registry, or an official token `decimals()` read differs from the committed token registry. Missing Blockscout ABI/source proof is still reported on each source, but active first-pass routers execute through committed `adapter-fragment` ABI artifacts, selector evidence, typed local builders, and runtime `/swap` simulation.
+The command prints machine-readable `tokens`, `sources`, and `summary` sections. It exits nonzero when the DogeOS chain ID is wrong, an expected address-returning relationship read mismatches the registry, a pinned pool's token sides or state read mismatch the registry, or an official token `decimals()` read differs from the committed token registry. Missing Blockscout ABI/source proof is still reported on each source, but active first-pass routers execute through committed `adapter-fragment` ABI artifacts, selector evidence, typed local builders, and runtime `/swap` simulation.
 
 Run its tests:
 
@@ -22,7 +22,7 @@ node --test scripts/__tests__/verify-dogeos-sources.test.mjs
 
 The API exposes verification snapshots through `GET /verification`. Keep that route backed by a cached or injected verifier snapshot in production so `/quote` remains optimized for live routing latency.
 
-Each verified source target now includes an `executionEvidence` object. That object is the concise operator contract for provenance: it states whether the contract is executable, which ABI proof type is present, whether Blockscout ABI/source is available, whether a target-bound adapter or venue artifact is verified, which selectors matched bytecode, how many relationship reads passed, and the Blockscout URLs used for the check. Use this summary for UI/operator display instead of inferring readiness from scattered fields.
+Each verified source target now includes an `executionEvidence` object. That object is the concise operator contract for provenance: it states whether the contract is executable, which ABI proof type is present, whether Blockscout ABI/source is available, whether a target-bound adapter or venue artifact is verified, which selectors matched bytecode, how many relationship reads passed, pinned pool token/state proof when applicable, and the Blockscout URLs used for the check. Use this summary for UI/operator display instead of inferring readiness from scattered fields.
 
 ## Verification Inputs
 
@@ -40,6 +40,7 @@ For each source, record:
 - Blockscout smart-contract ABI availability: `blockscoutContract.hasAbi`
 - Blockscout direct ABI endpoint URL and response: `blockscoutAbiEndpointUrl`, `blockscoutAbi.status`, `blockscoutAbi.message`, and `blockscoutAbi.abiFunctionSignatures`
 - adapter ABI fragment or venue ABI artifact metadata, when Blockscout ABI/source verification is unavailable
+- pinned pool expectation, when applicable: pair label, token0, token1, fee tier, and state selector family
 - official-token `decimals()` read result for WDOGE, LBTC, WETH, USD1, USDC, and USDT
 - last checked block or timestamp
 
@@ -73,7 +74,8 @@ For each source, record:
    - V2: reserves and token ordering
    - V3: `slot0`, liquidity, fee tier, token ordering
    - Algebra-style: `globalState`, liquidity, fee, token ordering
-6. Store pool address and Blockscout links in the source registry.
+6. Confirm `poolStateCheck.matches` is true in `GET /verification` or `npm run verify:sources`; `poolStateCheck.hasLiveLiquidity` is reported separately for operator visibility.
+7. Store pool address and Blockscout links in the source registry.
 
 ## Token Checks
 
@@ -130,19 +132,26 @@ The live `/quote` path must return timing telemetry with total quote latency, pr
 
 ## Current Live Snapshot
 
-The 2026-05-31 live verification run showed:
+The 2026-06-01 live verification run showed:
 
 | Source | Address | Role | Result |
 | --- | --- | --- | --- |
 | MuchFi V3 | `0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB` | router | Bytecode exists, `adapter-fragment` ABI artifact is verified, `0x04e45aaf` selector appears, and `factory()`/`WETH9()` match the registry; source status is `active` with runtime swap simulation. |
 | MuchFi V3 | `0x5DE1Ea595653419f295511DEb781b98387a77cc2` | quoter | Bytecode exists, QuoterV2 selector `0xc6a5026a` returns live official-token quotes, and `factory()`/`WETH9()` match the registry. |
 | MuchFi V3 | `0x7d175e06570CaFA1cfDF060850b84E0Ca23EfF0B` | factory | Bytecode exists and `poolDeployer()` matches the registry; not execution-capable by itself. |
+| MuchFi V3 | `0x4F1c638952a23DB25a13167B83810201c4BC7299` | pool | `token0`, `token1`, `slot0()`, and `liquidity()` match the pinned WDOGE/USDC 500-fee pool metadata and report live liquidity. |
+| MuchFi V3 | `0xBeD5EE59C0b913468253f3bb1021f2DeE5426ecC` | pool | `token0`, `token1`, `slot0()`, and `liquidity()` match the pinned WDOGE/USDC 2500-fee pool metadata and report live liquidity. |
+| MuchFi V3 | `0x64A2683ae2995E1ca89FECA0c9ffc9056EF0504F` | pool | `token0`, `token1`, `slot0()`, and `liquidity()` match the pinned WDOGE/USDT 500-fee pool metadata and report live liquidity. |
 | MuchFi V2 | `0xC653e745FC613a03D156DACB924AE8e9148B18dc` | router | Bytecode exists, `adapter-fragment` ABI artifact is verified, V2 swap selectors are present, and `factory()`/`WETH()` match the registry; source status is `active` with runtime swap simulation. |
 | MuchFi V2 | `0x7864071B532894216e3C045a74814EafEB92ae20` | factory | Bytecode exists, not execution-capable by itself. |
+| MuchFi V2 | `0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4` | pool | `token0`, `token1`, and `getReserves()` match the pinned WDOGE/USDC pool metadata and report live liquidity. |
+| MuchFi V2 | `0x1498200A5D49081D8E55250aFeb13aAf3c1d9AE4` | pool | `token0`, `token1`, and `getReserves()` match the pinned WDOGE/USDT pool metadata and report live liquidity. |
 | Barkswap | `0x77147f436cE9739D2A54Ffe428DBe02b90c0205e` | router | Bytecode exists, `adapter-fragment` ABI artifact is verified, `0x1679c792` selector appears, and `factory()`/`poolDeployer()` match the registry; source status is `active` with runtime swap simulation. |
 | Barkswap | `0xcEF56157baaB2Fe9D16ccF0eB4a9Df354380257D` | quoter | Bytecode exists, Algebra quoter selector `0xe94764c4` returns live official-token quotes, and `factory()`/`poolDeployer()` match the registry. |
 | Barkswap | `0x099F459D81ce99aD3eCE1Ca2c77d9869883d2457` | factory | Bytecode exists and `poolDeployer()` matches the registry; not execution-capable by itself. |
 | Barkswap | `0x88f7307dD42E603c2B4DDD1BFcc5cBe55A5Ed263` | factory | Bytecode exists, not execution-capable by itself. |
+| Barkswap | `0x9389992E65Ac233156bfd1bCB5a2CBA0A22D55B1` | pool | `token0`, `token1`, `globalState()`, and `liquidity()` match the pinned WDOGE/USDC Algebra pool metadata and report live liquidity. |
+| Barkswap | `0x5DC3eB0e452f464e134F854EAeDf9431B93Da624` | pool | `token0`, `token1`, `globalState()`, and `liquidity()` match the pinned WDOGE/USDT Algebra pool metadata and report live liquidity. |
 
 ## Enablement Rule
 

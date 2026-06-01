@@ -525,11 +525,29 @@ export function listVenueContracts() {
 
 export function listVerificationTargets() {
   return SOURCES.flatMap((source) =>
-    source.verificationTargets.map((target) => ({
-      sourceId: source.sourceId,
-      protocolType: source.protocolType,
-      displayName: source.displayName,
-      ...target,
-    })),
+    source.verificationTargets.map((target) => {
+      const pool = target.role === "pool"
+        ? (source.pools ?? []).find(
+            (candidate) => candidate.address.toLowerCase() === target.address.toLowerCase(),
+          )
+        : null;
+
+      return {
+        sourceId: source.sourceId,
+        protocolType: source.protocolType,
+        displayName: source.displayName,
+        ...target,
+        ...(pool
+          ? {
+              expectedPool: {
+                pair: pool.pair,
+                token0: pool.token0,
+                token1: pool.token1,
+                ...(pool.feeTier !== undefined ? { feeTier: pool.feeTier } : {}),
+              },
+            }
+          : {}),
+      };
+    }),
   ).map((target) => structuredClone(target));
 }
