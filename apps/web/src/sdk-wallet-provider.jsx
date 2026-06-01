@@ -7,6 +7,7 @@ import {
 } from "@dogeos/dogeos-sdk";
 import "@dogeos/dogeos-sdk/style.css";
 
+import { switchInjectedProviderToDogeOS } from "./injected-wallet.js";
 import { DOGEOS_CHIKYU_TESTNET, dogeConfig, mergeDogeosChains } from "./sdkConfig.js";
 
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
@@ -22,6 +23,9 @@ function publishWalletReady() {
 
 function parseChainId(value) {
   if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string" && /^eip155:\d+$/i.test(value)) {
+    return BigInt(value.split(":")[1]);
+  }
   try {
     return BigInt(String(value));
   } catch {
@@ -48,10 +52,14 @@ function DogeOSSdkWalletBridge() {
       }),
     [account.switchChain],
   );
+  const openDogeosWalletModal = useCallback(async () => {
+    await switchInjectedProviderToDogeOS();
+    wallet.openModal();
+  }, [wallet.openModal]);
 
   useEffect(() => {
     const bridge = {
-      openModal: () => wallet.openModal(),
+      openModal: openDogeosWalletModal,
       disconnect: () => wallet.disconnect(),
       switchToDogeOS,
       getAddress: () => account.address ?? "",
@@ -84,12 +92,12 @@ function DogeOSSdkWalletBridge() {
     account.chainId,
     account.chainType,
     account.currentProvider,
+    openDogeosWalletModal,
     switchToDogeOS,
     wallet.disconnect,
     wallet.error,
     wallet.isConnected,
     wallet.isConnecting,
-    wallet.openModal,
   ]);
 
   useEffect(() => {

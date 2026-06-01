@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createInjectedWalletBridge } from "../../../apps/web/src/injected-wallet.js";
+import {
+  createInjectedWalletBridge,
+  switchInjectedProviderToDogeOS,
+} from "../../../apps/web/src/injected-wallet.js";
 
 function createProvider({ accounts = ["0x1111111111111111111111111111111111111111"], chainId = "0x1" } = {}) {
   const listeners = new Map();
@@ -112,6 +115,36 @@ test("injected wallet bridge adds DogeOS when the wallet does not know the chain
   assert.equal(addChainCall.params[0].chainName, "DogeOS Chikyu Testnet");
   assert.deepEqual(addChainCall.params[0].rpcUrls, ["https://rpc.testnet.dogeos.com"]);
   assert.equal(states.at(-1).chainId, "0x5fdaf3");
+});
+
+test("standalone injected wallet preflight treats unsupported-chain errors as add-chain flow", async () => {
+  const provider = createProvider({ chainId: "0x1" });
+  let chainKnown = false;
+  provider.request = async ({ method, params }) => {
+    provider.calls.push({ method, params });
+    if (method === "eth_chainId") return chainKnown ? "0x5fdaf3" : "0x1";
+    if (method === "wallet_switchEthereumChain") {
+      if (!chainKnown) throw new Error("Chain Id not supported");
+      return null;
+    }
+    if (method === "wallet_addEthereumChain") {
+      assert.equal(params[0].chainId, "0x5fdaf3");
+      chainKnown = true;
+      return null;
+    }
+    throw new Error(`Unexpected method ${method}`);
+  };
+
+  assert.equal(await switchInjectedProviderToDogeOS({ ethereum: provider }), true);
+  assert.deepEqual(
+    provider.calls.map((call) => call.method),
+    [
+      "eth_chainId",
+      "wallet_switchEthereumChain",
+      "wallet_addEthereumChain",
+      "eth_chainId",
+    ],
+  );
 });
 
 test("injected wallet bridge reports an actionable error when no wallet provider is available", async () => {

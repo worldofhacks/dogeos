@@ -394,12 +394,14 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.doesNotMatch(sdkWalletProvider, /setChains\(undefined\)/);
   assert.match(sdkWalletProvider, /useWalletConnect/);
   assert.match(sdkWalletProvider, /useAccount/);
+  assert.match(sdkWalletProvider, /switchInjectedProviderToDogeOS/);
   assert.match(sdkWalletProvider, /mergeDogeosChains/);
   assert.match(sdkWalletProvider, /chainIdMatchesDogeos/);
   assert.match(sdkWalletProvider, /wallet\.isConnected/);
   assert.match(sdkWalletProvider, /currentProvider/);
   assert.match(sdkWalletProvider, /switchChain/);
   assert.match(sdkWalletProvider, /switchToDogeOS/);
+  assert.match(sdkWalletProvider, /openDogeosWalletModal/);
   assert.match(sdkWalletProvider, /walletSource:\s*"dogeos-sdk"/);
   assert.match(sdkConfig, /VITE_DOGEOS_CLIENT_ID/);
   assert.match(sdkConfig, /DOGEOS_AGGREGATOR_CONFIG/);
@@ -699,6 +701,63 @@ test("static web app confirms submitted swaps from on-chain receipts", async () 
   assert.match(
     harness.element("activity-list").innerHTML,
     /href="https:\/\/blockscout\.testnet\.dogeos\.com\/tx\/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/,
+  );
+});
+
+test("static web app treats eip155 DogeOS chain ids as already switched", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+  const providerCalls = [];
+  let switchCalls = 0;
+
+  harness.context.window.dogeosAggregatorWallet = {
+    getChainId: () => "eip155:6281971",
+    getProvider: () => ({
+      request: async (request) => {
+        providerCalls.push(request);
+        if (request.method === "eth_sendTransaction") {
+          return "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        }
+        if (request.method === "eth_getTransactionReceipt") {
+          return {
+            status: "0x1",
+            transactionHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            blockNumber: "0x11",
+          };
+        }
+        throw new Error(`Unexpected wallet method ${request.method}`);
+      },
+    }),
+    switchToDogeOS: async () => {
+      switchCalls += 1;
+      return true;
+    },
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks();
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks();
+
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: "eip155:6281971",
+        chainType: "evm",
+        hasProvider: true,
+        isConnected: true,
+      },
+    }),
+  );
+
+  harness.element("swap-button").dispatchEvent({ type: "click" });
+  await drainMicrotasks(64);
+
+  assert.equal(switchCalls, 0);
+  assert.deepEqual(
+    providerCalls.map((call) => call.method),
+    ["eth_sendTransaction", "eth_getTransactionReceipt"],
   );
 });
 

@@ -221,6 +221,10 @@ function filteredTokens(query) {
 function parseChainId(value) {
   if (value === undefined || value === null || value === "") return null;
 
+  if (typeof value === "string" && /^eip155:\d+$/i.test(value)) {
+    return BigInt(value.split(":")[1]);
+  }
+
   try {
     return BigInt(String(value));
   } catch {
