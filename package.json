@@ -8,6 +8,7 @@
     "dev:web": "vite --host 127.0.0.1 --port 8788",
     "start:api": "node packages/api/src/server.mjs",
     "start:web": "npm run build:web && node --env-file-if-exists=.env --env-file-if-exists=.env.local packages/web/src/server.mjs",
+    "create:venue-abi": "node scripts/create-venue-abi-artifact.mjs",
     "verify:sources": "node scripts/verify-dogeos-sources.mjs"
   },
   "dependencies": {

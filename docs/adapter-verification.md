@@ -60,6 +60,21 @@ Use `abiProvenance: "venue-artifact"` only when Blockscout source/ABI verificati
 
 Selector-only bytecode, unsigned ABI snippets, broad docs, or artifacts not bound to the exact router address stay below `active`.
 
+To create the committed artifact wrapper from a venue-provided ABI JSON file, run:
+
+```bash
+npm run create:venue-abi -- \
+  --source-id muchfi-v3 \
+  --role router \
+  --address 0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB \
+  --issuer MuchFi \
+  --source-uri https://venue.example/dogeos/router.json \
+  --selectors 0x04e45aaf,0x5023b4df \
+  --abi ./router.json
+```
+
+The command accepts a raw JSON ABI array, an object with an `abi` array, or a Blockscout `getabi` response. It emits a `venue-artifact` object with derived canonical function signatures and a recomputed hash. After committing the artifact into the matching registry target, `npm run verify:sources` must still prove bytecode, selectors, relationship reads, pool state, and token metadata against DogeOS RPC and Blockscout.
+
 ## Automatic Rejection Conditions
 
 - Missing bytecode.

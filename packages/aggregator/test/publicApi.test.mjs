@@ -9,6 +9,8 @@ test("public aggregator API exports stable module boundaries", () => {
   assert.equal(typeof aggregator.listSources, "function");
   assert.equal(typeof aggregator.listVenueContracts, "function");
   assert.equal(typeof aggregator.deriveExecutableStatus, "function");
+  assert.equal(typeof aggregator.createVenueAbiArtifact, "function");
+  assert.equal(typeof aggregator.abiFunctionSignaturesFromAbi, "function");
   assert.equal(typeof aggregator.createVerificationSnapshotProvider, "function");
   assert.equal(typeof aggregator.summarizeAbiArtifact, "function");
   assert.equal(typeof aggregator.verifyDefaultSources, "function");
@@ -48,4 +50,5 @@ test("public aggregator API and package scripts expose no recurring admission su
   assert.equal("validateExecutableAdmissionRecords" in aggregator, false);
   assert.equal("EXECUTABLE_ADMISSION_RECORDS" in aggregator, false);
   assert.equal("verify:admissions" in packageJson.scripts, false);
+  assert.equal(packageJson.scripts["create:venue-abi"], "node scripts/create-venue-abi-artifact.mjs");
 });
