@@ -209,6 +209,47 @@ test("createOneHopQuoteCandidateProvider composes WDOGE routes when enabled", as
   assert.deepEqual(routes[0].warnings, ["first-leg-warning", "second-leg-warning"]);
 });
 
+test("createOneHopQuoteCandidateProvider starts independent via-token reads in parallel", async () => {
+  const calls = [];
+  const firstLegReads = new Map();
+  const directQuoteProvider = async (input) => {
+    calls.push(input);
+
+    if (input.sellToken === "USDC" && ["WDOGE", "WETH"].includes(input.buyToken)) {
+      return new Promise((resolve) => {
+        firstLegReads.set(input.buyToken, resolve);
+      });
+    }
+
+    return [];
+  };
+  const provider = createOneHopQuoteCandidateProvider({
+    enabled: true,
+    viaTokens: ["WDOGE", "WETH"],
+    directQuoteProvider,
+  });
+
+  const routesPromise = provider({
+    chainId: 6_281_971,
+    sellToken: "USDC",
+    buyToken: "USDT",
+    amountIn: 1_000_000n,
+  });
+  await Promise.resolve();
+
+  assert.deepEqual(
+    calls.map((call) => [call.sellToken, call.buyToken]),
+    [
+      ["USDC", "WDOGE"],
+      ["USDC", "WETH"],
+    ],
+  );
+
+  firstLegReads.get("WDOGE")([]);
+  firstLegReads.get("WETH")([]);
+  assert.deepEqual(await routesPromise, []);
+});
+
 test("composeOneHopCandidates rejects incompatible intermediary amounts and tokens", () => {
   const routes = composeOneHopCandidates({
     viaToken: "WDOGE",

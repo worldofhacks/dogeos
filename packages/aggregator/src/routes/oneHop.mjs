@@ -78,7 +78,6 @@ export function createOneHopQuoteCandidateProvider({
     if (!enabled || typeof directQuoteProvider !== "function") return [];
     if (input.quoteMode === "exactOutput") return [];
 
-    const candidates = [];
     const usableViaTokens = viaTokens.filter((viaToken) =>
       isUsableViaToken({
         viaToken,
@@ -87,7 +86,8 @@ export function createOneHopQuoteCandidateProvider({
       }),
     );
 
-    for (const viaToken of usableViaTokens) {
+    const candidateGroups = await Promise.all(usableViaTokens.map(async (viaToken) => {
+      const candidates = [];
       const firstLegQuotes = await directQuoteProvider({
         ...input,
         buyToken: viaToken,
@@ -111,8 +111,9 @@ export function createOneHopQuoteCandidateProvider({
           }),
         );
       }
-    }
+      return candidates;
+    }));
 
-    return candidates;
+    return candidateGroups.flat();
   };
 }
