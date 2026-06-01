@@ -83,15 +83,35 @@ async function readPairAddress({ client, factory, sellToken, buyToken, blockTag 
   );
 }
 
-async function readAddressMethod({ client, to, selector, blockTag, fieldName }) {
-  return decodeAddress(await client.call({ to, data: selector }, blockTag), fieldName);
+async function callMany(client, transactions, blockTag) {
+  if (typeof client.batchCall === "function") {
+    try {
+      return await client.batchCall(transactions, blockTag);
+    } catch {
+      // Some RPC frontends reject JSON-RPC batches. Fall back to individual reads.
+    }
+  }
+
+  return Promise.all(transactions.map((transaction) => client.call(transaction, blockTag)));
 }
 
-async function readReserves({ client, poolAddress, blockTag }) {
-  const result = await client.call({ to: poolAddress, data: SELECTORS.getReserves }, blockTag);
+async function readPoolState({ client, poolAddress, blockTag }) {
+  const [rawToken0, rawToken1, rawReserves] = await callMany(
+    client,
+    [
+      { to: poolAddress, data: SELECTORS.token0 },
+      { to: poolAddress, data: SELECTORS.token1 },
+      { to: poolAddress, data: SELECTORS.getReserves },
+    ],
+    blockTag,
+  );
   return {
-    reserve0: decodeUint256Word(result, 0, "getReserves result"),
-    reserve1: decodeUint256Word(result, 1, "getReserves result"),
+    token0: decodeAddress(rawToken0, "token0 result"),
+    token1: decodeAddress(rawToken1, "token1 result"),
+    reserves: {
+      reserve0: decodeUint256Word(rawReserves, 0, "getReserves result"),
+      reserve1: decodeUint256Word(rawReserves, 1, "getReserves result"),
+    },
   };
 }
 
@@ -148,23 +168,7 @@ export async function discoverV2Pool({ client, source, sellToken, buyToken, bloc
 
   if (poolAddress === ZERO_ADDRESS) return null;
 
-  const [token0, token1, reserves] = await Promise.all([
-    readAddressMethod({
-      client,
-      to: poolAddress,
-      selector: SELECTORS.token0,
-      blockTag,
-      fieldName: "token0 result",
-    }),
-    readAddressMethod({
-      client,
-      to: poolAddress,
-      selector: SELECTORS.token1,
-      blockTag,
-      fieldName: "token1 result",
-    }),
-    readReserves({ client, poolAddress, blockTag }),
-  ]);
+  const { token0, token1, reserves } = await readPoolState({ client, poolAddress, blockTag });
 
   return {
     sourceId: source.sourceId,

@@ -56,6 +56,18 @@ function blockTagFor(blockNumber) {
   return blockNumber === undefined ? "latest" : `0x${BigInt(blockNumber).toString(16)}`;
 }
 
+async function callMany(client, transactions, blockTag) {
+  if (typeof client.batchCall === "function") {
+    try {
+      return await client.batchCall(transactions, blockTag);
+    } catch {
+      // Some RPC frontends reject JSON-RPC batches. Fall back to individual reads.
+    }
+  }
+
+  return Promise.all(transactions.map((transaction) => client.call(transaction, blockTag)));
+}
+
 function feeTierToBps(feeTier) {
   return BigInt(feeTier) / 100n;
 }
@@ -74,23 +86,13 @@ function matchingPools(source, sellToken, buyToken) {
   });
 }
 
-async function readPoolState({ client, poolAddress, protocolType, blockTag }) {
-  const [token0, token1, liquidity, state] = await Promise.all([
-    client.call({ to: poolAddress, data: SELECTORS.token0 }, blockTag),
-    client.call({ to: poolAddress, data: SELECTORS.token1 }, blockTag),
-    client.call({ to: poolAddress, data: SELECTORS.liquidity }, blockTag),
-    client.call({
-      to: poolAddress,
-      data: protocolType === "algebra" ? SELECTORS.globalState : SELECTORS.slot0,
-    }, blockTag),
-  ]);
-
+function decodePoolState({ rawToken0, rawToken1, rawLiquidity, rawState, protocolType }) {
   return {
-    token0: decodeAddress(token0, "token0 result"),
-    token1: decodeAddress(token1, "token1 result"),
-    liquidity: decodeWord(liquidity, 0, "liquidity result"),
-    sqrtPriceX96: decodeWord(state, 0, protocolType === "algebra" ? "globalState result" : "slot0 result"),
-    dynamicFeeTier: protocolType === "algebra" ? decodeWord(state, 2, "globalState result") : null,
+    token0: decodeAddress(rawToken0, "token0 result"),
+    token1: decodeAddress(rawToken1, "token1 result"),
+    liquidity: decodeWord(rawLiquidity, 0, "liquidity result"),
+    sqrtPriceX96: decodeWord(rawState, 0, protocolType === "algebra" ? "globalState result" : "slot0 result"),
+    dynamicFeeTier: protocolType === "algebra" ? decodeWord(rawState, 2, "globalState result") : null,
   };
 }
 
@@ -122,31 +124,42 @@ async function quotePool({
   blockTag,
 }) {
   const poolAddress = normalizeAddress(pool.address, "pool.address");
-  const poolState = await readPoolState({
-    client,
-    poolAddress,
-    protocolType: source.protocolType,
-    blockTag,
-  });
 
   if (source.protocolType === "v3") {
     const feeTier = BigInt(pool.feeTier);
-    const result = await client.call({
-      to: source.quoter,
-      data: quoteMode === "exactOutput"
-        ? encodeV3QuoteExactOutputSingle({
-            sellToken,
-            buyToken,
-            amountOut,
-            feeTier,
-          })
-        : encodeV3QuoteExactInputSingle({
-            sellToken,
-            buyToken,
-            amountIn,
-            feeTier,
-          }),
-    }, blockTag);
+    const [rawToken0, rawToken1, rawLiquidity, rawState, result] = await callMany(
+      client,
+      [
+        { to: poolAddress, data: SELECTORS.token0 },
+        { to: poolAddress, data: SELECTORS.token1 },
+        { to: poolAddress, data: SELECTORS.liquidity },
+        { to: poolAddress, data: SELECTORS.slot0 },
+        {
+          to: source.quoter,
+          data: quoteMode === "exactOutput"
+            ? encodeV3QuoteExactOutputSingle({
+                sellToken,
+                buyToken,
+                amountOut,
+                feeTier,
+              })
+            : encodeV3QuoteExactInputSingle({
+                sellToken,
+                buyToken,
+                amountIn,
+                feeTier,
+              }),
+        },
+      ],
+      blockTag,
+    );
+    const poolState = decodePoolState({
+      rawToken0,
+      rawToken1,
+      rawLiquidity,
+      rawState,
+      protocolType: source.protocolType,
+    });
 
     return {
       poolAddress: pool.address,
@@ -164,22 +177,39 @@ async function quotePool({
   }
 
   if (source.protocolType === "algebra") {
-    const result = await client.call({
-      to: source.quoter,
-      data: quoteMode === "exactOutput"
-        ? encodeAlgebraQuoteExactOutputSingle({
-            sellToken,
-            buyToken,
-            amountOut,
-            deployer: source.quoterPoolDeployer ?? ZERO_ADDRESS,
-          })
-        : encodeAlgebraQuoteExactInputSingle({
-            sellToken,
-            buyToken,
-            amountIn,
-            deployer: source.quoterPoolDeployer ?? ZERO_ADDRESS,
-          }),
-    }, blockTag);
+    const [rawToken0, rawToken1, rawLiquidity, rawState, result] = await callMany(
+      client,
+      [
+        { to: poolAddress, data: SELECTORS.token0 },
+        { to: poolAddress, data: SELECTORS.token1 },
+        { to: poolAddress, data: SELECTORS.liquidity },
+        { to: poolAddress, data: SELECTORS.globalState },
+        {
+          to: source.quoter,
+          data: quoteMode === "exactOutput"
+            ? encodeAlgebraQuoteExactOutputSingle({
+                sellToken,
+                buyToken,
+                amountOut,
+                deployer: source.quoterPoolDeployer ?? ZERO_ADDRESS,
+              })
+            : encodeAlgebraQuoteExactInputSingle({
+                sellToken,
+                buyToken,
+                amountIn,
+                deployer: source.quoterPoolDeployer ?? ZERO_ADDRESS,
+              }),
+        },
+      ],
+      blockTag,
+    );
+    const poolState = decodePoolState({
+      rawToken0,
+      rawToken1,
+      rawLiquidity,
+      rawState,
+      protocolType: source.protocolType,
+    });
     const quotedFeeTier = decodeWord(result, 5, "Algebra quoter result");
     const feeTier = quotedFeeTier > 0n ? quotedFeeTier : poolState.dynamicFeeTier;
 

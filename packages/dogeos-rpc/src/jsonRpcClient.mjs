@@ -92,6 +92,50 @@ export function createJsonRpcClient({ rpcUrl, fetchFn = fetch } = {}) {
     return payload.result;
   }
 
+  async function requestBatch(requests = []) {
+    if (requests.length === 0) return [];
+
+    const envelopes = requests.map(({ method, params = [] }) => {
+      const id = nextId;
+      nextId += 1;
+      return {
+        jsonrpc: "2.0",
+        id,
+        method,
+        params,
+      };
+    });
+
+    const response = await fetchFn(rpcUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(envelopes),
+    });
+
+    if (!response.ok) {
+      throw new Error(`JSON-RPC batch failed with HTTP ${response.status}.`);
+    }
+
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      throw new Error("JSON-RPC batch response must be an array.");
+    }
+
+    const responseById = new Map(payload.map((entry) => [entry.id, entry]));
+    return envelopes.map((envelope) => {
+      const entry = responseById.get(envelope.id);
+      if (!entry) {
+        throw new Error(`${envelope.method} failed: missing batch response for id ${envelope.id}.`);
+      }
+      if (entry.error) {
+        throw new Error(`${envelope.method} failed: ${entry.error.message ?? "unknown RPC error"}`);
+      }
+      return entry.result;
+    });
+  }
+
   return {
     request,
     async getChainId() {
@@ -120,6 +164,18 @@ export function createJsonRpcClient({ rpcUrl, fetchFn = fetch } = {}) {
       const result = await request("eth_call", [normalizeTransactionRequest(transaction), blockTag]);
       assertHexData(result, "eth_call result");
       return result;
+    },
+    async batchCall(transactions = [], blockTag = "latest") {
+      const results = await requestBatch(
+        transactions.map((transaction) => ({
+          method: "eth_call",
+          params: [normalizeTransactionRequest(transaction), blockTag],
+        })),
+      );
+      for (const result of results) {
+        assertHexData(result, "eth_call result");
+      }
+      return results;
     },
     async estimateGas(transaction) {
       return hexQuantityToBigInt(

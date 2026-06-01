@@ -89,6 +89,81 @@ test("live concentrated-liquidity provider calls MuchFi V3 quoter and pool state
   assert.equal(client.calls.every((call) => call[2] === "0x4f5880"), true);
 });
 
+test("live concentrated-liquidity provider batches pool state and quoter reads when RPC batching is available", async () => {
+  const amountIn = 1_000_000_000_000_000_000n;
+  const sqrtPriceX96 = 198_492_020_576_427_059_788_019_143_518n;
+  const quotedAmountOut = 980_109_203_162_403_649n;
+  const calls = [];
+  const batchCalls = [];
+  const responses = new Map([
+    [`${muchfiPool.toLowerCase()}:0x0dfe1681`, encodedAddress(usdc)],
+    [`${muchfiPool.toLowerCase()}:0xd21220a7`, encodedAddress(wdoge)],
+    [`${muchfiPool.toLowerCase()}:0x3850c7bd`, encodedWords([sqrtPriceX96, 18_369n, 0n, 1n, 1n, 209_718_400n, 1n])],
+    [`${muchfiPool.toLowerCase()}:0x1a686502`, encodedWords([463_818_676_025_040_102n])],
+    [
+      `${muchfiQuoter.toLowerCase()}:0xc6a5026a${addressWord(usdc)}${addressWord(wdoge)}${word(amountIn)}${word(2500n)}${word(0n)}`,
+      encodedWords([quotedAmountOut, 31072605956553409479375850814n, 0n, 115_516n]),
+    ],
+  ]);
+  const client = {
+    async batchCall(transactions, blockTag) {
+      batchCalls.push({ transactions, blockTag });
+      return transactions.map(({ to, data }) => {
+        const response = responses.get(`${to.toLowerCase()}:${data.toLowerCase()}`);
+        if (!response) throw new Error(`missing batched response for ${to}:${data}`);
+        return response;
+      });
+    },
+    async call({ to, data }, blockTag) {
+      calls.push([to, data, blockTag]);
+      throw new Error("individual eth_call should not be used for batched concentrated-liquidity reads");
+    },
+  };
+
+  const provider = createLiveConcentratedLiquidityQuoterOutputProvider({ client });
+  const output = await provider({
+    source: {
+      sourceId: "muchfi-v3",
+      protocolType: "v3",
+      quoter: muchfiQuoter,
+      quoterAbiProvenance: "adapter-fragment",
+      pools: [
+        {
+          address: muchfiPool,
+          token0: usdc,
+          token1: wdoge,
+          feeTier: 2500,
+        },
+      ],
+    },
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn,
+    blockNumber: 5_200_000n,
+  });
+
+  assert.equal(output.poolAddress, muchfiPool);
+  assert.equal(output.quotedAmountOut, quotedAmountOut);
+  assert.equal(output.gasUnits, 115_516n);
+  assert.equal(output.quoterProvenance, "adapter-fragment");
+  assert.equal(calls.length, 0);
+  assert.equal(batchCalls.length, 1);
+  assert.equal(batchCalls[0].blockTag, "0x4f5880");
+  assert.deepEqual(
+    batchCalls[0].transactions.map((transaction) => [
+      transaction.to.toLowerCase(),
+      transaction.data.slice(0, 10),
+    ]),
+    [
+      [muchfiPool.toLowerCase(), "0x0dfe1681"],
+      [muchfiPool.toLowerCase(), "0xd21220a7"],
+      [muchfiPool.toLowerCase(), "0x1a686502"],
+      [muchfiPool.toLowerCase(), "0x3850c7bd"],
+      [muchfiQuoter.toLowerCase(), "0xc6a5026a"],
+    ],
+  );
+});
+
 test("live concentrated-liquidity provider can resolve a registry source by id", async () => {
   const amountIn = 1_000_000_000_000_000_000n;
   const quotedAmountOut = 980_109_203_162_403_649n;

@@ -141,6 +141,7 @@
 - [x] Add live MuchFi V3 and Barkswap Algebra quoter RPC readers from on-chain selector/provenance records.
 - [x] Add per-source timeout and failure isolation so one stalled V2/V3/Algebra venue cannot erase healthy same-family quote candidates.
 - [x] Prune unsupported pinned pool pairs before live block-number, factory, and quoter reads for faster quote responses.
+- [x] Batch V2 pool state reads and V3/Algebra pool-state-plus-quoter reads through JSON-RPC batching when the RPC supports it, with individual-call fallback.
 - [x] Wire `/swap` to a verified calldata builder registry with no arbitrary fallback.
 - [x] Add typed MuchFi V2, MuchFi V3, and Barkswap Algebra calldata builders behind the verified registry.
 - [x] Add live `/swap` chain verification, exact calldata simulation, `eth_estimateGas`, and buffered gas limit output for active quotes.

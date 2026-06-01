@@ -176,6 +176,63 @@ test("createLiveV2QuoteCandidateProvider uses pinned V2 pools before factory dis
   );
 });
 
+test("createLiveV2QuoteCandidateProvider batches pinned V2 pool state reads when RPC batching is available", async () => {
+  const source = getSource("muchfi-v2");
+  const pinnedPool = source.pools.find(
+    (pool) =>
+      pool.token0.toLowerCase() === usdc.toLowerCase() &&
+      pool.token1.toLowerCase() === wdoge.toLowerCase(),
+  );
+  const calls = [];
+  const batchCalls = [];
+  const client = {
+    async getBlockNumber() {
+      return 5_200_000n;
+    },
+    async batchCall(transactions, blockTag) {
+      batchCalls.push({ transactions, blockTag });
+      return transactions.map(({ data }) => {
+        const selector = data.slice(0, 10);
+        if (selector === "0x0dfe1681") return addressResult(usdc);
+        if (selector === "0xd21220a7") return addressResult(wdoge);
+        if (selector === "0x0902f1ac") return reservesResult(1_000_000_000n, 2_000_000_000n);
+        throw new Error(`unexpected batched selector ${selector}`);
+      });
+    },
+    async call({ to, data }, blockTag) {
+      calls.push({ to, data, blockTag });
+      throw new Error("individual eth_call should not be used for pinned pool state");
+    },
+  };
+  const quoteProvider = createLiveV2QuoteCandidateProvider({
+    client,
+    nowMs: () => now,
+    sources: [source],
+  });
+
+  const [quote] = await quoteProvider({
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn: 1_000_000n,
+  });
+
+  assert.equal(quote.poolAddress, pinnedPool.address.toLowerCase());
+  assert.equal(calls.length, 0);
+  assert.equal(batchCalls.length, 1);
+  assert.equal(batchCalls[0].blockTag, "0x4f5880");
+  assert.deepEqual(
+    batchCalls[0].transactions.map((transaction) => [
+      transaction.to.toLowerCase(),
+      transaction.data.slice(0, 10),
+    ]),
+    [
+      [pinnedPool.address.toLowerCase(), "0x0dfe1681"],
+      [pinnedPool.address.toLowerCase(), "0xd21220a7"],
+      [pinnedPool.address.toLowerCase(), "0x0902f1ac"],
+    ],
+  );
+});
+
 test("createLiveV2QuoteCandidateProvider quotes exact-output pools", async () => {
   const client = fakeClient();
   const seenInputs = [];
