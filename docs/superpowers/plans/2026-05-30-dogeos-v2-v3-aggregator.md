@@ -146,6 +146,7 @@
 - [x] Wire `/swap` to a verified calldata builder registry with no arbitrary fallback.
 - [x] Add typed MuchFi V2, MuchFi V3, and Barkswap Algebra calldata builders behind the verified registry.
 - [x] Add live `/swap` chain verification, exact calldata simulation, `eth_estimateGas`, and buffered gas limit output for active quotes.
+- [x] Run swap simulation and gas estimation concurrently so transaction builds keep both checks while reducing wallet-build latency.
 - [x] Add ERC-20 allowance preflight and exact approval transaction generation before active swap submission.
 - [x] Add sell-token and native DOGE balance preflight before executable `/swap` transaction data is returned.
 - [x] Remove committed execution-record approvals; active calldata building now uses source status, router match, ABI provenance, typed selector match, and runtime simulation directly.

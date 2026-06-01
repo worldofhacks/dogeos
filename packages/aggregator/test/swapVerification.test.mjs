@@ -88,6 +88,43 @@ test("verifySwapTransaction resolves DogeOS data/finality fee from exact calldat
   assert.equal(verification.dataFinalityFeeWei, 12_345n);
 });
 
+test("verifySwapTransaction starts simulation and gas estimation in parallel", async () => {
+  let releaseSimulation;
+  let estimateStarted = false;
+  let markSimulationStarted;
+  const simulationStarted = new Promise((resolve) => {
+    markSimulationStarted = resolve;
+  });
+  const client = {
+    async call() {
+      markSimulationStarted();
+      await new Promise((resolve) => {
+        releaseSimulation = resolve;
+      });
+      return "0x";
+    },
+    async estimateGas() {
+      estimateStarted = true;
+      return 100_000n;
+    },
+  };
+
+  const verificationPromise = verifySwapTransaction({
+    client,
+    transaction,
+    sender,
+  });
+
+  await simulationStarted;
+  await Promise.resolve();
+  assert.equal(estimateStarted, true);
+
+  releaseSimulation();
+  const verification = await verificationPromise;
+
+  assert.equal(verification.estimatedGas, 100_000n);
+});
+
 test("verifySwapTransaction requires a concrete sender for allowance-aware simulation", async () => {
   await assert.rejects(
     () =>

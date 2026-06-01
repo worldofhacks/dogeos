@@ -58,8 +58,9 @@ export async function verifySwapTransaction({
 
   const buffer = normalizeGasBufferBps(gasBufferBps);
 
-  await client.call(request, blockTag);
-  const estimatedGas = await client.estimateGas(request);
+  const simulationPromise = client.call(request, blockTag);
+  const gasEstimatePromise = client.estimateGas(request);
+  const [, estimatedGas] = await Promise.all([simulationPromise, gasEstimatePromise]);
   const exactDataFinalityFeeWei =
     dataFinalityFeeWei === undefined
       ? undefined
