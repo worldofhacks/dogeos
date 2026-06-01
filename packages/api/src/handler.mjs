@@ -67,7 +67,6 @@ function quoteCandidateRequestKey(input) {
     buyToken: input.buyToken.toLowerCase(),
     amountIn: input.amountIn?.toString() ?? null,
     amountOut: input.amountOut?.toString() ?? null,
-    slippageBps: input.slippageBps?.toString() ?? null,
     includeSources: input.includeSources,
     excludeSources: input.excludeSources,
   });

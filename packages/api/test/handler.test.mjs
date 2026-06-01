@@ -444,6 +444,79 @@ test("POST /quote coalesces identical in-flight quote work", async () => {
   ]);
 });
 
+test("POST /quote reuses in-flight candidate work across slippage-only changes", async () => {
+  let releaseCandidates;
+  let providerCalls = 0;
+  let markProviderStarted;
+  const providerStarted = new Promise((resolve) => {
+    markProviderStarted = resolve;
+  });
+  let markSecondVerifierCompleted;
+  const secondVerifierCompleted = new Promise((resolve) => {
+    markSecondVerifierCompleted = resolve;
+  });
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    preQuoteVerifier: async (input) => {
+      if (input.slippageBps === 100n) markSecondVerifierCompleted();
+    },
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        markProviderStarted();
+        await new Promise((release) => {
+          releaseCandidates = release;
+        });
+      }
+      return [candidate()];
+    },
+  });
+  const baseRequestBody = {
+    chainId: DOGEOS_CHAIN.id,
+    sellToken: usdc.address,
+    buyToken: wdoge.address,
+    amountIn: "1000000",
+    includeSources: ["muchfi-v3"],
+    excludeSources: [],
+  };
+
+  const firstResponsePromise = handle(
+    jsonRequest("/quote", {
+      ...baseRequestBody,
+      slippageBps: "50",
+    }),
+  );
+  await providerStarted;
+  const secondResponsePromise = handle(
+    jsonRequest("/quote", {
+      ...baseRequestBody,
+      slippageBps: "100",
+    }),
+  );
+  await secondVerifierCompleted;
+  await Promise.resolve();
+
+  assert.equal(providerCalls, 1);
+
+  releaseCandidates();
+  const [firstResponse, secondResponse] = await Promise.all([
+    firstResponsePromise,
+    secondResponsePromise,
+  ]);
+  const [firstBody, secondBody] = await Promise.all([
+    firstResponse.json(),
+    secondResponse.json(),
+  ]);
+
+  assert.equal(firstResponse.status, 200);
+  assert.equal(secondResponse.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.equal(firstBody.best.minAmountOut, "1044750");
+  assert.equal(secondBody.best.minAmountOut, "1039500");
+});
+
 test("POST /quote exposes per-request source diagnostics from live providers", async () => {
   let providerInput;
   const handle = createAggregatorApiHandler({
