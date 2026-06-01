@@ -150,7 +150,7 @@
 - [x] Abort stale browser `/quote` requests when live typing schedules a newer quote so old inputs do not waste API/RPC work.
 - [x] Add target-bound adapter ABI fragments for the active MuchFi V2, MuchFi V3, and Barkswap router/quoter contracts.
 - [ ] Add venue-authorized ABI artifacts or Blockscout verification records for executable routing.
-  - Local support exists for `venue-artifact` provenance: target-bound artifact metadata, selector matching, relationship reads, and passed simulation are required before active execution. Current `adapter-fragment` artifacts are aggregator-owned ABI fragments, not venue endorsements, so venue-authorized artifacts or Blockscout records remain the preferred provenance upgrade.
+  - Local support exists for `venue-artifact` provenance: target-bound artifact metadata, recomputed artifact hash, selector matching, relationship reads, and passed simulation are required before active execution. Current `adapter-fragment` artifacts are aggregator-owned ABI fragments, not venue endorsements, so venue-authorized artifacts or Blockscout records remain the preferred provenance upgrade.
 - [x] Wire verified venue-specific calldata builder implementations into `/swap`.
 
 ## Done Definition

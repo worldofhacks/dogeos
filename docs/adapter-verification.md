@@ -43,14 +43,14 @@ Concentrated-liquidity sources must not invent exact-input quotes from partial p
 
 ## Venue ABI Artifact Requirements
 
-Current `adapter-fragment` artifacts live in `packages/aggregator/src/abi/adapterAbiArtifacts.mjs`. They are not venue endorsements; they are the aggregator's minimal ABI fragments for the typed builders. Live verification treats them as executable only when the artifact target, selector list, function signatures, router bytecode selectors, and on-chain relationship reads all match.
+Current `adapter-fragment` artifacts live in `packages/aggregator/src/abi/adapterAbiArtifacts.mjs`. They are not venue endorsements; they are the aggregator's minimal ABI fragments for the typed builders. Live verification treats them as executable only when the artifact target, selector list, function signatures, recomputed artifact hash, router bytecode selectors, and on-chain relationship reads all match.
 
 Use `abiProvenance: "venue-artifact"` only when Blockscout source/ABI verification is unavailable but the venue provides a specific ABI artifact for the deployed router. The artifact must be committed with:
 
 1. `status: "verified"`.
 2. Venue issuer name.
 3. Source URI for the ABI artifact.
-4. 32-byte `artifactHash`.
+4. 32-byte `artifactHash` that recomputes from the committed artifact payload.
 5. Target binding: source ID, DogeOS chain ID, `role: "router"`, and router address.
 6. Selector matches for every swap method.
 7. Matching on-chain bytecode selectors.

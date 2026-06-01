@@ -385,8 +385,10 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(sdkWalletProvider, /@dogeos\/dogeos-sdk\/style\.css/);
   assert.match(sdkWalletProvider, /WalletConnectProvider/);
   assert.match(sdkWalletProvider, /getChains/);
-  assert.match(sdkWalletProvider, /useState\(undefined\)/);
-  assert.doesNotMatch(sdkWalletProvider, /useState\(dogeConfig\.chains\)/);
+  assert.match(sdkWalletProvider, /useState\(\(\) => dogeConfig\.chains\)/);
+  assert.match(sdkWalletProvider, /chains:\s*chains \?\? dogeConfig\.chains/);
+  assert.doesNotMatch(sdkWalletProvider, /useState\(undefined\)/);
+  assert.doesNotMatch(sdkWalletProvider, /setChains\(undefined\)/);
   assert.match(sdkWalletProvider, /useWalletConnect/);
   assert.match(sdkWalletProvider, /useAccount/);
   assert.match(sdkWalletProvider, /mergeDogeosChains/);
@@ -555,8 +557,16 @@ test("static web app renders venue contract provenance details from the live ven
             verification: {
               isBlockscoutAbiAvailable: false,
             },
+            abiArtifact: {
+              kind: "adapter-fragment",
+              artifactHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              artifactHashMatches: true,
+            },
             executionEvidence: {
               executable: true,
+              abiProof: {
+                artifactHashMatches: true,
+              },
             },
           },
           {
@@ -583,6 +593,7 @@ test("static web app renders venue contract provenance details from the live ven
   assert.match(sourceList, /pool/);
   assert.match(sourceList, /0xC653\.\.\.18dc/);
   assert.match(sourceList, /adapter-fragment/);
+  assert.match(sourceList, /hash ok/);
   assert.match(sourceList, /execution-ready/);
   assert.match(sourceList, /Blockscout ABI pending/);
   assert.match(sourceList, /Contract source code not verified/);

@@ -139,8 +139,8 @@ function DogeOSSdkWalletBridge() {
 }
 
 export default function DogeOSSdkWalletProvider() {
-  const [chains, setChains] = useState(undefined);
-  const config = useMemo(() => ({ ...dogeConfig, chains }), [chains]);
+  const [chains, setChains] = useState(() => dogeConfig.chains);
+  const config = useMemo(() => ({ ...dogeConfig, chains: chains ?? dogeConfig.chains }), [chains]);
 
   useEffect(() => {
     let active = true;
@@ -150,7 +150,7 @@ export default function DogeOSSdkWalletProvider() {
         if (active) setChains(mergeDogeosChains(sdkChains));
       })
       .catch(() => {
-        if (active) setChains(undefined);
+        if (active) setChains(dogeConfig.chains);
       });
 
     return () => {

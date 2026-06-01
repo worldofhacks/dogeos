@@ -1,25 +1,12 @@
-import { createHash } from "node:crypto";
-
 import { DOGEOS_CHAIN } from "../../../config/src/chains.mjs";
+import { hashAbiArtifactPayload } from "./artifactHash.mjs";
 
 export const ADAPTER_ABI_PROVENANCE = "adapter-fragment";
 export const ADAPTER_ABI_ISSUER = "dogeos-aggregator-adapter";
 export const ADAPTER_ABI_SOURCE_URI = "packages/aggregator/src/abi/adapterAbiArtifacts.mjs";
 
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (!value || typeof value !== "object") return value;
-
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, canonicalize(value[key])]),
-  );
-}
-
 function artifactHash(payload) {
-  const canonicalJson = JSON.stringify(canonicalize(payload));
-  return `0x${createHash("sha256").update(canonicalJson).digest("hex")}`;
+  return hashAbiArtifactPayload(payload);
 }
 
 export function createAdapterAbiArtifact({

@@ -553,6 +553,21 @@ function contractAbiStatus(contract) {
   return "Blockscout ABI pending";
 }
 
+function contractAbiProvenance(contract) {
+  const provenance = contract.abiProvenance ?? "none";
+  const hashMatches =
+    contract.abiArtifact?.artifactHashMatches ??
+    contract.executionEvidence?.abiProof?.artifactHashMatches;
+  const hasArtifactHash = Boolean(
+    contract.abiArtifact?.artifactHash ?? contract.executionEvidence?.abiProof?.artifactHash,
+  );
+
+  if (hashMatches === true) return `${provenance} / hash ok`;
+  if (hashMatches === false) return `${provenance} / hash mismatch`;
+  if (hasArtifactHash) return `${provenance} / hash pending`;
+  return provenance;
+}
+
 function renderVenueContractDetails(source) {
   const venue = venueBySourceId(source.sourceId);
   const contracts = venue?.contracts ?? [];
@@ -569,7 +584,7 @@ function renderVenueContractDetails(source) {
           <a class="contract-row" href="${href}" target="_blank" rel="noreferrer">
             <span class="contract-role">${escapeHtml(contract.role)}</span>
             <strong>${shortAddress(contract.address)}</strong>
-            <span>${escapeHtml(contract.abiProvenance ?? "none")}</span>
+            <span>${escapeHtml(contractAbiProvenance(contract))}</span>
             <span>${escapeHtml(contractAbiStatus(contract))}</span>
             <span class="status-pill ${executable === "execution-ready" ? "active" : "blocked"}">${executable}</span>
           </a>

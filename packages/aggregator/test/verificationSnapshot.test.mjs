@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createAdapterAbiArtifact } from "../src/abi/adapterAbiArtifacts.mjs";
 import {
   TOKEN_DECIMALS_SELECTOR,
   buildExecutionEvidence,
@@ -267,6 +268,49 @@ test("summarizeBlockscoutContract extracts canonical function signatures from AB
 });
 
 test("summarizeAbiArtifact validates adapter ABI fragment target, selectors, functions, and hash metadata", () => {
+  const artifact = createAdapterAbiArtifact({
+    sourceId: "muchfi-v3",
+    role: "router",
+    address: router,
+    selectors: ["0x04e45aaf"],
+    abiFunctionSignatures: [
+      "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+    ],
+    abi: v3RouterAbi,
+  });
+  const summary = summarizeAbiArtifact({
+    sourceId: "muchfi-v3",
+    role: "router",
+    address: router,
+    expectedSelectors: ["0x04e45aaf"],
+    expectedAbiFunctions: [
+      "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+    ],
+    abiArtifact: artifact,
+  });
+
+  assert.equal(summary.kind, "adapter-fragment");
+  assert.equal(summary.matchesTarget, true);
+  assert.equal(summary.verified, true);
+  assert.equal(summary.artifactHashMatches, true);
+  assert.equal(summary.computedArtifactHash, artifact.artifactHash);
+  assert.deepEqual(summary.selectorMatches, ["0x04e45aaf"]);
+  assert.deepEqual(summary.abiFunctionMatches, [
+    "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+  ]);
+});
+
+test("summarizeAbiArtifact rejects ABI artifacts whose hash does not match the payload", () => {
+  const artifact = createAdapterAbiArtifact({
+    sourceId: "muchfi-v3",
+    role: "router",
+    address: router,
+    selectors: ["0x04e45aaf"],
+    abiFunctionSignatures: [
+      "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+    ],
+    abi: v3RouterAbi,
+  });
   const summary = summarizeAbiArtifact({
     sourceId: "muchfi-v3",
     role: "router",
@@ -276,31 +320,15 @@ test("summarizeAbiArtifact validates adapter ABI fragment target, selectors, fun
       "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
     ],
     abiArtifact: {
-      kind: "adapter-fragment",
-      status: "verified",
-      issuer: "dogeos-aggregator-adapter",
-      sourceUri: "packages/aggregator/src/abi/adapterAbiArtifacts.mjs",
-      artifactHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      target: {
-        sourceId: "muchfi-v3",
-        chainId: 6281971,
-        role: "router",
-        address: router,
-      },
-      selectors: ["0x04e45aaf"],
-      abiFunctionSignatures: [
-        "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
-      ],
+      ...artifact,
+      artifactHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     },
   });
 
-  assert.equal(summary.kind, "adapter-fragment");
   assert.equal(summary.matchesTarget, true);
-  assert.equal(summary.verified, true);
-  assert.deepEqual(summary.selectorMatches, ["0x04e45aaf"]);
-  assert.deepEqual(summary.abiFunctionMatches, [
-    "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
-  ]);
+  assert.equal(summary.artifactHashMatches, false);
+  assert.equal(summary.computedArtifactHash, artifact.artifactHash);
+  assert.equal(summary.verified, false);
 });
 
 test("buildExecutionEvidence makes ABI, Blockscout, selector, and relationship proof explicit", () => {
@@ -362,6 +390,7 @@ test("buildExecutionEvidence makes ABI, Blockscout, selector, and relationship p
       venueAbiArtifactVerified: false,
       artifactKind: "adapter-fragment",
       artifactHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      artifactHashMatches: null,
       artifactSourceUri: "packages/aggregator/src/abi/adapterAbiArtifacts.mjs",
       missingSelectors: [],
       missingAbiFunctions: [],

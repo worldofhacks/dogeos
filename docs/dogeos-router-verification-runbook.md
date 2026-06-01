@@ -88,8 +88,8 @@ For each source, record:
 | --- | --- | --- |
 | `none` | No | Address discovered, but ABI source is unknown. |
 | `onchain-bytecode` | No by itself | Selector evidence from deployed bytecode; useful for pools and discovery, but routers need ABI provenance before active verification. |
-| `adapter-fragment` | Active after live verification | Aggregator-owned ABI fragment for a typed builder, target-bound to source ID, DogeOS chain ID, role, router/quoter address, selectors, and function signatures. |
-| `venue-artifact` | Active after full verification | Venue supplied ABI artifact with verified metadata, source URI, 32-byte artifact hash, target-bound router address, selector matches, relationship reads, and passed simulation. |
+| `adapter-fragment` | Active after live verification | Aggregator-owned ABI fragment for a typed builder, target-bound to source ID, DogeOS chain ID, role, router/quoter address, selectors, function signatures, and recomputed artifact hash. |
+| `venue-artifact` | Active after full verification | Venue supplied ABI artifact with verified metadata, source URI, recomputed 32-byte artifact hash, target-bound router address, selector matches, relationship reads, and passed simulation. |
 | `partner-artifact` | No | Legacy naming; use `venue-artifact` instead. |
 | `official-docs` | Simulation only by default | ABI/address published in official venue docs, but the explorer ABI/source is still missing. |
 | `blockscout` | Active after tests | Contract source and ABI payload are verified on Blockscout, and the ABI payload contains the expected router function signatures. |

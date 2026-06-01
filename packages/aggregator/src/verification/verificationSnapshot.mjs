@@ -1,5 +1,9 @@
 import { DOGEOS_CHAIN } from "../../../config/src/chains.mjs";
 import { OFFICIAL_DOGEOS_TOKENS } from "../../../config/src/tokens.mjs";
+import {
+  abiArtifactPayloadFromArtifact,
+  hashAbiArtifactPayload,
+} from "../abi/artifactHash.mjs";
 import { listVerificationTargets } from "../sources/registry.mjs";
 import { deriveExecutableStatus, hasSelector } from "./verifySource.mjs";
 
@@ -218,7 +222,9 @@ export function summarizeAbiArtifact(source, { expectedChainId = DOGEOS_CHAIN.id
 
   const artifactHash = String(artifact.artifactHash ?? "").toLowerCase();
   const hasArtifactHash = /^0x[0-9a-f]{64}$/.test(artifactHash);
-  const hasRequiredMetadata = Boolean(artifact.issuer && artifact.sourceUri && hasArtifactHash);
+  const computedArtifactHash = hashAbiArtifactPayload(abiArtifactPayloadFromArtifact(artifact));
+  const artifactHashMatches = hasArtifactHash && artifactHash === computedArtifactHash;
+  const hasRequiredMetadata = Boolean(artifact.issuer && artifact.sourceUri && artifactHashMatches);
   const status = artifact.status ?? (artifact.verified === true ? "verified" : "missing");
 
   return {
@@ -227,6 +233,8 @@ export function summarizeAbiArtifact(source, { expectedChainId = DOGEOS_CHAIN.id
     issuer: artifact.issuer ?? null,
     sourceUri: artifact.sourceUri ?? null,
     artifactHash: hasArtifactHash ? artifactHash : null,
+    computedArtifactHash,
+    artifactHashMatches,
     signedAt: artifact.signedAt ?? null,
     checkedAt: artifact.checkedAt ?? null,
     target,
@@ -312,6 +320,7 @@ export function buildExecutionEvidence({
         verification.isVenueAbiArtifactAvailable === true,
       artifactKind: abiArtifact?.kind ?? null,
       artifactHash: abiArtifact?.artifactHash ?? null,
+      artifactHashMatches: abiArtifact?.artifactHashMatches ?? null,
       artifactSourceUri: abiArtifact?.sourceUri ?? null,
       missingSelectors: structuredClone(abiArtifact?.missingSelectors ?? []),
       missingAbiFunctions: structuredClone(abiArtifact?.missingAbiFunctions ?? []),
