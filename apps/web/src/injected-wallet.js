@@ -35,7 +35,7 @@ function errorMessage(error, fallback) {
   return error?.shortMessage ?? error?.message ?? fallback;
 }
 
-function isUnknownChainError(error) {
+export function isUnknownChainError(error) {
   const message = errorMessage(error, "").toLowerCase();
   return (
     firstErrorCode(error) === 4902 ||

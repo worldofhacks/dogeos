@@ -7,6 +7,7 @@ import {
 } from "@dogeos/dogeos-sdk";
 import "@dogeos/dogeos-sdk/style.css";
 
+import { switchDogeosSdkAccountToChain } from "./sdk-chain-switch.js";
 import { switchInjectedProviderToDogeOS } from "./injected-wallet.js";
 import { DOGEOS_CHIKYU_TESTNET, dogeConfig, mergeDogeosChains } from "./sdkConfig.js";
 
@@ -45,16 +46,12 @@ function DogeOSSdkWalletBridge() {
   const wallet = useWalletConnect();
   const account = useAccount();
   const switchToDogeOS = useCallback(
-    () =>
-      account.switchChain({
-        chainType: "evm",
-        chainInfo: DOGEOS_CHIKYU_TESTNET,
-      }),
+    () => switchDogeosSdkAccountToChain({ switchChain: account.switchChain }, DOGEOS_CHIKYU_TESTNET),
     [account.switchChain],
   );
   const openDogeosWalletModal = useCallback(async () => {
     await switchInjectedProviderToDogeOS();
-    wallet.openModal();
+    return wallet.openModal();
   }, [wallet.openModal]);
 
   useEffect(() => {
@@ -117,19 +114,33 @@ function DogeOSSdkWalletBridge() {
       walletSource: "dogeos-sdk",
     });
 
-    switchToDogeOS().catch((error) => {
-      if (cancelled) return;
-      publishWalletState({
-        address: account.address ?? "",
-        chainId: account.chainId ?? "",
-        chainType: account.chainType ?? "",
-        error: walletErrorMessage(error),
-        hasProvider: Boolean(account.currentProvider),
-        isConnected: wallet.isConnected,
-        isConnecting: false,
-        walletSource: "dogeos-sdk",
+    switchToDogeOS()
+      .then(() => {
+        if (cancelled) return;
+        publishWalletState({
+          address: account.address ?? "",
+          chainId: DOGEOS_CHIKYU_TESTNET.id,
+          chainType: account.chainType ?? "evm",
+          error: "",
+          hasProvider: Boolean(account.currentProvider),
+          isConnected: wallet.isConnected,
+          isConnecting: false,
+          walletSource: "dogeos-sdk",
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        publishWalletState({
+          address: account.address ?? "",
+          chainId: account.chainId ?? "",
+          chainType: account.chainType ?? "",
+          error: walletErrorMessage(error),
+          hasProvider: Boolean(account.currentProvider),
+          isConnected: wallet.isConnected,
+          isConnecting: false,
+          walletSource: "dogeos-sdk",
+        });
       });
-    });
 
     return () => {
       cancelled = true;

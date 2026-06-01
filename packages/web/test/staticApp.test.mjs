@@ -272,18 +272,19 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
 }
 
 test("static web app exposes the primary aggregator workflow", async () => {
-  const [html, js, css, main, sdkWallet, sdkWalletProvider, injectedWallet, sdkConfig, packageJson] =
+  const [html, js, css, main, sdkWallet, sdkWalletProvider, sdkChainSwitch, injectedWallet, sdkConfig, packageJson] =
     await Promise.all([
-    readFile(resolve(appRoot, "index.html"), "utf8"),
-    readFile(resolve(appRoot, "app.js"), "utf8"),
-    readFile(resolve(appRoot, "styles.css"), "utf8"),
-    readOptional(resolve(appRoot, "main.jsx")),
-    readOptional(resolve(appRoot, "sdk-wallet.jsx")),
-    readOptional(resolve(appRoot, "sdk-wallet-provider.jsx")),
-    readOptional(resolve(appRoot, "injected-wallet.js")),
-    readOptional(resolve(appRoot, "sdkConfig.js")),
-    readFile(resolve(repoRoot, "package.json"), "utf8"),
-  ]);
+      readFile(resolve(appRoot, "index.html"), "utf8"),
+      readFile(resolve(appRoot, "app.js"), "utf8"),
+      readFile(resolve(appRoot, "styles.css"), "utf8"),
+      readOptional(resolve(appRoot, "main.jsx")),
+      readOptional(resolve(appRoot, "sdk-wallet.jsx")),
+      readOptional(resolve(appRoot, "sdk-wallet-provider.jsx")),
+      readOptional(resolve(appRoot, "sdk-chain-switch.js")),
+      readOptional(resolve(appRoot, "injected-wallet.js")),
+      readOptional(resolve(appRoot, "sdkConfig.js")),
+      readFile(resolve(repoRoot, "package.json"), "utf8"),
+    ]);
   const packageBody = JSON.parse(packageJson);
 
   assert.match(html, /id="swap-form"/);
@@ -399,6 +400,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(injectedWallet, /walletSource:\s*"injected"/);
   assert.match(sdkWalletProvider, /@dogeos\/dogeos-sdk/);
   assert.match(sdkWalletProvider, /@dogeos\/dogeos-sdk\/style\.css/);
+  assert.match(sdkWalletProvider, /switchDogeosSdkAccountToChain/);
   assert.match(sdkWalletProvider, /WalletConnectProvider/);
   assert.match(sdkWalletProvider, /getChains/);
   assert.match(sdkWalletProvider, /useState\(\(\) => dogeConfig\.chains\)/);
@@ -416,6 +418,9 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(sdkWalletProvider, /switchToDogeOS/);
   assert.match(sdkWalletProvider, /openDogeosWalletModal/);
   assert.match(sdkWalletProvider, /walletSource:\s*"dogeos-sdk"/);
+  assert.match(sdkChainSwitch, /isUnknownChainError/);
+  assert.match(sdkChainSwitch, /switchInjectedProviderToDogeOS/);
+  assert.match(sdkChainSwitch, /Chain Id not supported|was not accepted/);
   assert.match(sdkConfig, /VITE_DOGEOS_CLIENT_ID/);
   assert.match(sdkConfig, /DOGEOS_AGGREGATOR_CONFIG/);
   assert.match(sdkConfig, /dogeosClientId/);
