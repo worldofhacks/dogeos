@@ -553,6 +553,69 @@ test("POST /approval derives exact-output approval bounds from the quote before 
   });
 });
 
+test("POST /approval can refresh exact-output quotes before allowance planning", async () => {
+  let plannerInput;
+  let quoteProviderInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    refreshSwapQuoteBeforeBuild: true,
+    gasPriceWei: () => 1n,
+    inputWeiPerFeeWei: () => 0n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async (input) => {
+      quoteProviderInput = input;
+      return [
+        candidate({
+          quoteMode: "exactOutput",
+          sourceId: "muchfi-v3",
+          protocolType: "v3",
+          router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          amountIn: 1_200_000n,
+          amountOut: input.amountOut,
+          quoteTimestampMs: now,
+          ttlMs: 5_000,
+        }),
+      ];
+    },
+    approvalPlanner: async (input) => {
+      plannerInput = input;
+      return { approvalRequired: true, allowance: 0n };
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/approval", {
+      owner: "0x2222222222222222222222222222222222222222",
+      quote: {
+        quoteMode: "exactOutput",
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        amountOut: "900000",
+        maxAmountIn: "1010000",
+        slippageBps: "100",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(quoteProviderInput.quoteMode, "exactOutput");
+  assert.equal(quoteProviderInput.amountOut, 900_000n);
+  assert.deepEqual(quoteProviderInput.includeSources, ["muchfi-v3"]);
+  assert.equal(plannerInput.amount, 1_212_000n);
+  assert.equal(body.quote.maxAmountIn, "1212000");
+});
+
 test("POST /approval refuses inactive quotes before reading allowance", async () => {
   let plannerCalled = false;
   const handle = createAggregatorApiHandler({
@@ -698,6 +761,78 @@ test("POST /swap attaches on-chain simulation and gas estimates for active quote
       nativeBalance: "1000000",
     },
   });
+});
+
+test("POST /swap can refresh the selected source quote before calldata building", async () => {
+  let quoteProviderInput;
+  let builderInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    refreshSwapQuoteBeforeBuild: true,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async (input) => {
+      quoteProviderInput = input;
+      return [
+        candidate({
+          sourceId: "muchfi-v3",
+          protocolType: "v3",
+          router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          amountIn: input.amountIn,
+          amountOut: 1_200_000n,
+          quoteTimestampMs: now,
+          ttlMs: 5_000,
+        }),
+      ];
+    },
+    calldataBuilder: (quote) => {
+      builderInput = quote;
+      return "0x38ed1739";
+    },
+    swapVerifier: async () => ({
+      status: "simulated",
+      estimatedGas: 100_000n,
+      gasLimit: 120_000n,
+      gasBufferBps: 12_000n,
+      blockTag: "latest",
+    }),
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        amountOut: "1050000",
+        minAmountOut: "1000000",
+        slippageBps: "100",
+        recipient: "0x1111111111111111111111111111111111111111",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(quoteProviderInput.amountIn, 1_000_000n);
+  assert.deepEqual(quoteProviderInput.includeSources, ["muchfi-v3"]);
+  assert.deepEqual(quoteProviderInput.excludeSources, []);
+  assert.equal(builderInput.amountOut, 1_200_000n);
+  assert.equal(builderInput.minAmountOut, 1_188_000n);
+  assert.equal(builderInput.recipient, "0x1111111111111111111111111111111111111111");
+  assert.equal(builderInput.deadline, 1_780_000_300);
+  assert.equal(body.quote.amountOut, "1200000");
+  assert.equal(body.quote.minAmountOut, "1188000");
+  assert.equal(body.transaction.routeBinding.minAmountOut, "1188000");
 });
 
 test("POST /swap refuses insufficient balances after simulation", async () => {

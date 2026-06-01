@@ -585,6 +585,7 @@ test("createLiveAggregatorApiHandler loads venue calldata builders for active li
     nowMs: () => now,
     fetchFn: rpc.fetchFn,
     swapVerifier: false,
+    refreshSwapQuoteBeforeBuild: false,
   });
 
   const response = await handle(
@@ -629,6 +630,7 @@ test("createLiveAggregatorApiHandler verifies chain and simulates active swaps b
     nowMs: () => now,
     fetchFn: rpc.fetchFn,
     calldataBuilder: () => "0x38ed1739deadbeef",
+    refreshSwapQuoteBeforeBuild: false,
   });
 
   const response = await handle(

@@ -107,6 +107,7 @@ export function createLiveAggregatorApiHandler({
   swapVerifier,
   approvalPlanner,
   balanceVerifier,
+  refreshSwapQuoteBeforeBuild = true,
 } = {}) {
   const client = createJsonRpcClient({ rpcUrl, fetchFn });
   const verifyChain = createChainVerifier(client, DOGEOS_CHAIN.id);
@@ -193,6 +194,7 @@ export function createLiveAggregatorApiHandler({
     preQuoteVerifier: verifyChain,
     preSwapVerifier: verifyChain,
     quoteCandidateProvider: resolvedQuoteCandidateProvider,
+    refreshSwapQuoteBeforeBuild,
     gasPriceWei: async () => client.getGasPriceWei(),
     outputWeiPerFeeWei,
     inputWeiPerFeeWei,

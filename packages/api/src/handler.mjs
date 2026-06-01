@@ -92,6 +92,10 @@ async function resolveProvider(provider, fallback, input) {
   return fallback;
 }
 
+function ceilDiv(numerator, denominator) {
+  return (numerator + denominator - 1n) / denominator;
+}
+
 function parseQuoteRequest(body) {
   const chainId = Number(body.chainId);
   if (chainId !== DOGEOS_CHAIN.id) {
@@ -127,10 +131,15 @@ function parseQuoteRequest(body) {
 
 function normalizeSwapQuote(quote) {
   const quoteMode = quote.quoteMode === "exactOutput" ? "exactOutput" : "exactInput";
+  const slippageBps =
+    quote.slippageBps === undefined
+      ? undefined
+      : toNonNegativeBigInt(quote.slippageBps, "quote.slippageBps");
   const normalized = {
     ...quote,
     quoteMode,
     amountIn: toPositiveBigInt(quote.amountIn, "quote.amountIn"),
+    ...(slippageBps === undefined ? {} : { slippageBps }),
     nativeValueWei:
       quote.nativeValueWei === undefined
         ? undefined
@@ -156,6 +165,91 @@ function normalizeSwapQuote(quote) {
     ...normalized,
     minAmountOut: toPositiveBigInt(quote.minAmountOut, "quote.minAmountOut"),
   };
+}
+
+function inferredSwapSlippageBps(quote) {
+  if (quote.slippageBps !== undefined) return toNonNegativeBigInt(quote.slippageBps, "quote.slippageBps");
+
+  if (quote.quoteMode === "exactOutput") {
+    const maxAmountIn = toPositiveBigInt(quote.maxAmountIn ?? quote.maximumInput, "quote.maxAmountIn");
+    const amountIn = toPositiveBigInt(quote.amountIn, "quote.amountIn");
+    if (maxAmountIn >= amountIn) return ceilDiv((maxAmountIn - amountIn) * 10_000n, amountIn);
+  } else if (quote.amountOut !== undefined && quote.minAmountOut !== undefined) {
+    const amountOut = toPositiveBigInt(quote.amountOut, "quote.amountOut");
+    const minAmountOut = toPositiveBigInt(quote.minAmountOut, "quote.minAmountOut");
+    if (amountOut >= minAmountOut) return ceilDiv((amountOut - minAmountOut) * 10_000n, amountOut);
+  }
+
+  return 50n;
+}
+
+function swapQuoteRefreshInput(quote) {
+  return {
+    chainId: quote.chainId,
+    quoteMode: quote.quoteMode,
+    sellToken: quote.sellToken,
+    buyToken: quote.buyToken,
+    ...(quote.quoteMode === "exactOutput"
+      ? { amountOut: quote.amountOut }
+      : { amountIn: quote.amountIn }),
+    slippageBps: inferredSwapSlippageBps(quote),
+    includeSources: [String(quote.sourceId ?? "")],
+    excludeSources: [],
+  };
+}
+
+function quoteWithSwapExecutionFields(refreshedQuote, originalQuote) {
+  return {
+    ...refreshedQuote,
+    recipient: originalQuote.recipient,
+    deadline: originalQuote.deadline,
+    sender: originalQuote.sender,
+  };
+}
+
+async function refreshSwapQuote({
+  quote,
+  quoteCandidateProvider,
+  nowMs,
+  gasPriceWei,
+  outputWeiPerFeeWei,
+  inputWeiPerFeeWei,
+}) {
+  const input = swapQuoteRefreshInput(quote);
+  attachQuoteDiagnostics(input);
+  const outputWeiPerFeeWeiPromise = resolveProvider(outputWeiPerFeeWei, 0n, input);
+  const [
+    candidates,
+    now,
+    resolvedGasPriceWei,
+    resolvedOutputWeiPerFeeWei,
+    resolvedInputWeiPerFeeWei,
+  ] = await Promise.all([
+    quoteCandidateProvider(input),
+    resolveProvider(nowMs, Date.now(), input),
+    resolveProvider(gasPriceWei, 0n, input),
+    outputWeiPerFeeWeiPromise,
+    inputWeiPerFeeWei === undefined
+      ? outputWeiPerFeeWeiPromise
+      : resolveProvider(inputWeiPerFeeWei, undefined, input),
+  ]);
+  const response = buildQuoteResponse({
+    candidates,
+    includeSources: input.includeSources,
+    excludeSources: input.excludeSources,
+    nowMs: now,
+    expectedChainId: DOGEOS_CHAIN.id,
+    gasPriceWei: resolvedGasPriceWei,
+    outputWeiPerFeeWei: resolvedOutputWeiPerFeeWei,
+    inputWeiPerFeeWei: resolvedInputWeiPerFeeWei,
+    slippageBps: input.slippageBps,
+  });
+
+  if (!response.best) {
+    throw new Error(`Live quote refresh did not return an active route for ${quote.sourceId}.`);
+  }
+
+  return quoteWithSwapExecutionFields(response.best, quote);
 }
 
 function venueVerificationKey({ sourceId, role, address }) {
@@ -225,6 +319,7 @@ export function createAggregatorApiHandler({
   calldataBuilder = () => {
     throw new Error("No calldata builder configured.");
   },
+  refreshSwapQuoteBeforeBuild = false,
   timingNowMs = defaultTimingNowMs,
 } = {}) {
   return async function handleAggregatorRequest(request) {
@@ -344,15 +439,26 @@ export function createAggregatorApiHandler({
         }
 
         const body = await readJson(request);
-        const quote = normalizeSwapQuote(body.quote ?? {});
+        const originalQuote = normalizeSwapQuote(body.quote ?? {});
         const owner = String(body.owner ?? body.sender ?? "");
-        const amount = quote.quoteMode === "exactOutput" ? quote.maxAmountIn : quote.amountIn;
 
-        if (quote.status !== "active") {
-          throw new Error(`Source ${quote.sourceId} is not active for approval.`);
+        if (originalQuote.status !== "active") {
+          throw new Error(`Source ${originalQuote.sourceId} is not active for approval.`);
         }
 
-        await preSwapVerifier(quote);
+        await preSwapVerifier(originalQuote);
+
+        const quote = refreshSwapQuoteBeforeBuild
+          ? await refreshSwapQuote({
+              quote: originalQuote,
+              quoteCandidateProvider,
+              nowMs,
+              gasPriceWei,
+              outputWeiPerFeeWei,
+              inputWeiPerFeeWei,
+            })
+          : originalQuote;
+        const amount = quote.quoteMode === "exactOutput" ? quote.maxAmountIn : quote.amountIn;
 
         const plan = await approvalPlanner({
           token: quote.sellToken,
@@ -361,7 +467,7 @@ export function createAggregatorApiHandler({
           amount,
         });
 
-        return jsonResponse(plan);
+        return jsonResponse({ ...plan, quote });
       } catch (error) {
         return errorResponse(422, "approval-not-buildable", error.message);
       }
@@ -370,8 +476,24 @@ export function createAggregatorApiHandler({
     if (request.method === "POST" && url.pathname === "/swap") {
       try {
         const body = await readJson(request);
-        const quote = normalizeSwapQuote(body.quote ?? {});
-        const sender = String(body.sender ?? quote.sender ?? "");
+        const originalQuote = normalizeSwapQuote(body.quote ?? {});
+        const sender = String(body.sender ?? originalQuote.sender ?? "");
+        if (originalQuote.status !== "active") {
+          throw new Error(`Source ${originalQuote.sourceId} is not active for execution.`);
+        }
+
+        await preSwapVerifier(originalQuote);
+
+        const quote = refreshSwapQuoteBeforeBuild
+          ? await refreshSwapQuote({
+              quote: originalQuote,
+              quoteCandidateProvider,
+              nowMs,
+              gasPriceWei,
+              outputWeiPerFeeWei,
+              inputWeiPerFeeWei,
+            })
+          : originalQuote;
         const tx = buildSwapTx({
           quote,
           nowMs: await resolveProvider(nowMs, Date.now(), quote),
@@ -379,10 +501,8 @@ export function createAggregatorApiHandler({
           calldataBuilder,
         });
 
-        await preSwapVerifier(quote);
-
         if (!swapVerifier) {
-          return jsonResponse({ transaction: tx });
+          return jsonResponse({ transaction: tx, quote });
         }
 
         const verification = await swapVerifier({ transaction: tx, quote, sender });
@@ -391,6 +511,7 @@ export function createAggregatorApiHandler({
           : undefined;
 
         return jsonResponse({
+          quote,
           transaction: {
             ...tx,
             gas: verification.gasLimit,

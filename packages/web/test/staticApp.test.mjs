@@ -817,6 +817,8 @@ test("static web app confirms submitted swaps from on-chain receipts", async () 
   harness.element("swap-button").dispatchEvent({ type: "click" });
   await drainMicrotasks(64);
 
+  const swapRequest = harness.fetchCalls.find((call) => call.path === "/swap");
+  assert.equal(JSON.parse(swapRequest.options.body).quote.slippageBps, "50");
   assert.deepEqual(
     providerCalls.map((call) => call.method),
     ["eth_sendTransaction", "eth_getTransactionReceipt"],

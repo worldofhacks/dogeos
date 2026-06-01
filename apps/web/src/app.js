@@ -1347,6 +1347,7 @@ async function buildSwap() {
     const recipient = elements.recipient.value || state.walletAddress;
     const quote = {
       ...state.quote.best,
+      slippageBps: elements.slippageBps.value || "50",
       recipient,
       deadline: Math.floor(Date.now() / 1000) + 300,
     };
