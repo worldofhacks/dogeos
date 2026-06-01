@@ -712,6 +712,18 @@ h2 {
   text-transform: uppercase;
 }
 
+.source-issue-detail {
+  min-width: 0;
+  margin: 8px 0 0;
+  border-top: 1px solid var(--te-hair);
+  color: var(--te-orange);
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding-top: 8px;
+}
+
 .quote-ring {
   display: inline-flex;
   min-height: 24px;

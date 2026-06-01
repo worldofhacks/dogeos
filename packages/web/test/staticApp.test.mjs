@@ -295,6 +295,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(html, /data-view="swap"/);
   assert.match(html, /id="chart-panel"/);
   assert.match(html, /id="quote-telemetry-detail"/);
+  assert.match(html, /id="source-issue-detail"/);
   assert.match(html, /id="token-picker"/);
   assert.match(html, /id="slippage-knob"/);
   assert.match(html, /id="quote-refresh-ring"/);
@@ -438,6 +439,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(css, /bottom-nav/);
   assert.match(css, /quote-ring/);
   assert.match(css, /telemetry-detail/);
+  assert.match(css, /source-issue-detail/);
   assert.match(css, /token-picker/);
   assert.match(css, /knob-control/);
   assert.match(css, /--te-accent:\s*#ff4d2e/);
@@ -468,6 +470,23 @@ test("static web app renders detailed quote telemetry in the live route monitor"
   assert.match(detail, /routes 2\/3 live/);
   assert.match(detail, /1 rejected/);
   assert.match(detail, /1 issue/);
+});
+
+test("static web app renders source issue details in the live route monitor", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  const detail = harness.element("source-issue-detail");
+  assert.equal(detail.hidden, false);
+  assert.match(detail.textContent, /provider-error/);
+  assert.match(detail.textContent, /concentrated-liquidity/);
+  assert.match(detail.textContent, /timed out after 1000ms/);
+  assert.match(detail.getAttribute("title"), /concentrated-liquidity/);
 });
 
 test("static web app invalidates executable quotes immediately when either quote input changes", async () => {

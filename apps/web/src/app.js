@@ -63,6 +63,7 @@ const elements = {
   quoteLatencyLabel: document.querySelector("#quote-latency-label"),
   sourceIssuesLabel: document.querySelector("#source-issues-label"),
   quoteTelemetryDetail: document.querySelector("#quote-telemetry-detail"),
+  sourceIssueDetail: document.querySelector("#source-issue-detail"),
   tokenPicker: document.querySelector("#token-picker"),
   tokenPickerScrim: document.querySelector("#token-picker-scrim"),
   tokenPickerClose: document.querySelector("#token-picker-close"),
@@ -304,6 +305,24 @@ function quoteTelemetryDetail(quote) {
       : "";
 
   return `verify ${verify} / providers ${providers} / fees ${fees} / score ${score} / routes ${executableCount}/${candidateCount} live, ${rejectedCount} rejected${sourceIssueText}`;
+}
+
+function quoteSourceIssueDetail(quote) {
+  const sourceErrors = quote?.telemetry?.sourceErrors;
+  if (!Array.isArray(sourceErrors) || sourceErrors.length === 0) return "";
+
+  const visibleErrors = sourceErrors.slice(0, 2).map((entry) => {
+    const type = entry?.type || "source-issue";
+    const id = entry?.providerId || entry?.sourceId || entry?.protocolType || "unknown-source";
+    const protocol = entry?.protocolType && entry?.protocolType !== id ? `/${entry.protocolType}` : "";
+    const message = entry?.message || "Live quote source returned no diagnostic message.";
+    return `${type} / ${id}${protocol}: ${message}`;
+  });
+
+  const overflowCount = sourceErrors.length - visibleErrors.length;
+  return overflowCount > 0
+    ? `${visibleErrors.join(" | ")} | +${overflowCount} more`
+    : visibleErrors.join(" | ");
 }
 
 function quoteLatencySuffix(quote) {
@@ -854,11 +873,18 @@ function renderMarketVisual(targetElement = elements.marketVisual) {
 function renderMarketPanel() {
   const best = state.quote?.best;
   const source = best ? sourceById(best.sourceId) : null;
+  const sourceIssueDetail = quoteSourceIssueDetail(state.quote);
   elements.bestSourceLabel.textContent = source?.displayName ?? "-";
   elements.quoteLatencyLabel.textContent = formatLatencyMs(state.quote?.telemetry?.quoteLatencyMs) || "-";
   elements.sourceIssuesLabel.textContent = String(state.quote?.telemetry?.sourceErrorCount ?? 0);
   elements.quoteTelemetryDetail.textContent = quoteTelemetryDetail(state.quote);
   elements.quoteTelemetryDetail.setAttribute("title", "Quote timing telemetry from the latest live route response");
+  elements.sourceIssueDetail.textContent = sourceIssueDetail;
+  elements.sourceIssueDetail.hidden = !sourceIssueDetail;
+  elements.sourceIssueDetail.setAttribute(
+    "title",
+    sourceIssueDetail || "No source issues in the latest live route response",
+  );
   elements.chartPanel.hidden = !state.chartVisible;
   elements.chartToggle.setAttribute("aria-pressed", String(state.chartVisible));
   elements.chartToggle.classList.toggle("active", state.chartVisible);
