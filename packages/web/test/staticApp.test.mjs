@@ -367,9 +367,17 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(html, /id="token-picker"/);
   assert.match(html, /id="slippage-knob"/);
   assert.match(html, /id="buy-balance"/);
+  assert.match(html, /id="swap-settings-toggle"/);
+  assert.match(html, /id="swap-settings-panel" hidden/);
+  assert.match(html, /id="swap-settings-close"/);
+  assert.match(html, /id="sell-amount-max"/);
+  assert.match(html, /id="sell-amount-half"/);
+  assert.match(html, /id="sell-amount-quarter"/);
   assert.match(html, /id="quote-refresh-ring"/);
   assert.match(html, /id="quote-button" type="submit">Refresh<\/button>/);
   assert.doesNotMatch(html, /id="quote-button" type="submit">Quote<\/button>/);
+  const swapFormHtml = html.slice(html.indexOf('<form id="swap-form"'), html.indexOf("</form>"));
+  assert.doesNotMatch(swapFormHtml, /class="knob-grid"/);
   assert.match(html, /id="buy-amount" name="buyAmount" type="text"/);
   assert.match(html, /id="timeline"/);
   assert.match(html, /Active route simulation/);
@@ -431,6 +439,8 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(js, /signal:\s*quoteController\.signal/);
   assert.match(js, /error\.name === "AbortError"/);
   assert.match(js, /sellAmount\.addEventListener\("input", scheduleExactInputQuoteRefresh\)/);
+  assert.match(js, /toggleSwapSettings/);
+  assert.match(js, /applySellBalancePercent/);
   assert.match(js, /buyAmount\.addEventListener\("input", scheduleExactOutputQuoteRefresh\)/);
   assert.match(js, /slippageBps\.addEventListener\("input"/);
   assert.match(js, /renderTradeControls\(\);\s*scheduleQuoteRefresh\(\);/);
@@ -756,6 +766,37 @@ test("static web app rotates live trade knobs when slippage and gas estimates ch
     harness.element("slippage-knob").style.getPropertyValue("--knob-turn"),
     initialSlippageTurn,
   );
+});
+
+test("static web app keeps trade knobs in a swap settings popup", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  assert.equal(harness.element("swap-settings-panel").hidden, true);
+  assert.equal(harness.element("swap-settings-toggle").getAttribute("aria-expanded"), "false");
+
+  harness.element("swap-settings-toggle").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("swap-settings-panel").hidden, false);
+  assert.equal(harness.element("swap-settings-toggle").getAttribute("aria-expanded"), "true");
+
+  harness.element("slippage-bps").value = "125";
+  harness.element("slippage-bps").dispatchEvent({ type: "input" });
+
+  assert.equal(harness.element("slippage-value").textContent, "1.25%");
+
+  harness.element("swap-settings-scrim").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("swap-settings-panel").hidden, true);
+  assert.equal(harness.element("swap-settings-toggle").getAttribute("aria-expanded"), "false");
+
+  harness.element("swap-settings-toggle").dispatchEvent({ type: "click" });
+  harness.element("swap-settings-close").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("swap-settings-panel").hidden, true);
 });
 
 test("static web app explains no-route official token pairs using verified live pools", async () => {
@@ -1345,6 +1386,53 @@ test("static web app displays connected wallet balances for selected tokens", as
   );
 });
 
+test("static web app applies max and percentage quick amounts from the connected sell balance", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  harness.context.window.dogeosAggregatorWallet = {
+    getChainId: () => "0x5fdaf3",
+    getProvider: () => ({
+      request: async (request) => {
+        if (request.method === "eth_call") {
+          return `0x${BigInt("2500000000000000000").toString(16).padStart(64, "0")}`;
+        }
+        throw new Error(`Unexpected wallet method ${request.method}`);
+      },
+    }),
+    switchToDogeOS: async () => true,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: "0x5fdaf3",
+        chainType: "evm",
+        hasProvider: true,
+        isConnected: true,
+      },
+    }),
+  );
+  await drainMicrotasks(32);
+
+  assert.equal(harness.element("sell-amount-half").disabled, false);
+  assert.equal(harness.element("sell-amount-quarter").disabled, false);
+  assert.equal(harness.element("sell-amount-max").disabled, false);
+
+  harness.element("sell-amount-half").dispatchEvent({ type: "click" });
+  assert.equal(harness.element("sell-amount").value, "1.25");
+  assert.match(harness.element("quote-status").textContent, /Updating live quote/);
+
+  harness.element("sell-amount-quarter").dispatchEvent({ type: "click" });
+  assert.equal(harness.element("sell-amount").value, "0.625");
+
+  harness.element("sell-amount-max").dispatchEvent({ type: "click" });
+  assert.equal(harness.element("sell-amount").value, "2.5");
+});
+
 test("static web app treats eip155 DogeOS chain ids as already switched", async () => {
   const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
   const harness = createStaticAppHarness();
@@ -1460,7 +1548,7 @@ test("static web app maps async SDK unsupported-chain wallet state errors to Dog
   assert.match(harness.element("quote-status").textContent, /chain ID 6281971/);
 });
 
-test("static web app loads the DogeOS wallet chunk only on connect intent", async () => {
+test("static web app restores persisted DogeOS wallet sessions after startup", async () => {
   const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
   const harness = createStaticAppHarness();
 
@@ -1468,9 +1556,51 @@ test("static web app loads the DogeOS wallet chunk only on connect intent", asyn
   await drainMicrotasks(16);
 
   assert.equal(harness.windowEvents.includes("dogeos:quote-ready"), false);
-  assert.equal(harness.windowEvents.includes("dogeos:load-sdk-wallet"), false);
-
-  harness.element("connect-wallet").dispatchEvent({ type: "pointerenter" });
-
   assert.equal(harness.windowEvents.includes("dogeos:load-sdk-wallet"), true);
+});
+
+test("static web app does not disconnect a wallet restored during connect", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+  let disconnectCalls = 0;
+  let openModalCalls = 0;
+
+  vm.runInNewContext(appJs, harness.context);
+  harness.context.window.addEventListener("dogeos:load-sdk-wallet", () => {
+    harness.context.window.dogeosAggregatorWallet = {
+      openModal: async () => {
+        openModalCalls += 1;
+        return "0x1111111111111111111111111111111111111111";
+      },
+      disconnect: async () => {
+        disconnectCalls += 1;
+      },
+      isConnected: () => true,
+      getProvider: () => null,
+    };
+    harness.windowDispatch(new harness.context.Event("dogeos:sdk-wallet-ready"));
+    harness.windowDispatch(
+      new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+        detail: {
+          address: "0x1111111111111111111111111111111111111111",
+          chainId: "0x5fdaf3",
+          chainType: "evm",
+          error: "",
+          hasProvider: true,
+          isConnected: true,
+          isConnecting: false,
+          walletSource: "dogeos-sdk",
+        },
+      }),
+    );
+  });
+  await drainMicrotasks(16);
+
+  harness.element("connect-wallet").dispatchEvent({ type: "click" });
+  await drainMicrotasks(32);
+
+  assert.equal(disconnectCalls, 0);
+  assert.equal(openModalCalls, 0);
+  assert.equal(harness.element("connect-wallet").textContent, "0x1111...1111");
+  assert.match(harness.element("quote-status").textContent, /Wallet (already connected|connected through DogeOS SDK)/);
 });

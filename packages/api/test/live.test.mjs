@@ -203,6 +203,77 @@ test("createLiveAggregatorApiHandler verifies DogeOS RPC chain and uses live gas
   );
 });
 
+test("createLiveAggregatorApiHandler shares initial DogeOS RPC chain verification across concurrent live quotes", async () => {
+  const calls = [];
+  const fetchFn = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body);
+
+    if (body.method === "eth_chainId") {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: "0x5fdaf3",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+
+    if (body.method === "eth_gasPrice") {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: "0x2",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+
+    throw new Error(`unexpected RPC request ${body.method}`);
+  };
+  const handle = createLiveAggregatorApiHandler({
+    nowMs: () => now,
+    fetchFn,
+    quoteCandidateProvider: async () => [candidate()],
+  });
+
+  const responses = await Promise.all([
+    handle(
+      jsonRequest("/quote", {
+        chainId: DOGEOS_CHAIN.id,
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        slippageBps: "50",
+      }),
+    ),
+    handle(
+      jsonRequest("/quote", {
+        chainId: DOGEOS_CHAIN.id,
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "2000000",
+        slippageBps: "50",
+      }),
+    ),
+  ]);
+  const bodies = await Promise.all(responses.map((response) => response.json()));
+
+  assert.deepEqual(responses.map((response) => response.status), [200, 200]);
+  assert.deepEqual(bodies.map((body) => body.status), ["ok", "ok"]);
+  assert.equal(calls.filter((call) => call.method === "eth_chainId").length, 1);
+  assert.equal(calls.filter((call) => call.method === "eth_gasPrice").length, 2);
+});
+
 test("createLiveAggregatorApiHandler rejects RPC chain mismatches before quote provider work", async () => {
   const rpc = rpcQueue(["0x1"]);
   let providerCalled = false;

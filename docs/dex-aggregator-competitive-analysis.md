@@ -161,13 +161,13 @@ The Stage 1 code should still use route candidates that can contain legs. A dire
 
 ### Contracts
 
-V1 executes directly through the selected verified venue router. The platform should not deploy an aggregator execution router for the current scope; the wallet signs the transaction for the chosen external venue after route verification, sender-aware simulation, gas estimation, and data/finality fee resolution.
+V1 executes directly through the selected verified venue router. The wallet signs the transaction for the chosen external venue after route verification, sender-aware simulation, gas estimation, and data/finality fee resolution.
 
 Any future contract-mediated execution path requires separate user approval, threat modeling, and tests before implementation. It must remain outside DEX creation: no pool creation, no liquidity management, no on-chain pathfinding, and no arbitrary user calldata.
 
 ## Adapter Certification Standard
 
-A DEX becomes executable only after:
+A DEX integration is promoted to active execution when:
 
 1. Canonical factory, pool, router, and quoter addresses are confirmed.
 2. ABI/source is verified through Blockscout, official docs, or signed venue artifact.

@@ -61,7 +61,25 @@ test("repository docs do not preserve owned-router or allowlist execution langua
   for (const file of docs) {
     const body = await readFile(join(repoRoot, file), "utf8");
     assert.doesNotMatch(body, /\baggregator router\b/i, file);
+    assert.doesNotMatch(body, /\baggregator execution router\b/i, file);
+    assert.doesNotMatch(body, /\bplatform-controlled .*router\b/i, file);
     assert.doesNotMatch(body, /\ballowlisted?\b/i, file);
+  }
+});
+
+test("current design docs describe active verified DogeOS sources without read-adapter placeholders", async () => {
+  const docs = [
+    "docs/superpowers/specs/2026-05-30-dogeos-v2-v3-aggregator-design.md",
+    "docs/superpowers/plans/2026-05-30-dogeos-v2-v3-aggregator.md",
+  ];
+
+  for (const file of docs) {
+    const body = await readFile(join(repoRoot, file), "utf8");
+    assert.doesNotMatch(body, /read adapter first/i, file);
+    assert.doesNotMatch(body, /minimal aggregator execution router/i, file);
+    assert.match(body, /MuchFi V2/i, file);
+    assert.match(body, /MuchFi V3/i, file);
+    assert.match(body, /Barkswap/i, file);
   }
 });
 

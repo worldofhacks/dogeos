@@ -369,6 +369,13 @@ th,
   margin-bottom: 14px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .panel-kicker {
   margin-bottom: 4px;
   color: var(--te-muted);
@@ -417,6 +424,11 @@ h2 {
   background: var(--te-accent);
 }
 
+.settings-button[aria-expanded="true"] {
+  border-color: var(--te-accent);
+  color: var(--te-accent);
+}
+
 .swap-form {
   display: grid;
   gap: 12px;
@@ -449,6 +461,38 @@ h2 {
 .field-block small {
   color: var(--te-muted);
   letter-spacing: 0.08em;
+}
+
+.quick-amounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.quick-amounts button {
+  min-height: 26px;
+  min-width: 48px;
+  border: 1px solid var(--te-hair);
+  border-radius: 999px;
+  background: var(--te-panel);
+  color: var(--te-ink);
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.quick-amounts button:hover:not(:disabled),
+.quick-amounts button:focus-visible:not(:disabled) {
+  border-color: var(--te-accent);
+  color: var(--te-accent);
+}
+
+.quick-amounts button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .amount-row {
@@ -540,6 +584,14 @@ h2 {
   border-top: 1px solid var(--te-hair);
   border-bottom: 1px solid var(--te-hair);
   padding: 14px 0 12px;
+}
+
+.settings-knob-grid {
+  margin-top: 4px;
+  border: 1px solid var(--te-hair);
+  border-radius: var(--radius-md);
+  background: var(--te-screen);
+  padding: 18px;
 }
 
 .knob-control {
@@ -1051,14 +1103,16 @@ tbody tr:last-child td {
 }
 
 .token-picker,
-.chart-popout {
+.chart-popout,
+.settings-popout {
   position: fixed;
   inset: 0;
   z-index: 80;
 }
 
 .token-picker[hidden],
-.chart-popout[hidden] {
+.chart-popout[hidden],
+.settings-popout[hidden] {
   display: none;
 }
 
@@ -1070,7 +1124,8 @@ tbody tr:last-child td {
 }
 
 .token-picker-sheet,
-.chart-popout-sheet {
+.chart-popout-sheet,
+.settings-popout-sheet {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -1087,6 +1142,10 @@ tbody tr:last-child td {
 
 .chart-popout-sheet {
   width: min(1040px, calc(100vw - 28px));
+}
+
+.settings-popout-sheet {
+  width: min(440px, calc(100vw - 28px));
 }
 
 .sheet-handle {
@@ -1302,8 +1361,13 @@ tbody tr:last-child td {
     background: rgba(255, 77, 46, 0.12);
   }
 
+  .panel-actions {
+    flex-wrap: nowrap;
+  }
+
   .token-picker-sheet,
-  .chart-popout-sheet {
+  .chart-popout-sheet,
+  .settings-popout-sheet {
     left: 0;
     right: 0;
     top: auto;
@@ -1313,6 +1377,14 @@ tbody tr:last-child td {
     transform: none;
     border-radius: 22px 22px 0 0;
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .settings-popout-sheet {
+    max-height: 72vh;
+  }
+
+  .settings-knob-grid {
+    grid-template-columns: 1fr;
   }
 
   .sheet-handle {

@@ -22,16 +22,25 @@ import { createAggregatorApiHandler } from "./handler.mjs";
 
 function createChainVerifier(client, expectedChainId) {
   let verifiedChainId = null;
+  let verificationPromise = null;
 
   return async function verifyChain() {
     if (verifiedChainId === expectedChainId) return;
 
-    const rpcChainId = await client.getChainId();
-    if (rpcChainId !== expectedChainId) {
-      throw new Error(`RPC chain mismatch: expected ${expectedChainId}, received ${rpcChainId}.`);
-    }
+    verificationPromise ??= (async () => {
+      try {
+        const rpcChainId = await client.getChainId();
+        if (rpcChainId !== expectedChainId) {
+          throw new Error(`RPC chain mismatch: expected ${expectedChainId}, received ${rpcChainId}.`);
+        }
 
-    verifiedChainId = rpcChainId;
+        verifiedChainId = rpcChainId;
+      } finally {
+        verificationPromise = null;
+      }
+    })();
+
+    await verificationPromise;
   };
 }
 

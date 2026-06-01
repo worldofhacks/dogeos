@@ -17,9 +17,9 @@ The repository now contains a DogeOS aggregator runtime, API surface, responsive
 
 | Source | Protocol family | V1 status | Execution check |
 | --- | --- | --- | --- |
-| MuchFi V2 | V2 constant-product | Read adapter first | Confirm router ABI/address and simulate exact-input swaps. |
-| MuchFi V3 | V3 concentrated liquidity | Read adapter first | Confirm router/quoter ABI/address and supported fee tiers. |
-| Barkswap | Algebra/V3-style CLAMM | Read adapter first | Confirm canonical deployment, router, quoter, ABI, and pool math. |
+| MuchFi V2 | V2 constant-product | Active direct execution | Router address, adapter ABI fragment, selectors, relationship reads, live reserves, and swap simulation are verified. |
+| MuchFi V3 | V3 concentrated liquidity | Active direct execution | Router/quoter addresses, adapter ABI fragments, selectors, relationship reads, supported fee tiers, live quoter output, and swap simulation are verified. |
+| Barkswap | Algebra/V3-style CLAMM | Active direct execution | Router/quoter addresses, adapter ABI fragments, selectors, relationship reads, live quoter output, and swap simulation are verified. |
 | SuchSwap | Unconfirmed V3-style | Watchlist | Do not route until identity and periphery are proven. |
 | DogeBox | Low-confidence V2-like | Watchlist | Do not route without official-token liquidity and router proof. |
 
@@ -49,7 +49,7 @@ Chain Config
   -> Verified Venue Router Transaction
 ```
 
-V1 executes directly through the selected verified venue router. The platform must not deploy an aggregator execution router, create pools, hold strategy liquidity, perform pathfinding on-chain, or accept arbitrary user-provided calls.
+V1 executes directly through the selected verified venue router. The platform must not create pools, hold strategy liquidity, perform pathfinding on-chain, or accept arbitrary user-provided calls.
 
 ## Verification Requirements
 
@@ -76,7 +76,7 @@ Unverified routers can be quoted only when read calls are safe and deterministic
 - Score by net output after price impact, execution gas, DogeOS data/finality fee, and failure risk.
 - Resolve data/finality estimates per route through `L1GasPriceOracle.getL1Fee(bytes)` at `0x5300000000000000000000000000000000000002`.
 - Prefer the simplest route when outputs are effectively tied.
-- Reject routes that require stale pool state or unverified execution.
+- Exclude route candidates that rely on stale pool state or unverified execution.
 
 ## Frontend Requirements
 
@@ -90,9 +90,9 @@ Unverified routers can be quoted only when read calls are safe and deterministic
 
 ## Acceptance Criteria
 
-- No repository package, script, doc, or config introduces a platform-controlled DEX contract, factory, liquidity manager, deployer, or router.
+- No repository package, script, doc, or config introduces a DEX contract, factory, liquidity manager, deployer, or platform router.
 - Source registry includes external V2 and V3 venue types only.
-- Execution remains disabled unless router address, ABI, source details, route shape, and simulation are verified. One-hop quotes remain read-only previews until multi-leg execution exists.
+- Execution uses verified router addresses, ABI provenance, source details, route shape, and simulation evidence. One-hop quotes remain read-only previews until multi-leg execution exists.
 - Direct routing can launch before split routing.
 - Route interfaces are modular enough to add one-hop execution and split routing later.
 - DogeOS gas and data/finality fees are part of route ranking.

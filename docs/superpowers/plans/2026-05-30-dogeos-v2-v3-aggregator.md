@@ -6,7 +6,7 @@
 
 **Architecture:** Keep source metadata, verification, quotes, gas estimation, transaction construction, and UI state in separate modules. Start with direct single-route execution and preserve route candidate composition for one-hop and split routing later.
 
-**Tech Stack:** Dependency-light ESM JavaScript, DogeOS RPC, Blockscout, DogeOS SDK v3, responsive web frontend, and a minimal aggregator execution router only if direct venue approval/execution is not sufficient.
+**Tech Stack:** Dependency-light ESM JavaScript, DogeOS RPC, Blockscout, DogeOS SDK v3, responsive web frontend, and direct venue approval/execution through verified external routers.
 
 ---
 

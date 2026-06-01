@@ -26,6 +26,7 @@ const state = {
   tokenFilter: "",
   chartVisible: true,
   chartPopoutVisible: false,
+  swapSettingsVisible: false,
   activity: [],
   lastQuoteStartedAtMs: 0,
   walletAddress: "",
@@ -35,6 +36,7 @@ const state = {
   walletConnecting: false,
   walletError: "",
   walletSource: "",
+  walletConnectRequested: false,
   walletBalances: {},
   walletBalanceErrors: {},
 };
@@ -58,12 +60,19 @@ const elements = {
   buyTokenChip: document.querySelector("#buy-token-chip"),
   sellBalance: document.querySelector("#sell-balance"),
   buyBalance: document.querySelector("#buy-balance"),
+  sellAmountMax: document.querySelector("#sell-amount-max"),
+  sellAmountHalf: document.querySelector("#sell-amount-half"),
+  sellAmountQuarter: document.querySelector("#sell-amount-quarter"),
   slippageKnob: document.querySelector("#slippage-knob"),
   slippageValue: document.querySelector("#slippage-value"),
   gasKnob: document.querySelector("#gas-knob"),
   gasPriorityValue: document.querySelector("#gas-priority-value"),
   quoteRefreshRing: document.querySelector("#quote-refresh-ring"),
   flipTokens: document.querySelector("#flip-tokens"),
+  swapSettingsToggle: document.querySelector("#swap-settings-toggle"),
+  swapSettingsPanel: document.querySelector("#swap-settings-panel"),
+  swapSettingsClose: document.querySelector("#swap-settings-close"),
+  swapSettingsScrim: document.querySelector("#swap-settings-scrim"),
   chartToggle: document.querySelector("#chart-toggle"),
   chartPanel: document.querySelector("#chart-panel"),
   chartPopout: document.querySelector("#chart-popout"),
@@ -201,6 +210,10 @@ function loadSdkWallet() {
 function preloadSdkWallet() {
   if (sdkWallet()?.openModal || sdkWalletReadyPromise) return;
   window.dispatchEvent(new Event(LOAD_SDK_WALLET_EVENT));
+}
+
+function restorePersistedWalletSession() {
+  preloadSdkWallet();
 }
 
 function shortAddress(address) {
@@ -668,6 +681,51 @@ function selectedBalanceText(token) {
   return `Balance loading ${token.symbol}`;
 }
 
+function selectedSellBalance() {
+  const sellToken = tokenByAddress(elements.sellToken.value);
+  if (!sellToken || !state.walletAddress) return null;
+
+  const key = walletBalanceKey(sellToken.address);
+  if (!Object.prototype.hasOwnProperty.call(state.walletBalances, key)) return null;
+
+  return {
+    token: sellToken,
+    units: BigInt(state.walletBalances[key]),
+  };
+}
+
+function renderQuickAmountControls() {
+  const sellBalance = selectedSellBalance();
+  const hasSpendableBalance = Boolean(sellBalance && sellBalance.units > 0n);
+
+  for (const button of [
+    elements.sellAmountMax,
+    elements.sellAmountHalf,
+    elements.sellAmountQuarter,
+  ]) {
+    if (!button) continue;
+    button.disabled = !hasSpendableBalance;
+    button.setAttribute("aria-disabled", String(!hasSpendableBalance));
+  }
+}
+
+function applySellBalancePercent(percent) {
+  const sellBalance = selectedSellBalance();
+  if (!sellBalance || sellBalance.units <= 0n) {
+    setStatus("Connect wallet with a sell-token balance to use quick amounts", true);
+    return;
+  }
+
+  const amount = (sellBalance.units * BigInt(percent)) / 100n;
+  if (amount <= 0n) {
+    setStatus("Sell-token balance is too small for that quick amount", true);
+    return;
+  }
+
+  elements.sellAmount.value = unitsToDecimal(amount.toString(), sellBalance.token.decimals, sellBalance.token.decimals);
+  scheduleExactInputQuoteRefresh();
+}
+
 function renderTokenChips() {
   const sellToken = tokenByAddress(elements.sellToken.value);
   const buyToken = tokenByAddress(elements.buyToken.value);
@@ -680,6 +738,7 @@ function renderTokenChips() {
     : "Buy token";
   elements.sellBalance.textContent = selectedBalanceText(sellToken);
   elements.buyBalance.textContent = selectedBalanceText(buyToken);
+  renderQuickAmountControls();
 }
 
 function renderTokenOptions() {
@@ -1498,6 +1557,12 @@ function toggleChartPopout(open = !state.chartPopoutVisible) {
   renderMarketPanel();
 }
 
+function toggleSwapSettings(open = !state.swapSettingsVisible) {
+  state.swapSettingsVisible = Boolean(open);
+  elements.swapSettingsPanel.hidden = !state.swapSettingsVisible;
+  elements.swapSettingsToggle.setAttribute("aria-expanded", String(state.swapSettingsVisible));
+}
+
 function renderActivity() {
   elements.activityList.innerHTML = state.activity.length
     ? state.activity.map((entry) => `
@@ -1828,17 +1893,17 @@ async function requestQuote({ live = false } = {}) {
 
 async function connectWallet() {
   try {
+    const wasConnected = Boolean(state.walletAddress);
+    state.walletConnectRequested = true;
     const wallet = await loadSdkWallet();
     if (!wallet?.openModal) {
       throw new Error("DogeOS SDK wallet is still loading.");
     }
 
-    if (wallet.isConnected?.() || state.walletAddress) {
-      await wallet.disconnect();
-      state.walletAddress = "";
-      state.walletProviderReady = false;
-      elements.connectWallet.textContent = "Connect";
-      setStatus("Wallet disconnected");
+    if (wasConnected || state.walletAddress || wallet.isConnected?.()) {
+      state.walletConnectRequested = false;
+      setStatus("Wallet already connected");
+      refreshSelectedWalletBalances();
       return;
     }
 
@@ -1879,7 +1944,8 @@ function handleSdkWalletUpdate(event) {
   if (state.walletAddress && state.walletAddress !== previousAddress) {
     const walletSource = state.walletSource === "injected" ? "injected wallet" : "DogeOS SDK";
     setStatus(`Wallet connected through ${walletSource}`);
-  } else if (!state.walletAddress && !state.walletConnecting && state.walletError) {
+    state.walletConnectRequested = false;
+  } else if (!state.walletAddress && !state.walletConnecting && state.walletError && state.walletConnectRequested) {
     setStatus(walletConnectErrorMessage(state.walletError), true);
   }
 
@@ -2116,6 +2182,9 @@ elements.tokenListView.addEventListener("click", (event) => {
   scheduleQuoteRefresh();
 });
 elements.flipTokens.addEventListener("click", flipTokens);
+elements.swapSettingsToggle.addEventListener("click", () => toggleSwapSettings());
+elements.swapSettingsClose.addEventListener("click", () => toggleSwapSettings(false));
+elements.swapSettingsScrim.addEventListener("click", () => toggleSwapSettings(false));
 elements.chartToggle.addEventListener("click", () => {
   if (chartUsesSheet()) {
     toggleChartPopout(!state.chartPopoutVisible);
@@ -2135,6 +2204,9 @@ for (const [view, navElement] of Object.entries(elements.bottomNav)) {
   navElement.addEventListener("click", () => switchView(view));
 }
 elements.sellAmount.addEventListener("input", scheduleExactInputQuoteRefresh);
+elements.sellAmountMax.addEventListener("click", () => applySellBalancePercent(100));
+elements.sellAmountHalf.addEventListener("click", () => applySellBalancePercent(50));
+elements.sellAmountQuarter.addEventListener("click", () => applySellBalancePercent(25));
 elements.buyAmount.addEventListener("input", scheduleExactOutputQuoteRefresh);
 elements.sellToken.addEventListener("change", () => {
   renderTokenChips();
@@ -2162,6 +2234,11 @@ const mobileChartMedia = window.matchMedia?.(MOBILE_CHART_QUERY);
 mobileChartMedia?.addEventListener?.("change", renderMarketPanel);
 mobileChartMedia?.addListener?.(renderMarketPanel);
 
+toggleSwapSettings(false);
+
 loadRegistries()
-  .then(requestQuote)
+  .then(() => {
+    requestQuote();
+    restorePersistedWalletSession();
+  })
   .catch((error) => setStatus(error.message, true));

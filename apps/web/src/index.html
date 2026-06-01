@@ -60,16 +60,41 @@
                     <h1 id="swap-title">Swap</h1>
                     <p id="quote-status">Loading live DogeOS sources</p>
                   </div>
-                  <button class="chart-toggle" id="chart-toggle" type="button" aria-pressed="true">
-                    <span aria-hidden="true"></span>
-                    Hide chart
-                  </button>
+                  <div class="panel-actions">
+                    <button
+                      class="icon-button settings-button"
+                      id="swap-settings-toggle"
+                      type="button"
+                      aria-label="Swap settings"
+                      aria-expanded="false"
+                      aria-controls="swap-settings-panel"
+                      title="Swap settings"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h5"></path>
+                        <path d="M13 7h7"></path>
+                        <path d="M9 7a2 2 0 1 0 4 0 2 2 0 0 0-4 0"></path>
+                        <path d="M4 17h9"></path>
+                        <path d="M17 17h3"></path>
+                        <path d="M13 17a2 2 0 1 0 4 0 2 2 0 0 0-4 0"></path>
+                      </svg>
+                    </button>
+                    <button class="chart-toggle" id="chart-toggle" type="button" aria-pressed="true">
+                      <span aria-hidden="true"></span>
+                      Hide chart
+                    </button>
+                  </div>
                 </div>
 
                 <form id="swap-form" class="swap-form">
                   <label class="field-block numbered-field" for="sell-amount">
                     <span><b>01</b> You pay</span>
                     <small id="sell-balance">balance loading</small>
+                    <div class="quick-amounts" aria-label="Quick sell amount">
+                      <button id="sell-amount-max" type="button">Max</button>
+                      <button id="sell-amount-half" type="button">50%</button>
+                      <button id="sell-amount-quarter" type="button">25%</button>
+                    </div>
                     <div class="amount-row">
                       <input id="sell-amount" name="sellAmount" type="text" inputmode="decimal" value="1" autocomplete="off">
                       <button class="token-chip" id="sell-token-chip" type="button">Sell token</button>
@@ -91,20 +116,6 @@
                       <select id="buy-token" name="buyToken" aria-label="Buy token"></select>
                     </div>
                   </label>
-
-                  <div class="knob-grid" aria-label="Trade controls">
-                    <label class="knob-control" id="slippage-knob" for="slippage-bps">
-                      <span class="knob-face" aria-hidden="true"><i></i></span>
-                      <span class="knob-value" id="slippage-value">0.50%</span>
-                      <span class="knob-label">Slippage</span>
-                      <input id="slippage-bps" name="slippageBps" type="range" min="1" max="5000" step="1" value="50">
-                    </label>
-                    <div class="knob-control" id="gas-knob" aria-label="Gas priority">
-                      <span class="knob-face gas-face" aria-hidden="true"><i></i></span>
-                      <span class="knob-value" id="gas-priority-value">live</span>
-                      <span class="knob-label">Gas estimate</span>
-                    </div>
-                  </div>
 
                   <div class="form-grid">
                     <label for="recipient">
@@ -260,6 +271,33 @@
           <button class="icon-button" id="chart-popout-close" type="button" aria-label="Close chart popout">×</button>
         </div>
         <div id="chart-popout-visual" class="market-visual large"></div>
+      </section>
+    </div>
+
+    <div class="settings-popout" id="swap-settings-panel" hidden>
+      <div class="modal-scrim" id="swap-settings-scrim"></div>
+      <section class="settings-popout-sheet" role="dialog" aria-modal="true" aria-labelledby="swap-settings-title">
+        <span class="sheet-handle" aria-hidden="true"></span>
+        <div class="section-heading">
+          <div>
+            <p class="panel-kicker">swap controls</p>
+            <h2 id="swap-settings-title">Trade settings</h2>
+          </div>
+          <button class="icon-button" id="swap-settings-close" type="button" aria-label="Close swap settings">×</button>
+        </div>
+        <div class="knob-grid settings-knob-grid" aria-label="Trade controls">
+          <label class="knob-control" id="slippage-knob" for="slippage-bps">
+            <span class="knob-face" aria-hidden="true"><i></i></span>
+            <span class="knob-value" id="slippage-value">0.50%</span>
+            <span class="knob-label">Slippage</span>
+            <input id="slippage-bps" name="slippageBps" type="range" min="1" max="5000" step="1" value="50">
+          </label>
+          <div class="knob-control" id="gas-knob" aria-label="Gas priority">
+            <span class="knob-face gas-face" aria-hidden="true"><i></i></span>
+            <span class="knob-value" id="gas-priority-value">live</span>
+            <span class="knob-label">Gas estimate</span>
+          </div>
+        </div>
       </section>
     </div>
 

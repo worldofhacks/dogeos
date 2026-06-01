@@ -153,7 +153,7 @@ Core network reference lives in [dogeos-chikyu-testnet.md](./dogeos-chikyu-testn
               Responsive Web App              Public Quote API
 ```
 
-V1 executes directly through the selected verified venue router. Transaction building returns calldata for the chosen external venue only; the platform does not deploy an aggregator execution router, pathfinding contract, pool factory, or pool creation surface.
+V1 executes directly through the selected verified venue router. Transaction building returns calldata for the chosen external venue only; the platform has no pathfinding contract, pool factory, or pool creation surface.
 
 ## Module Boundaries
 
