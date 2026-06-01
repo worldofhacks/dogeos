@@ -16,7 +16,7 @@ The launch target is intentionally smaller than a full 1inch-style graph engine:
 
 ```text
 Stage 1: best direct single route
-Stage 2: one-hop route through WDOGE
+Stage 2: one-hop priced preview through WDOGE
 Stage 3: selective split routing
 Stage 4: full graph routing only if liquidity density justifies it
 ```
@@ -155,7 +155,7 @@ The Stage 1 code should still use route candidates that can contain legs. A dire
 | Token registry | On-chain decimals and provenance. |
 | Pool indexer | Barkswap and MuchFi pool state first. |
 | Quote adapters | V2 reserve math, V3 pool/quoter support, Algebra-style support. |
-| Route optimizer | Direct first, one-hop next, split later. |
+| Route optimizer | Direct execution first, one-hop priced previews next, split later. |
 | Simulation | Exact calldata simulation before `/swap`. |
 | Observability | Quote latency, source/provider timeout rate, route win rate, stale quote rate, revert rate, gas estimate delta. |
 

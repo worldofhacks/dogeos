@@ -53,7 +53,7 @@ build transaction
 
 ### Stage 2: One-Hop Routing
 
-Add one-hop routes through WDOGE when direct liquidity is weak. The code path exists behind an explicit `oneHopEnabled` flag; default V1 routing remains direct-only while direct-route telemetry and runtime validation stabilize.
+Add one-hop routes through WDOGE when direct liquidity is weak. The code path exists behind an explicit `oneHopEnabled` flag; current routing returns one-hop as read-only priced previews only. Execution remains direct-only until a dedicated multi-leg calldata builder, approval plan, simulation path, and wallet flow exist.
 
 Examples:
 
@@ -345,7 +345,7 @@ Runtime rules:
 11. Concentrated-liquidity providers do not synthesize exact-input quotes from partial pool state or unknown quoter selectors.
 12. Default live quote reads cover MuchFi V3 QuoterV2-style output and Barkswap Algebra QuoterV2-style output.
 13. Composite and protocol-family quote providers fail open: a rejected or timed-out source cannot block healthy venue candidates.
-14. One-hop WDOGE routing is controlled with `oneHopEnabled`; disabled default responses stay direct-only.
+14. One-hop WDOGE routing is controlled with `oneHopEnabled`; disabled default responses stay direct-only, and enabled one-hop responses remain read-only previews until multi-leg execution support exists.
 15. Output-fee conversion and calldata builders remain injected so live reads can expand without coupling HTTP parsing to adapter logic.
 16. The default local server returns active `ok` quote responses for MuchFi V2, MuchFi V3, and Barkswap Algebra when live liquidity exists.
 17. `/swap` runs through the swap builder and refuses inactive, stale, wrong-chain, or malformed quotes before calldata can be returned.
@@ -433,12 +433,13 @@ Runtime rules:
 ### Phase 4: One-Hop Routes
 
 - Add WDOGE intermediary route composition.
+- Keep one-hop responses as read-only previews until multi-leg calldata, approval, simulation, and wallet submission are implemented.
 - Keep route scoring gas/data-fee aware.
 - Add include/exclude source filters.
 
 ### Phase 5: Split Routing
 
-- Add split candidates only after direct and one-hop telemetry are reliable.
+- Add split candidates only after direct telemetry is reliable and one-hop execution has a dedicated multi-leg transaction path.
 - Cap route complexity.
 - Show percentages and incremental fee cost.
 

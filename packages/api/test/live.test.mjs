@@ -433,13 +433,20 @@ test("createLiveAggregatorApiHandler can opt into one-hop quote candidates witho
     }),
   );
   const body = await response.json();
-  const oneHopRoute = [body.best, ...(body.alternatives ?? [])].find(
+  const oneHopRoute = [
+    ...(body.best ? [body.best] : []),
+    ...(body.alternatives ?? []),
+    ...(body.rejected ?? []),
+  ].find(
     (route) => route.routeType === "oneHop",
   );
 
   assert.equal(response.status, 200);
-  assert.equal(body.status, "ok");
+  assert.equal(body.status, "read-only");
+  assert.equal(body.best, null);
   assert.equal(oneHopRoute.sourceId, "muchfi-v3+muchfi-v3");
+  assert.equal(oneHopRoute.status, "readOnly");
+  assert.equal(oneHopRoute.reason, "one-hop-execution-preview");
   assert.equal(oneHopRoute.chainId, DOGEOS_CHAIN.id);
   assert.equal(oneHopRoute.viaToken, wdoge.address);
   assert.equal(oneHopRoute.amountOut, "940000");

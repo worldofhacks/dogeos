@@ -26,8 +26,8 @@ The repository now contains a DogeOS aggregator runtime, API surface, responsive
 ## Route Stages
 
 1. Direct best-route: choose one verified venue for the requested pair.
-2. One-hop route: use WDOGE as the first intermediary when direct pools are weak or missing.
-3. Split routing: add later through the same route candidate interface after telemetry proves direct and one-hop execution.
+2. One-hop route: use WDOGE as the first intermediary when direct pools are weak or missing; return read-only priced previews until multi-leg calldata, approval, simulation, and wallet submission exist.
+3. Split routing: add later through the same route candidate interface after telemetry proves direct execution and one-hop has a dedicated transaction path.
 4. Full graph search: later only when DogeOS liquidity density justifies it.
 
 Split routing is intentionally out of V1 execution, but route candidates must already support composition so it can be added without rewriting adapters.
@@ -92,8 +92,8 @@ Unverified routers can be quoted only when read calls are safe and deterministic
 
 - No repository package, script, doc, or config introduces a platform-controlled DEX contract, factory, liquidity manager, deployer, or router.
 - Source registry includes external V2 and V3 venue types only.
-- Execution remains disabled unless router address, ABI, source details, and simulation are verified.
+- Execution remains disabled unless router address, ABI, source details, route shape, and simulation are verified. One-hop quotes remain read-only previews until multi-leg execution exists.
 - Direct routing can launch before split routing.
-- Route interfaces are modular enough to add one-hop and split routing later.
+- Route interfaces are modular enough to add one-hop execution and split routing later.
 - DogeOS gas and data/finality fees are part of route ranking.
 - UI and API are responsive to wallet, quote, transaction, and chain-state changes.

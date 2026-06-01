@@ -202,7 +202,7 @@ export function buildQuoteResponse({
     ...preRejected,
     ...rejectedFromRouting,
   ];
-  const hasInactiveQuotePreview = rejectedFromRouting.some((route) => route.reason === "not-active");
+  const hasInactiveQuotePreview = rejectedFromRouting.some((route) => route.status !== "active");
   const status = best ? "ok" : hasInactiveQuotePreview ? "read-only" : "no-route";
 
   return {

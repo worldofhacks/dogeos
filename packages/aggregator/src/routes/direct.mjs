@@ -1,7 +1,7 @@
 import { scoreExactOutputQuote, scoreQuote } from "../fees/dogeosFeeEstimator.mjs";
 
 function rejectionReason(candidate, nowMs) {
-  if (candidate.status !== "active") return "not-active";
+  if (candidate.status !== "active") return candidate.reason ?? "not-active";
   if (nowMs - candidate.quoteTimestampMs > candidate.ttlMs) return "stale";
   return null;
 }

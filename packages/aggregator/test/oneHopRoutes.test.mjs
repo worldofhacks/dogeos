@@ -6,7 +6,7 @@ import {
   createOneHopQuoteCandidateProvider,
 } from "../src/routes/oneHop.mjs";
 
-test("composeOneHopCandidates creates a two-leg WDOGE route without split routing", () => {
+test("composeOneHopCandidates creates a read-only two-leg WDOGE preview without split routing", () => {
   const routes = composeOneHopCandidates({
     viaToken: "WDOGE",
     firstLegQuotes: [
@@ -45,7 +45,8 @@ test("composeOneHopCandidates creates a two-leg WDOGE route without split routin
   assert.deepEqual(routes[0], {
     routeType: "oneHop",
     sourceId: "muchfi-v2+barkswap-algebra",
-    status: "active",
+    status: "readOnly",
+    reason: "one-hop-execution-preview",
     chainId: 6_281_971,
     sellToken: "USDC",
     buyToken: "USDT",
@@ -197,6 +198,7 @@ test("createOneHopQuoteCandidateProvider composes WDOGE routes when enabled", as
   assert.equal(routes[0].routeType, "oneHop");
   assert.equal(routes[0].sourceId, "muchfi-v2+barkswap-algebra");
   assert.equal(routes[0].status, "readOnly");
+  assert.equal(routes[0].reason, "one-hop-execution-preview");
   assert.equal(routes[0].chainId, 6_281_971);
   assert.equal(routes[0].amountOut, 940_000n);
   assert.equal(routes[0].gasUnits, 210_000n);

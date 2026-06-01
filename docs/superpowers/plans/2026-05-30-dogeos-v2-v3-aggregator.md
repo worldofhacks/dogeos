@@ -103,7 +103,7 @@
 - Create: `packages/aggregator/test/oneHopRoutes.test.ts`
 
 - [x] Test one-hop route composition through WDOGE without changing direct route adapter interfaces.
-- [x] Keep one-hop disabled by default until direct route telemetry is reliable.
+- [x] Keep one-hop disabled by default and read-only when enabled until a multi-leg transaction path exists.
 - [x] Add feature flagging so split routing can use the same composed route model later.
 
 ## Task 8: Add Verification Runbook
@@ -159,4 +159,4 @@
 - Unit tests cover registry gating, verification, quote math, fee estimation, direct route scoring, and transaction building.
 - Browser checks prove responsive desktop and mobile swap surfaces.
 - Live DogeOS verification script records current router bytecode and Blockscout verification status.
-- Split routing remains modular but disabled until direct and one-hop execution are reliable.
+- Split routing remains modular but disabled until direct execution is reliable and one-hop has a dedicated multi-leg transaction path.

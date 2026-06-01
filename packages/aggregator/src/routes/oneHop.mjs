@@ -6,10 +6,6 @@ function canCompose(firstLeg, secondLeg, viaToken) {
   );
 }
 
-function composeStatus(firstLeg, secondLeg) {
-  return firstLeg.status === "active" && secondLeg.status === "active" ? "active" : "readOnly";
-}
-
 function matchingChainId(firstLeg, secondLeg) {
   return firstLeg.chainId === secondLeg.chainId ? firstLeg.chainId : undefined;
 }
@@ -45,7 +41,8 @@ export function composeOneHopCandidates({ viaToken, firstLegQuotes, secondLegQuo
       candidates.push({
         routeType: "oneHop",
         sourceId: `${firstLeg.sourceId}+${secondLeg.sourceId}`,
-        status: composeStatus(firstLeg, secondLeg),
+        status: "readOnly",
+        reason: "one-hop-execution-preview",
         chainId: matchingChainId(firstLeg, secondLeg),
         sellToken: firstLeg.sellToken,
         buyToken: secondLeg.buyToken,
