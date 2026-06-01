@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createVenueAbiArtifact } from "../packages/aggregator/src/abi/venueAbiArtifacts.mjs";
+import {
+  abiFunctionSignaturesFromAbi,
+  createVenueAbiArtifact,
+} from "../packages/aggregator/src/abi/venueAbiArtifacts.mjs";
+import { listVerificationTargets } from "../packages/aggregator/src/sources/registry.mjs";
 
 const OPTION_KEYS = new Map([
   ["--source-id", "sourceId"],
@@ -22,6 +26,10 @@ function splitSelectors(value) {
     .split(",")
     .map((selector) => selector.trim())
     .filter(Boolean);
+}
+
+function normalizeAddress(address) {
+  return String(address ?? "").toLowerCase();
 }
 
 export function parseArgs(args = []) {
@@ -51,6 +59,43 @@ export function parseArgs(args = []) {
   return options;
 }
 
+function matchingRegistryTargets(options) {
+  if (!options.sourceId || !options.role) return [];
+
+  const requestedAddress = options.address ? normalizeAddress(options.address) : null;
+  return listVerificationTargets().filter((target) => {
+    if (target.sourceId !== options.sourceId || target.role !== options.role) return false;
+    if (!requestedAddress) return true;
+    return normalizeAddress(target.address) === requestedAddress;
+  });
+}
+
+function resolveRegistryTarget(options) {
+  const targets = matchingRegistryTargets(options);
+  if (targets.length === 0) return null;
+
+  if (targets.length > 1) {
+    throw new Error(
+      `Multiple registry targets match ${options.sourceId}/${options.role}; pass --address to select one.`,
+    );
+  }
+
+  return targets[0];
+}
+
+function mergeRegistryOptions(options) {
+  const target = resolveRegistryTarget(options);
+  if (!target) return options;
+
+  return {
+    ...options,
+    address: options.address ?? target.address,
+    selectors: options.selectors?.length ? options.selectors : structuredClone(target.expectedSelectors ?? []),
+    expectedSelectors: structuredClone(target.expectedSelectors ?? []),
+    expectedAbiFunctions: structuredClone(target.expectedAbiFunctions ?? []),
+  };
+}
+
 export function parseAbiJson(rawJson) {
   const parsed = JSON.parse(rawJson);
 
@@ -66,16 +111,31 @@ export function parseAbiJson(rawJson) {
 }
 
 export async function buildVenueAbiArtifactFromArgs(args = [], { readFileFn = readFile } = {}) {
-  const options = parseArgs(args);
+  const options = mergeRegistryOptions(parseArgs(args));
   const abiPath = options.abiPath;
   if (!abiPath) {
     throw new Error("--abi is required.");
   }
 
   const abi = parseAbiJson(await readFileFn(abiPath, "utf8"));
+  const abiFunctionSignatures = abiFunctionSignaturesFromAbi(abi);
+  const selectors = new Set(options.selectors ?? []);
+  const missingExpectedSelectors = (options.expectedSelectors ?? []).filter((selector) => !selectors.has(selector));
+  if (missingExpectedSelectors.length > 0) {
+    throw new Error(`Venue ABI artifact is missing expected selector(s): ${missingExpectedSelectors.join(", ")}`);
+  }
+
+  const missingExpectedFunctions = (options.expectedAbiFunctions ?? []).filter(
+    (signature) => !abiFunctionSignatures.includes(signature),
+  );
+  if (missingExpectedFunctions.length > 0) {
+    throw new Error(`Venue ABI is missing expected ABI function(s): ${missingExpectedFunctions.join(", ")}`);
+  }
+
   return createVenueAbiArtifact({
     ...options,
     abi,
+    abiFunctionSignatures,
   });
 }
 

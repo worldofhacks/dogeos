@@ -70,6 +70,7 @@ const elements = {
   quoteRefreshRing: document.querySelector("#quote-refresh-ring"),
   flipTokens: document.querySelector("#flip-tokens"),
   swapSettingsToggle: document.querySelector("#swap-settings-toggle"),
+  swapSettingsSummary: document.querySelector("#swap-settings-summary"),
   swapSettingsPanel: document.querySelector("#swap-settings-panel"),
   swapSettingsClose: document.querySelector("#swap-settings-close"),
   swapSettingsScrim: document.querySelector("#swap-settings-scrim"),
@@ -628,6 +629,10 @@ function switchView(view) {
   for (const [key, navElement] of Object.entries(elements.bottomNav)) {
     navElement.classList.toggle("active", key === view);
   }
+
+  if (view !== "swap" && state.swapSettingsVisible) {
+    toggleSwapSettings(false);
+  }
 }
 
 function slippagePercent() {
@@ -653,11 +658,11 @@ function renderTradeControls() {
   const percent = slippagePercent();
   const route = state.quote?.best ?? routeRowsFromQuote(state.quote)[0];
   const gasUnits = route?.gasUnits ? Number(route.gasUnits) : null;
-  elements.slippageValue.textContent =
-    percent >= 49.995 ? "MAX" : `${percent.toFixed(percent >= 10 ? 0 : 2)}%`;
-  elements.gasPriorityValue.textContent = gasUnits
-    ? `${route.gasUnits} gas`
-    : "live";
+  const slippageLabel = percent >= 49.995 ? "MAX" : `${percent.toFixed(percent >= 10 ? 0 : 2)}%`;
+  const gasLabel = gasUnits ? `${route.gasUnits} gas` : "live gas";
+  elements.slippageValue.textContent = slippageLabel;
+  elements.gasPriorityValue.textContent = gasUnits ? `${route.gasUnits} gas` : "live";
+  elements.swapSettingsSummary.textContent = `${slippageLabel} / ${gasLabel}`;
   setKnobTurn(elements.slippageKnob, elements.slippageBps.value, elements.slippageBps.min ?? 1, elements.slippageBps.max ?? 5000);
   setKnobTurn(elements.gasKnob, gasUnits ?? 120_000, 80_000, 320_000);
 }
@@ -1533,7 +1538,9 @@ function renderMarketPanel() {
     "title",
     sourceIssueDetail || "No source issues in the latest live route response",
   );
-  elements.chartPanel.hidden = sheetMode || !state.chartVisible;
+  const chartPanelHidden = sheetMode || !state.chartVisible;
+  elements.chartPanel.hidden = chartPanelHidden;
+  elements.chartPanel.setAttribute("aria-hidden", String(chartPanelHidden));
   const chartControlActive = sheetMode ? state.chartPopoutVisible : state.chartVisible;
   elements.chartToggle.setAttribute("aria-pressed", String(chartControlActive));
   elements.chartToggle.classList.toggle("active", chartControlActive);
@@ -1560,6 +1567,7 @@ function toggleChartPopout(open = !state.chartPopoutVisible) {
 function toggleSwapSettings(open = !state.swapSettingsVisible) {
   state.swapSettingsVisible = Boolean(open);
   elements.swapSettingsPanel.hidden = !state.swapSettingsVisible;
+  elements.swapSettingsPanel.setAttribute("aria-hidden", String(!state.swapSettingsVisible));
   elements.swapSettingsToggle.setAttribute("aria-expanded", String(state.swapSettingsVisible));
 }
 
@@ -2221,6 +2229,11 @@ elements.buyToken.addEventListener("change", () => {
 elements.slippageBps.addEventListener("input", () => {
   renderTradeControls();
   scheduleQuoteRefresh();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.swapSettingsVisible) {
+    toggleSwapSettings(false);
+  }
 });
 window.addEventListener(SDK_WALLET_EVENT, handleSdkWalletUpdate);
 document.addEventListener("visibilitychange", () => {

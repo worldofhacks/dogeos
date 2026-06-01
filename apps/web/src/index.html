@@ -78,6 +78,10 @@
                         <path d="M17 17h3"></path>
                         <path d="M13 17a2 2 0 1 0 4 0 2 2 0 0 0-4 0"></path>
                       </svg>
+                      <span class="settings-button-copy">
+                        <span>Settings</span>
+                        <small id="swap-settings-summary">0.50% / live gas</small>
+                      </span>
                     </button>
                     <button class="chart-toggle" id="chart-toggle" type="button" aria-pressed="true">
                       <span aria-hidden="true"></span>
@@ -274,7 +278,7 @@
       </section>
     </div>
 
-    <div class="settings-popout" id="swap-settings-panel" hidden>
+    <div class="settings-popout" id="swap-settings-panel" aria-hidden="true" hidden>
       <div class="modal-scrim" id="swap-settings-scrim"></div>
       <section class="settings-popout-sheet" role="dialog" aria-modal="true" aria-labelledby="swap-settings-title">
         <span class="sheet-handle" aria-hidden="true"></span>

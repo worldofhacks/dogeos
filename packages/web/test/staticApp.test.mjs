@@ -368,7 +368,8 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(html, /id="slippage-knob"/);
   assert.match(html, /id="buy-balance"/);
   assert.match(html, /id="swap-settings-toggle"/);
-  assert.match(html, /id="swap-settings-panel" hidden/);
+  assert.match(html, /id="swap-settings-panel"[^>]*hidden/);
+  assert.match(html, /id="swap-settings-panel"[^>]*aria-hidden="true"/);
   assert.match(html, /id="swap-settings-close"/);
   assert.match(html, /id="sell-amount-max"/);
   assert.match(html, /id="sell-amount-half"/);
@@ -541,6 +542,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(css, /token-picker/);
   assert.match(css, /knob-control/);
   assert.match(css, /tradingview-loading/);
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none !important;/);
   assert.doesNotMatch(css, /market-bars/);
   assert.match(css, /--te-accent:\s*#ff4d2e/);
   assert.match(css, /--te-gold:\s*#ffcf2e/);
@@ -626,6 +628,7 @@ test("static web app renders the selected pair in TradingView and hides the char
   harness.element("chart-toggle").dispatchEvent({ type: "click" });
 
   assert.equal(harness.element("chart-panel").hidden, true);
+  assert.equal(harness.element("chart-panel").getAttribute("aria-hidden"), "true");
   assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "false");
   assert.match(harness.element("chart-toggle").textContent, /Show chart/);
   assert.deepEqual(removedWidgets, []);
@@ -633,6 +636,7 @@ test("static web app renders the selected pair in TradingView and hides the char
   harness.element("chart-toggle").dispatchEvent({ type: "click" });
 
   assert.equal(harness.element("chart-panel").hidden, false);
+  assert.equal(harness.element("chart-panel").getAttribute("aria-hidden"), "false");
   assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "true");
   assert.match(harness.element("chart-toggle").textContent, /Hide chart/);
 
