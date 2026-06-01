@@ -517,6 +517,85 @@ test("POST /quote reuses in-flight candidate work across slippage-only changes",
   assert.equal(secondBody.best.minAmountOut, "1039500");
 });
 
+test("POST /quote reuses in-flight candidate work across source-list ordering changes", async () => {
+  let releaseCandidates;
+  let providerCalls = 0;
+  let markProviderStarted;
+  const providerStarted = new Promise((resolve) => {
+    markProviderStarted = resolve;
+  });
+  let markSecondVerifierCompleted;
+  const secondVerifierCompleted = new Promise((resolve) => {
+    markSecondVerifierCompleted = resolve;
+  });
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    preQuoteVerifier: async (input) => {
+      if (input.includeSources[0] === "muchfi-v2") markSecondVerifierCompleted();
+    },
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        markProviderStarted();
+        await new Promise((release) => {
+          releaseCandidates = release;
+        });
+      }
+      return [
+        candidate({
+          sourceId: "muchfi-v2",
+          amountOut: 1_040_000n,
+        }),
+        candidate(),
+      ];
+    },
+  });
+  const baseRequestBody = {
+    chainId: DOGEOS_CHAIN.id,
+    sellToken: usdc.address,
+    buyToken: wdoge.address,
+    amountIn: "1000000",
+    slippageBps: "50",
+    excludeSources: [],
+  };
+
+  const firstResponsePromise = handle(
+    jsonRequest("/quote", {
+      ...baseRequestBody,
+      includeSources: ["muchfi-v3", "muchfi-v2"],
+    }),
+  );
+  await providerStarted;
+  const secondResponsePromise = handle(
+    jsonRequest("/quote", {
+      ...baseRequestBody,
+      includeSources: ["muchfi-v2", "muchfi-v3"],
+    }),
+  );
+  await secondVerifierCompleted;
+  await Promise.resolve();
+
+  assert.equal(providerCalls, 1);
+
+  releaseCandidates();
+  const [firstResponse, secondResponse] = await Promise.all([
+    firstResponsePromise,
+    secondResponsePromise,
+  ]);
+  const [firstBody, secondBody] = await Promise.all([
+    firstResponse.json(),
+    secondResponse.json(),
+  ]);
+
+  assert.equal(firstResponse.status, 200);
+  assert.equal(secondResponse.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.equal(firstBody.best.sourceId, "muchfi-v3");
+  assert.deepEqual(secondBody.alternatives.map((route) => route.sourceId), ["muchfi-v2"]);
+});
+
 test("POST /quote exposes per-request source diagnostics from live providers", async () => {
   let providerInput;
   const handle = createAggregatorApiHandler({

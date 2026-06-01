@@ -59,6 +59,10 @@ function cloneQuoteDiagnostics(diagnostics = []) {
   return diagnostics.map((diagnostic) => ({ ...diagnostic }));
 }
 
+function quoteSourceSetKey(sourceIds = []) {
+  return [...new Set(sourceIds.map((sourceId) => String(sourceId)))].sort();
+}
+
 function quoteCandidateRequestKey(input) {
   return JSON.stringify({
     chainId: input.chainId,
@@ -67,8 +71,8 @@ function quoteCandidateRequestKey(input) {
     buyToken: input.buyToken.toLowerCase(),
     amountIn: input.amountIn?.toString() ?? null,
     amountOut: input.amountOut?.toString() ?? null,
-    includeSources: input.includeSources,
-    excludeSources: input.excludeSources,
+    includeSources: quoteSourceSetKey(input.includeSources),
+    excludeSources: quoteSourceSetKey(input.excludeSources),
   });
 }
 
