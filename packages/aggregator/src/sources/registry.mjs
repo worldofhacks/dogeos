@@ -438,7 +438,22 @@ const SOURCES = [
     quoter: null,
     positionManager: "0xC0BAc1a8EbFA10E92f2b59638d314673FadD031e",
     abiProvenance: "none",
-    pools: [],
+    pools: [
+      {
+        pair: "WDOGE/USDC",
+        address: "0x1289ED890E1F58376045FdA9430100bFAD69A44b",
+        token0: "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+        token1: "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+        feeTier: 3000,
+      },
+      {
+        pair: "WDOGE/USDC",
+        address: "0xC940Fe1F7396517Cd67fC501597e3fF3C97E5850",
+        token0: "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
+        token1: "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
+        feeTier: 10000,
+      },
+    ],
     verificationTargets: [
       {
         role: "factory",
@@ -454,8 +469,22 @@ const SOURCES = [
         expectedSelectors: [],
         notes: "SuchSwap positions NFT candidate.",
       },
+      {
+        role: "pool",
+        address: "0x1289ED890E1F58376045FdA9430100bFAD69A44b",
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x3850c7bd", "0x1a686502"],
+        notes: "SuchSwap USDC/WDOGE 3000-fee candidate pool with live slot0() and liquidity(); watchlist until router and quoter are confirmed.",
+      },
+      {
+        role: "pool",
+        address: "0xC940Fe1F7396517Cd67fC501597e3fF3C97E5850",
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x3850c7bd", "0x1a686502"],
+        notes: "SuchSwap USDC/WDOGE 10000-fee candidate pool currently has no liquidity; watchlist until router and quoter are confirmed.",
+      },
     ],
-    supportedPairs: [],
+    supportedPairs: ["WDOGE/USDC"],
     verification: {
       execution: false,
       reason: "Venue identity and periphery are not confirmed.",

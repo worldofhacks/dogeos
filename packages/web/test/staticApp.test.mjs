@@ -491,6 +491,8 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(injectedWallet, /walletSource:\s*"injected"/);
   assert.match(sdkWalletProvider, /@dogeos\/dogeos-sdk/);
   assert.match(sdkWalletProvider, /@dogeos\/dogeos-sdk\/style\.css/);
+  assert.match(sdkWalletProvider, /useConnectors/);
+  assert.match(sdkWalletProvider, /connectors\.evm\?\.provider/);
   assert.match(sdkWalletProvider, /switchDogeosSdkAccountToChain/);
   assert.match(sdkWalletProvider, /WalletConnectProvider/);
   assert.match(sdkWalletProvider, /getChains/);

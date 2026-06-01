@@ -2,7 +2,7 @@
 
 Research date: 2026-05-01
 
-Latest validation update: 2026-05-31, live quote smoke on DogeOS RPC
+Latest validation update: 2026-06-01, official-token liquidity discovery on DogeOS RPC
 
 This is the current source-of-truth map for DogeOS Chikyū Testnet swap venues visible from the official RPC and Blockscout.
 
@@ -48,7 +48,7 @@ Current DEX-visible official pairs:
 | Barkswap | Yes | Yes | None found |
 | MuchFi V3 | Yes | Yes | None found |
 | MuchFi V2-style | Yes | Yes | None found |
-| SuchSwap | Position found | None found | Watchlist only |
+| SuchSwap | Pool found | None found | Watchlist only; no confirmed router/quoter |
 | DogeBox | No official pair found | No official pair found | Watchlist only |
 
 ## Venue Map
@@ -217,6 +217,13 @@ Contracts:
 | Position manager | `0xC0BAc1a8EbFA10E92f2b59638d314673FadD031e` | `SuchSwap Positions NFT`, unverified, holders seen at 3. |
 | Factory candidate | `0x924163a558915bf685ed21809a8b8b372a79ed37` | Returned by position manager `factory()`. |
 
+Official pool candidates from the 2026-06-01 factory scan:
+
+| Pair | Fee tier | Pool | Liquidity state |
+| --- | --- | --- | --- |
+| WDOGE/USDC | `3000` | `0x1289ED890E1F58376045FdA9430100bFAD69A44b` | `slot0()` and non-zero `liquidity()` returned. |
+| WDOGE/USDC | `10000` | `0xC940Fe1F7396517Cd67fC501597e3fF3C97E5850` | `slot0()` returned, but `liquidity()` is zero. |
+
 Position summary:
 
 | Pair | Count | Notes |
@@ -232,7 +239,6 @@ Missing:
 
 - Confirmed router.
 - Confirmed quoter.
-- Confirmed pool addresses for official pairs.
 - Confirmation that SuchSwap is an active/current venue rather than a test deployment.
 
 ## DogeBox

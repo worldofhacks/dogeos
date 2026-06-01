@@ -199,6 +199,13 @@ test("source registry records real main-pair pools for live DogeOS quote reads",
       "WDOGE/USDT:0x5DC3eB0e452f464e134F854EAeDf9431B93Da624",
     ],
   );
+  assert.deepEqual(
+    getSource("suchswap").pools.map((pool) => `${pool.pair}:${pool.feeTier}:${pool.address}`).sort(),
+    [
+      "WDOGE/USDC:10000:0xC940Fe1F7396517Cd67fC501597e3fF3C97E5850",
+      "WDOGE/USDC:3000:0x1289ED890E1F58376045FdA9430100bFAD69A44b",
+    ],
+  );
 });
 
 test("source registry exposes a venue contract map with executable live venues", () => {

@@ -3,6 +3,7 @@ import {
   getChains,
   WalletConnectProvider,
   useAccount,
+  useConnectors,
   useWalletConnect,
 } from "@dogeos/dogeos-sdk";
 import "@dogeos/dogeos-sdk/style.css";
@@ -54,11 +55,14 @@ function walletErrorMessage(error) {
 function DogeOSSdkWalletBridge() {
   const wallet = useWalletConnect();
   const account = useAccount();
+  const { connectors, currentProvider: connectorCurrentProvider } = useConnectors();
   const [injectedFallback, setInjectedFallback] = useState(null);
+  const connectorEvmProvider = connectors ? connectors.evm?.provider : null;
   const activeAddress = injectedFallback?.address ?? account.address ?? "";
   const activeChainId = injectedFallback?.chainId ?? account.chainId ?? "";
   const activeChainType = injectedFallback?.chainType ?? account.chainType ?? "";
-  const activeProvider = injectedFallback?.provider ?? account.currentProvider ?? null;
+  const activeProvider =
+    injectedFallback?.provider ?? account.currentProvider ?? connectorCurrentProvider ?? connectorEvmProvider ?? null;
   const walletSource = injectedFallback ? "injected" : "dogeos-sdk";
   const isConnected = Boolean(injectedFallback?.address) || wallet.isConnected;
   const isConnecting = injectedFallback ? false : wallet.isConnecting;
@@ -148,7 +152,7 @@ function DogeOSSdkWalletBridge() {
       chainId: account.chainId ?? "",
       chainType: account.chainType ?? "",
       error: "",
-      hasProvider: Boolean(account.currentProvider),
+      hasProvider: Boolean(activeProvider),
       isConnected: wallet.isConnected,
       isConnecting: true,
       walletSource: "dogeos-sdk",
@@ -162,7 +166,7 @@ function DogeOSSdkWalletBridge() {
           chainId: DOGEOS_CHIKYU_TESTNET.id,
           chainType: account.chainType ?? "evm",
           error: "",
-          hasProvider: Boolean(account.currentProvider),
+          hasProvider: Boolean(activeProvider),
           isConnected: wallet.isConnected,
           isConnecting: false,
           walletSource: "dogeos-sdk",
@@ -175,7 +179,7 @@ function DogeOSSdkWalletBridge() {
           chainId: account.chainId ?? "",
           chainType: account.chainType ?? "",
           error: walletErrorMessage(error),
-          hasProvider: Boolean(account.currentProvider),
+          hasProvider: Boolean(activeProvider),
           isConnected: wallet.isConnected,
           isConnecting: false,
           walletSource: "dogeos-sdk",
@@ -190,6 +194,7 @@ function DogeOSSdkWalletBridge() {
     account.chainId,
     account.chainType,
     account.currentProvider,
+    activeProvider,
     injectedFallback,
     switchToDogeOS,
     wallet.isConnected,

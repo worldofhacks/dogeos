@@ -2,7 +2,7 @@
 
 Research date: 2026-05-01
 
-Latest validation update: 2026-05-04, block `4668058`
+Latest validation update: 2026-06-01, `npm run discover:liquidity` and `npm run verify:sources`
 
 This document records the current DogeOS Chikyū Testnet DEX and liquidity discovery work for the aggregator. It is intentionally evidence-driven: each finding is labeled as verified, inferred, or unconfirmed so we do not build on assumptions.
 
@@ -62,6 +62,40 @@ Corrected DEX map: [dogeos-testnet-dex-map.md](./dogeos-testnet-dex-map.md)
 9. Token discovery shows many duplicate, unverified, and low-holder tokens. A curated token registry is required before public routing.
 
 10. Public search surfaced DogenadoCash as a DogeOS testnet privacy protocol supporting the official faucet assets, but it is not a DEX or swap venue. It should not be treated as aggregator liquidity.
+
+## 2026-06-01 Official-Token Exhaustive Scan
+
+Command:
+
+```bash
+npm run discover:liquidity
+```
+
+Scope:
+
+- Official tokens: WDOGE, LBTC, WETH, USD1, USDC, USDT.
+- Official-token pairs scanned: 15.
+- Source factories scanned: MuchFi V2, MuchFi V3, Barkswap newer Algebra, Barkswap older Algebra, and SuchSwap V3 watchlist.
+- V3 fee tiers scanned: 100, 500, 2500, 3000, 10000.
+
+Result:
+
+| Pair | Active executable sources | Watchlist/source-context pools | Finding |
+| --- | --- | --- | --- |
+| WDOGE/USDC | MuchFi V2, MuchFi V3, Barkswap Algebra | Barkswap older factory, SuchSwap | Multiple live pools exist. SuchSwap is still watchlist because no confirmed router or quoter is known. |
+| WDOGE/USDT | MuchFi V2, MuchFi V3, Barkswap Algebra | Barkswap older factory | Multiple live pools exist. |
+| All other official-token pairs | None | None | No pools found for LBTC, WETH, USD1, or USDC/USDT on the scanned factories. |
+
+Blockscout ABI status:
+
+| Venue | Router/quoter ABI status |
+| --- | --- |
+| MuchFi V2 | Router source code not verified; execution uses committed adapter ABI fragment plus selector, relationship, simulation, and balance checks. |
+| MuchFi V3 | Router and quoter source code not verified; execution uses committed adapter ABI fragments plus selector, relationship, simulation, and balance checks. |
+| Barkswap Algebra | Router and quoter source code not verified; execution uses committed adapter ABI fragments plus selector, relationship, simulation, and balance checks. |
+| SuchSwap | Factory, position manager, and pools are unverified; no executable router or quoter is confirmed. |
+
+The scan is now reproducible through `scripts/discover-dogeos-liquidity.mjs`. Until a venue team or Blockscout publishes router/quoter ABI provenance, new pools should be added as watchlist/read-only records first and promoted to executable only when router, quoter, selectors, relationship reads, typed calldata, simulation, and balance preflight all line up.
 
 ## Candidate Liquidity Venues
 
