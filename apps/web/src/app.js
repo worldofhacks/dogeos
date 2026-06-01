@@ -5,7 +5,6 @@ const QUOTE_POLL_MS = 10_000;
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
 const SDK_WALLET_READY_EVENT = "dogeos:sdk-wallet-ready";
 const LOAD_SDK_WALLET_EVENT = "dogeos:load-sdk-wallet";
-const QUOTE_READY_EVENT = "dogeos:quote-ready";
 
 const state = {
   tokens: [],
@@ -161,6 +160,11 @@ function loadSdkWallet() {
   });
 
   return sdkWalletReadyPromise;
+}
+
+function preloadSdkWallet() {
+  if (sdkWallet()?.openModal || sdkWalletReadyPromise) return;
+  window.dispatchEvent(new Event(LOAD_SDK_WALLET_EVENT));
 }
 
 function shortAddress(address) {
@@ -1151,7 +1155,6 @@ async function requestQuote({ live = false } = {}) {
     if (requestSeq === quoteRequestSeq) {
       elements.quoteButton.disabled = false;
       if (payload) scheduleNextLiveQuote();
-      if (payload) window.dispatchEvent(new Event(QUOTE_READY_EVENT));
     }
   }
 }
@@ -1353,6 +1356,9 @@ elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   requestQuote();
 });
+elements.connectWallet.addEventListener("pointerenter", preloadSdkWallet, { once: true });
+elements.connectWallet.addEventListener("focus", preloadSdkWallet, { once: true });
+elements.connectWallet.addEventListener("touchstart", preloadSdkWallet, { once: true, passive: true });
 elements.connectWallet.addEventListener("click", connectWallet);
 elements.refreshData.addEventListener("click", requestQuote);
 elements.quoteRefreshRing.addEventListener("click", () => requestQuote({ live: true }));

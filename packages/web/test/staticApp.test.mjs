@@ -83,6 +83,7 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
   const elementsBySelector = new Map();
   const windowListeners = new Map();
   const documentListeners = new Map();
+  const windowEvents = [];
   const fetchCalls = [];
   let timerId = 0;
 
@@ -230,6 +231,7 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
       },
       clearTimeout() {},
       dispatchEvent(event) {
+        windowEvents.push(event.type);
         const handlers = windowListeners.get(event.type) ?? [];
         for (const handler of handlers) handler(event);
       },
@@ -255,6 +257,7 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
       return elementForSelector(`#${id}`);
     },
     fetchCalls,
+    windowEvents,
     windowDispatch(event) {
       context.window.dispatchEvent(event);
     },
@@ -344,7 +347,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(js, /dogeos:load-sdk-wallet/);
   assert.match(js, /dogeos:sdk-wallet-ready/);
   assert.match(js, /dogeos:sdk-wallet-updated/);
-  assert.match(js, /dogeos:quote-ready/);
+  assert.doesNotMatch(js, /dogeos:quote-ready/);
   assert.match(js, /eth_sendTransaction/);
   assert.match(js, /eth_getTransactionReceipt/);
   assert.match(js, /approvalRequired/);
@@ -364,9 +367,9 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(main, /import "\.\/app\.js"/);
   assert.match(main, /import\("\.\/sdk-wallet\.jsx"\)/);
   assert.doesNotMatch(main, /import "\.\/sdk-wallet\.jsx"/);
-  assert.match(main, /dogeos:quote-ready/);
-  assert.match(main, /hasDogeosClientId/);
-  assert.match(main, /DOGEOS_AGGREGATOR_CONFIG/);
+  assert.doesNotMatch(main, /dogeos:quote-ready/);
+  assert.doesNotMatch(main, /requestIdleCallback/);
+  assert.doesNotMatch(main, /hasDogeosClientId/);
   assert.doesNotMatch(sdkWallet, /@dogeos\/dogeos-sdk/);
   assert.doesNotMatch(sdkWallet, /@dogeos\/dogeos-sdk\/style\.css/);
   assert.match(sdkWallet, /import\("\.\/sdk-wallet-provider\.jsx"\)/);
@@ -697,4 +700,19 @@ test("static web app confirms submitted swaps from on-chain receipts", async () 
     harness.element("activity-list").innerHTML,
     /href="https:\/\/blockscout\.testnet\.dogeos\.com\/tx\/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/,
   );
+});
+
+test("static web app loads the DogeOS wallet chunk only on connect intent", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  assert.equal(harness.windowEvents.includes("dogeos:quote-ready"), false);
+  assert.equal(harness.windowEvents.includes("dogeos:load-sdk-wallet"), false);
+
+  harness.element("connect-wallet").dispatchEvent({ type: "pointerenter" });
+
+  assert.equal(harness.windowEvents.includes("dogeos:load-sdk-wallet"), true);
 });
