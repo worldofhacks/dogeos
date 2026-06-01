@@ -375,6 +375,75 @@ test("POST /quote resolves independent scoring providers while quote candidates 
   assert.equal(body.status, "ok");
 });
 
+test("POST /quote coalesces identical in-flight quote work", async () => {
+  let releaseCandidates;
+  let providerCalls = 0;
+  let markProviderStarted;
+  const providerStarted = new Promise((resolve) => {
+    markProviderStarted = resolve;
+  });
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      providerCalls += 1;
+      if (providerCalls === 1) markProviderStarted();
+      input.quoteDiagnostics.push({
+        type: "source-error",
+        sourceId: "barkswap-algebra",
+        protocolType: "algebra",
+        message: "coalesced diagnostic",
+      });
+      if (providerCalls === 1) {
+        await new Promise((release) => {
+          releaseCandidates = release;
+        });
+      }
+      return [candidate()];
+    },
+  });
+  const requestBody = {
+    chainId: DOGEOS_CHAIN.id,
+    sellToken: usdc.address,
+    buyToken: wdoge.address,
+    amountIn: "1000000",
+    slippageBps: "50",
+    includeSources: ["muchfi-v3"],
+    excludeSources: [],
+  };
+  const firstResponsePromise = handle(jsonRequest("/quote", requestBody));
+  const secondResponsePromise = handle(jsonRequest("/quote", requestBody));
+
+  await providerStarted;
+  await Promise.resolve();
+  assert.equal(providerCalls, 1);
+
+  releaseCandidates();
+  const [firstResponse, secondResponse] = await Promise.all([
+    firstResponsePromise,
+    secondResponsePromise,
+  ]);
+  const [firstBody, secondBody] = await Promise.all([
+    firstResponse.json(),
+    secondResponse.json(),
+  ]);
+
+  assert.equal(firstResponse.status, 200);
+  assert.equal(secondResponse.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.equal(firstBody.status, "ok");
+  assert.deepEqual(secondBody.best, firstBody.best);
+  assert.deepEqual(secondBody.telemetry.sourceErrors, [
+    {
+      type: "source-error",
+      sourceId: "barkswap-algebra",
+      protocolType: "algebra",
+      message: "coalesced diagnostic",
+    },
+  ]);
+});
+
 test("POST /quote exposes per-request source diagnostics from live providers", async () => {
   let providerInput;
   const handle = createAggregatorApiHandler({

@@ -55,6 +55,24 @@ function attachQuoteDiagnostics(input) {
   return quoteDiagnostics;
 }
 
+function cloneQuoteDiagnostics(diagnostics = []) {
+  return diagnostics.map((diagnostic) => ({ ...diagnostic }));
+}
+
+function quoteCandidateRequestKey(input) {
+  return JSON.stringify({
+    chainId: input.chainId,
+    quoteMode: input.quoteMode,
+    sellToken: input.sellToken.toLowerCase(),
+    buyToken: input.buyToken.toLowerCase(),
+    amountIn: input.amountIn?.toString() ?? null,
+    amountOut: input.amountOut?.toString() ?? null,
+    slippageBps: input.slippageBps?.toString() ?? null,
+    includeSources: input.includeSources,
+    excludeSources: input.excludeSources,
+  });
+}
+
 async function readJson(request) {
   try {
     return await request.json();
@@ -322,6 +340,38 @@ export function createAggregatorApiHandler({
   refreshSwapQuoteBeforeBuild = false,
   timingNowMs = defaultTimingNowMs,
 } = {}) {
+  const inFlightQuoteCandidates = new Map();
+
+  async function resolveQuoteCandidates(input) {
+    const key = quoteCandidateRequestKey(input);
+    const inFlight = inFlightQuoteCandidates.get(key);
+
+    if (inFlight) {
+      const result = await inFlight;
+      input.quoteDiagnostics.push(...cloneQuoteDiagnostics(result.sourceErrors));
+      return result.candidates;
+    }
+
+    const promise = Promise.resolve().then(async () => {
+      const candidates = await quoteCandidateProvider(input);
+      return {
+        candidates,
+        sourceErrors: cloneQuoteDiagnostics(input.quoteDiagnostics),
+      };
+    });
+    inFlightQuoteCandidates.set(key, promise);
+    promise
+      .finally(() => {
+        if (inFlightQuoteCandidates.get(key) === promise) {
+          inFlightQuoteCandidates.delete(key);
+        }
+      })
+      .catch(() => {});
+
+    const result = await promise;
+    return result.candidates;
+  }
+
   return async function handleAggregatorRequest(request) {
     const url = new URL(request.url);
 
@@ -377,7 +427,7 @@ export function createAggregatorApiHandler({
 
         await preQuoteVerifier(parsed.input);
         const afterPreQuoteVerificationMs = timingNowMs();
-        const candidateProviderPromise = quoteCandidateProvider(parsed.input);
+        const candidateProviderPromise = resolveQuoteCandidates(parsed.input);
         const outputWeiPerFeeWeiPromise = resolveProvider(outputWeiPerFeeWei, 0n, parsed.input);
         const scoringProvidersPromise = Promise.all([
           resolveProvider(nowMs, Date.now(), parsed.input),
