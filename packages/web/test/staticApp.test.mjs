@@ -159,6 +159,7 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
               hasBlockingMismatch: false,
               relationshipMismatches: [],
               tokenDecimalMismatches: [],
+              poolMismatches: [],
             },
           },
         });
@@ -410,6 +411,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(sdkWalletProvider, /useWalletConnect/);
   assert.match(sdkWalletProvider, /useAccount/);
   assert.match(sdkWalletProvider, /switchInjectedProviderToDogeOS/);
+  assert.match(sdkWalletProvider, /dogeosSdkSwitchFailureMessage/);
   assert.match(sdkWalletProvider, /mergeDogeosChains/);
   assert.match(sdkWalletProvider, /chainIdMatchesDogeos/);
   assert.match(sdkWalletProvider, /wallet\.isConnected/);
@@ -417,6 +419,8 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(sdkWalletProvider, /switchChain/);
   assert.match(sdkWalletProvider, /switchToDogeOS/);
   assert.match(sdkWalletProvider, /openDogeosWalletModal/);
+  assert.match(sdkWalletProvider, /walletErrorMessage\(wallet\.error\)/);
+  assert.doesNotMatch(sdkWalletProvider, /String\(wallet\.error\)/);
   assert.match(sdkWalletProvider, /walletSource:\s*"dogeos-sdk"/);
   assert.match(sdkChainSwitch, /isUnknownChainError/);
   assert.match(sdkChainSwitch, /switchInjectedProviderToDogeOS/);
@@ -638,6 +642,15 @@ test("static web app renders venue contract provenance details from the live ven
             verification: {
               isBlockscoutAbiAvailable: false,
             },
+            executionEvidence: {
+              onchainProof: {
+                poolPair: "WDOGE/USDC",
+                poolStateVerified: true,
+                poolTokenMatches: true,
+                poolStateKind: "v2-reserves",
+                poolHasLiveLiquidity: true,
+              },
+            },
           },
         ],
       },
@@ -655,6 +668,10 @@ test("static web app renders venue contract provenance details from the live ven
   assert.match(sourceList, /0xC653\.\.\.18dc/);
   assert.match(sourceList, /adapter-fragment/);
   assert.match(sourceList, /hash ok/);
+  assert.match(sourceList, /pool WDOGE\/USDC/);
+  assert.match(sourceList, /v2-reserves/);
+  assert.match(sourceList, /tokens ok/);
+  assert.match(sourceList, /live liquidity/);
   assert.match(sourceList, /execution-ready/);
   assert.match(sourceList, /Blockscout ABI pending/);
   assert.match(sourceList, /Contract source code not verified/);
@@ -689,6 +706,7 @@ test("static web app renders readiness from live verification state", async () =
         hasBlockingMismatch: false,
         relationshipMismatches: [],
         tokenDecimalMismatches: [],
+        poolMismatches: [],
       },
     },
   });
@@ -701,6 +719,57 @@ test("static web app renders readiness from live verification state", async () =
   assert.match(timeline, /1 active venue/);
   assert.match(timeline, /Blockscout ABI pending: Contract source code not verified/);
   assert.match(timeline, /1 executable contract/);
+});
+
+test("static web app renders pinned pool verification mismatches from live verification state", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness({
+    verification: {
+      chainMatches: true,
+      tokens: [{ symbol: "USDC", matches: true }],
+      sources: [
+        {
+          sourceId: "muchfi-v2",
+          role: "pool",
+          poolStateCheck: {
+            pair: "WDOGE/USDC",
+            matches: false,
+            tokenMatches: false,
+            stateKind: "v2-reserves",
+            hasLiveLiquidity: true,
+          },
+          executionEvidence: {
+            onchainProof: {
+              poolPair: "WDOGE/USDC",
+              poolStateVerified: false,
+              poolTokenMatches: false,
+              poolStateKind: "v2-reserves",
+              poolHasLiveLiquidity: true,
+            },
+          },
+        },
+      ],
+      summary: {
+        hasBlockingMismatch: true,
+        relationshipMismatches: [],
+        tokenDecimalMismatches: [],
+        poolMismatches: [
+          {
+            sourceId: "muchfi-v2",
+            role: "pool",
+            pair: "WDOGE/USDC",
+          },
+        ],
+      },
+    },
+  });
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  assert.match(harness.element("verification-summary").textContent, /1 pool mismatch/);
+  assert.match(harness.element("timeline").innerHTML, /Pool proof/);
+  assert.match(harness.element("timeline").innerHTML, /1 pool mismatch/);
 });
 
 test("static web app confirms submitted swaps from on-chain receipts", async () => {

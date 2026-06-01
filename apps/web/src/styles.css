@@ -995,7 +995,7 @@ tbody tr:last-child td {
 
 .contract-row {
   display: grid;
-  grid-template-columns: 72px minmax(96px, 1fr) minmax(92px, 0.8fr) minmax(120px, 1fr) auto;
+  grid-template-columns: 72px minmax(96px, 1fr) minmax(92px, 0.8fr) minmax(120px, 1fr) minmax(118px, 1fr) auto;
   gap: 8px;
   align-items: center;
   border: 1px solid rgba(74, 69, 57, 0.5);
@@ -1021,6 +1021,10 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
   white-space: normal;
   line-height: 1.25;
+}
+
+.contract-row .pool-proof:empty {
+  display: none;
 }
 
 .contract-row strong {

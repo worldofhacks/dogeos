@@ -560,12 +560,17 @@ function sourceVerificationLine(source) {
   const relationshipText = relationshipChecks.length
     ? `${relationshipMatches}/${relationshipChecks.length} relationships`
     : "No relationship checks";
+  const poolChecks = targets.filter((target) => target.poolStateCheck);
+  const poolMatches = poolChecks.filter((target) => target.poolStateCheck?.matches === true).length;
+  const poolText = poolChecks.length
+    ? `${poolMatches}/${poolChecks.length} pool states`
+    : "No pool state checks";
   const blockscoutAbiAvailable = targets.some(
     (target) => target.verification?.isBlockscoutAbiAvailable === true,
   );
   const abiText = blockscoutAbiAvailable ? "Blockscout ABI verified" : "Blockscout ABI pending";
 
-  return `${abiText} / ${relationshipText}`;
+  return `${abiText} / ${relationshipText} / ${poolText}`;
 }
 
 function venueContractSummary(source) {
@@ -624,6 +629,19 @@ function contractAbiProvenance(contract) {
   return provenance;
 }
 
+function contractPoolProof(contract) {
+  if (contract.role !== "pool") return "";
+
+  const proof = contract.executionEvidence?.onchainProof;
+  const pair = proof?.poolPair ?? "unmapped";
+  const stateKind = proof?.poolStateKind ?? "state pending";
+  const tokenStatus = proof?.poolTokenMatches === true ? "tokens ok" : "tokens mismatch";
+  const stateStatus = proof?.poolStateVerified === true ? "state ok" : "state mismatch";
+  const liquidityStatus = proof?.poolHasLiveLiquidity === true ? "live liquidity" : "liquidity pending";
+
+  return `pool ${pair} / ${stateKind} / ${tokenStatus} / ${stateStatus} / ${liquidityStatus}`;
+}
+
 function renderVenueContractDetails(source) {
   const venue = venueBySourceId(source.sourceId);
   const contracts = venue?.contracts ?? [];
@@ -642,6 +660,7 @@ function renderVenueContractDetails(source) {
             <strong>${shortAddress(contract.address)}</strong>
             <span>${escapeHtml(contractAbiProvenance(contract))}</span>
             <span>${escapeHtml(contractAbiStatus(contract))}</span>
+            <span class="pool-proof">${escapeHtml(contractPoolProof(contract))}</span>
             <span class="status-pill ${executable === "execution-ready" ? "active" : "blocked"}">${executable}</span>
           </a>
         `;
@@ -668,11 +687,13 @@ function renderVerificationSummary() {
   const tokenTotal = state.verification.tokens?.length ?? 0;
   const relationshipMismatchCount = summary.relationshipMismatches?.length ?? 0;
   const tokenMismatchCount = summary.tokenDecimalMismatches?.length ?? 0;
+  const poolMismatchCount = summary.poolMismatches?.length ?? 0;
   const status = summary.hasBlockingMismatch ? "Verification mismatch" : "Verification checks clear";
 
   elements.verificationSummary.textContent =
     `${status} / ${tokenMatches}/${tokenTotal} token decimals / ` +
-    `${relationshipMismatchCount} relationship mismatches / ${tokenMismatchCount} token mismatches`;
+    `${relationshipMismatchCount} relationship mismatches / ${tokenMismatchCount} token mismatches / ` +
+    `${poolMismatchCount} pool ${poolMismatchCount === 1 ? "mismatch" : "mismatches"}`;
   elements.verificationSummary.classList.toggle("error-text", Boolean(summary.hasBlockingMismatch));
 }
 
@@ -719,6 +740,15 @@ function renderReadiness() {
   const summary = state.verification.summary ?? {};
   const chainMatches = state.verification.chainMatches !== false;
   const hasBlockingMismatch = Boolean(summary.hasBlockingMismatch);
+  const poolTargets = targets.filter(
+    (target) => target.poolStateCheck || target.executionEvidence?.onchainProof?.poolPair,
+  );
+  const verifiedPoolCount = poolTargets.filter((target) => {
+    const poolCheck = target.poolStateCheck;
+    const poolProof = target.executionEvidence?.onchainProof;
+    return poolCheck?.matches === true || poolProof?.poolStateVerified === true;
+  }).length;
+  const poolMismatchCount = summary.poolMismatches?.length ?? 0;
 
   elements.timeline.innerHTML = [
     readinessItem({
@@ -732,6 +762,15 @@ function renderReadiness() {
       detail: activeVenueCount > 0
         ? `${pluralize(activeVenueCount, "active venue")} live`
         : "No active quote venues",
+    }),
+    readinessItem({
+      status: poolMismatchCount > 0 ? "blocked" : verifiedPoolCount > 0 ? "done" : "pending",
+      title: "Pool proof",
+      detail: poolMismatchCount > 0
+        ? `${pluralize(poolMismatchCount, "pool mismatch")}`
+        : verifiedPoolCount > 0
+          ? `${pluralize(verifiedPoolCount, "pool state check")} clear`
+          : "Pool state proof loading",
     }),
     readinessItem({
       status: hasBlockscoutAbi ? "done" : "pending",

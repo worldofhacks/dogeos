@@ -32,6 +32,7 @@ function firstErrorCode(error) {
 }
 
 function errorMessage(error, fallback) {
+  if (typeof error === "string") return error;
   return error?.shortMessage ?? error?.message ?? fallback;
 }
 
@@ -232,19 +233,29 @@ export async function switchInjectedProviderToDogeOS(globalObject = defaultWindo
   } catch (error) {
     if (!isUnknownChainError(error)) throw error;
 
-    await activeProvider.request({
-      method: "wallet_addEthereumChain",
-      params: [DOGEOS_CHAIN_PARAMS],
-    });
+    try {
+      await activeProvider.request({
+        method: "wallet_addEthereumChain",
+        params: [DOGEOS_CHAIN_PARAMS],
+      });
+    } catch (addError) {
+      if (isUnknownChainError(addError)) return false;
+      throw addError;
+    }
   }
 
   const chainIdAfterAdd = await readChainId(activeProvider).catch(() => "");
   if (chainIdMatchesDogeOS(chainIdAfterAdd)) return true;
 
-  await activeProvider.request({
-    method: "wallet_switchEthereumChain",
-    params: [{ chainId: DOGEOS_CHAIN_ID_HEX }],
-  });
+  try {
+    await activeProvider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: DOGEOS_CHAIN_ID_HEX }],
+    });
+  } catch (switchError) {
+    if (isUnknownChainError(switchError)) return false;
+    throw switchError;
+  }
 
   const finalChainId = await readChainId(activeProvider).catch(() => "");
   return chainIdMatchesDogeOS(finalChainId);

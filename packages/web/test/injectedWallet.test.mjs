@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createInjectedWalletBridge,
+  isUnknownChainError,
   switchInjectedProviderToDogeOS,
 } from "../../../apps/web/src/injected-wallet.js";
 
@@ -143,6 +144,54 @@ test("standalone injected wallet preflight treats unsupported-chain errors as ad
       "wallet_switchEthereumChain",
       "wallet_addEthereumChain",
       "eth_chainId",
+    ],
+  );
+});
+
+test("unknown-chain detection accepts SDK string errors", () => {
+  assert.equal(isUnknownChainError("Chain Id not supported"), true);
+  assert.equal(isUnknownChainError("unsupported chain"), true);
+});
+
+test("standalone injected wallet preflight returns false instead of leaking unsupported-chain add errors", async () => {
+  const provider = createProvider({ chainId: "0x1" });
+  provider.request = async ({ method, params }) => {
+    provider.calls.push({ method, params });
+    if (method === "eth_chainId") return "0x1";
+    if (method === "wallet_switchEthereumChain") throw new Error("Chain Id not supported");
+    if (method === "wallet_addEthereumChain") throw new Error("Chain Id not supported");
+    throw new Error(`Unexpected method ${method}`);
+  };
+
+  assert.equal(await switchInjectedProviderToDogeOS({ ethereum: provider }), false);
+  assert.deepEqual(
+    provider.calls.map((call) => call.method),
+    ["eth_chainId", "wallet_switchEthereumChain", "wallet_addEthereumChain"],
+  );
+});
+
+test("standalone injected wallet preflight returns false instead of leaking unsupported-chain final switch errors", async () => {
+  const provider = createProvider({ chainId: "0x1" });
+  provider.request = async ({ method, params }) => {
+    provider.calls.push({ method, params });
+    if (method === "eth_chainId") return "0x1";
+    if (method === "wallet_switchEthereumChain") throw new Error("Chain Id not supported");
+    if (method === "wallet_addEthereumChain") {
+      assert.equal(params[0].chainId, "0x5fdaf3");
+      return null;
+    }
+    throw new Error(`Unexpected method ${method}`);
+  };
+
+  assert.equal(await switchInjectedProviderToDogeOS({ ethereum: provider }), false);
+  assert.deepEqual(
+    provider.calls.map((call) => call.method),
+    [
+      "eth_chainId",
+      "wallet_switchEthereumChain",
+      "wallet_addEthereumChain",
+      "eth_chainId",
+      "wallet_switchEthereumChain",
     ],
   );
 });

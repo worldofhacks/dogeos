@@ -7,8 +7,8 @@ import {
 } from "@dogeos/dogeos-sdk";
 import "@dogeos/dogeos-sdk/style.css";
 
-import { switchDogeosSdkAccountToChain } from "./sdk-chain-switch.js";
-import { switchInjectedProviderToDogeOS } from "./injected-wallet.js";
+import { dogeosSdkSwitchFailureMessage, switchDogeosSdkAccountToChain } from "./sdk-chain-switch.js";
+import { isUnknownChainError, switchInjectedProviderToDogeOS } from "./injected-wallet.js";
 import { DOGEOS_CHIKYU_TESTNET, dogeConfig, mergeDogeosChains } from "./sdkConfig.js";
 
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
@@ -39,6 +39,7 @@ function chainIdMatchesDogeos(value) {
 }
 
 function walletErrorMessage(error) {
+  if (isUnknownChainError(error)) return dogeosSdkSwitchFailureMessage(DOGEOS_CHIKYU_TESTNET);
   return error?.shortMessage ?? error?.message ?? String(error);
 }
 
@@ -72,7 +73,7 @@ function DogeOSSdkWalletBridge() {
       address: account.address ?? "",
       chainId: account.chainId ?? "",
       chainType: account.chainType ?? "",
-      error: wallet.error ? String(wallet.error) : "",
+      error: wallet.error ? walletErrorMessage(wallet.error) : "",
       hasProvider: Boolean(account.currentProvider),
       isConnected: wallet.isConnected,
       isConnecting: wallet.isConnecting,
