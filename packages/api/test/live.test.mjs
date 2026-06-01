@@ -383,12 +383,11 @@ test("createLiveAggregatorApiHandler times out stalled live quote providers", as
   );
 });
 
-test("createLiveAggregatorApiHandler can opt into one-hop quote candidates without split routing", async () => {
+test("createLiveAggregatorApiHandler returns one-hop quote previews by default without split routing", async () => {
   const rpc = noPairDiscoveryRpc();
   const handle = createLiveAggregatorApiHandler({
     nowMs: () => now,
     fetchFn: rpc.fetchFn,
-    oneHopEnabled: true,
     concentratedLiquidityQuoterProvider: async ({ sellToken, buyToken, source }) => {
       if (source.sourceId !== "muchfi-v3") return null;
 

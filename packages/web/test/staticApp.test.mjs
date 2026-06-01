@@ -8,6 +8,24 @@ const appRoot = resolve(import.meta.dirname, "../../../apps/web/src");
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const usdc = "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925";
 const wdoge = "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE";
+const usdt = "0xC81800b77D91391Ef03d7868cB81204E753093a9";
+const weth = "0x1a6094Ac3ca3Fc9F1B4777941a5f4AAc16A72000";
+
+const defaultTokens = [
+  { symbol: "USDC", address: usdc, decimals: 18 },
+  { symbol: "WDOGE", address: wdoge, decimals: 18 },
+];
+
+const defaultSources = [
+  {
+    sourceId: "muchfi-v2",
+    displayName: "MuchFi V2",
+    protocolType: "v2",
+    status: "active",
+    router: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
+    supportedPairs: ["USDC/WDOGE"],
+  },
+];
 
 async function readOptional(path) {
   try {
@@ -27,10 +45,28 @@ class FakeElement {
     this.innerHTML = "";
     this.attributes = new Map();
     this.listeners = new Map();
+    this.classNames = new Set();
+    this.styleProperties = new Map();
     this.classList = {
-      add() {},
-      remove() {},
-      toggle() {},
+      add: (...classNames) => {
+        for (const className of classNames) this.classNames.add(className);
+      },
+      remove: (...classNames) => {
+        for (const className of classNames) this.classNames.delete(className);
+      },
+      toggle: (className, force) => {
+        const enabled = force ?? !this.classNames.has(className);
+        if (enabled) this.classNames.add(className);
+        else this.classNames.delete(className);
+        return enabled;
+      },
+      contains: (className) => this.classNames.has(className),
+    };
+    this.style = {
+      setProperty: (name, value) => {
+        this.styleProperties.set(name, String(value));
+      },
+      getPropertyValue: (name) => this.styleProperties.get(name) ?? "",
     };
   }
 
@@ -79,7 +115,21 @@ async function drainMicrotasks(cycles = 8) {
   }
 }
 
-function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}) {
+function nonBalanceWalletMethods(calls) {
+  return calls.map((call) => call.method).filter((method) => method !== "eth_call");
+}
+
+function createStaticAppHarness({
+  venues = [],
+  approvalHandler,
+  mobileChart = false,
+  quoteHandler,
+  swapHandler,
+  verification,
+  tokens = defaultTokens,
+  sources = defaultSources,
+  tradingView,
+} = {}) {
   const elementsBySelector = new Map();
   const windowListeners = new Map();
   const documentListeners = new Map();
@@ -119,6 +169,14 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
     document: {
       visibilityState: "visible",
       querySelector: elementForSelector,
+      createElement(tagName) {
+        return new FakeElement(tagName);
+      },
+      head: {
+        appendChild(element) {
+          element.onload?.();
+        },
+      },
       addEventListener(eventName, handler) {
         const handlers = documentListeners.get(eventName) ?? [];
         handlers.push(handler);
@@ -129,24 +187,12 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
       fetchCalls.push({ path, options });
       if (path === "/tokens") {
         return jsonResponse({
-          data: [
-            { symbol: "USDC", address: usdc, decimals: 18 },
-            { symbol: "WDOGE", address: wdoge, decimals: 18 },
-          ],
+          data: tokens,
         });
       }
       if (path === "/sources") {
         return jsonResponse({
-          data: [
-            {
-              sourceId: "muchfi-v2",
-              displayName: "MuchFi V2",
-              protocolType: "v2",
-              status: "active",
-              router: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
-              supportedPairs: ["USDC/WDOGE"],
-            },
-          ],
+          data: sources,
         });
       }
       if (path === "/venues") return jsonResponse({ data: venues });
@@ -212,8 +258,12 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
           },
         });
       }
-      if (path === "/approval") return jsonResponse({ approvalRequired: false });
+      if (path === "/approval") {
+        if (approvalHandler) return approvalHandler({ path, options, fetchCalls });
+        return jsonResponse({ approvalRequired: false });
+      }
       if (path === "/swap") {
+        if (swapHandler) return swapHandler({ path, options, fetchCalls });
         return jsonResponse({
           transaction: {
             to: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
@@ -243,6 +293,17 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
         const handlers = windowListeners.get(event.type) ?? [];
         for (const handler of handlers) handler(event);
       },
+      matchMedia(query) {
+        const matches = query === "(max-width: 760px)" ? mobileChart : false;
+        return {
+          matches,
+          media: query,
+          addEventListener() {},
+          removeEventListener() {},
+          addListener() {},
+          removeListener() {},
+        };
+      },
       removeEventListener(eventName, handler) {
         const handlers = windowListeners.get(eventName) ?? [];
         windowListeners.set(
@@ -258,6 +319,9 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
   };
   context.globalThis = context;
   context.window.window = context.window;
+  if (tradingView) {
+    context.window.TradingView = tradingView;
+  }
 
   return {
     context,
@@ -296,10 +360,13 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(html, /id="view-settings"/);
   assert.match(html, /data-view="swap"/);
   assert.match(html, /id="chart-panel"/);
+  assert.match(html, /id="chart-popout-panel"[\s\S]*sheet-handle/);
+  assert.match(html, /Hide chart/);
   assert.match(html, /id="quote-telemetry-detail"/);
   assert.match(html, /id="source-issue-detail"/);
   assert.match(html, /id="token-picker"/);
   assert.match(html, /id="slippage-knob"/);
+  assert.match(html, /id="buy-balance"/);
   assert.match(html, /id="quote-refresh-ring"/);
   assert.match(html, /id="quote-button" type="submit">Refresh<\/button>/);
   assert.doesNotMatch(html, /id="quote-button" type="submit">Quote<\/button>/);
@@ -329,6 +396,17 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(js, /closeTokenPicker/);
   assert.match(js, /renderTokenPicker/);
   assert.match(js, /renderMarketPanel/);
+  assert.match(js, /MOBILE_CHART_QUERY/);
+  assert.match(js, /chartUsesSheet/);
+  assert.match(js, /DOGEOS_FAUCET_URL/);
+  assert.match(js, /preflightWalletGas/);
+  assert.match(js, /eth_estimateGas/);
+  assert.match(js, /eth_getBalance/);
+  assert.match(js, /TradingView\.widget/);
+  assert.match(js, /createDogeosChartDatafeed/);
+  assert.match(js, /CHART_LIBRARY_PATH/);
+  assert.match(js, /appendChartQuoteSample/);
+  assert.match(js, /routeAvailabilityMessage/);
   assert.match(js, /renderActivity/);
   assert.match(js, /flipTokens/);
   assert.match(js, /toggleChartPopout/);
@@ -356,6 +434,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(js, /buyAmount\.addEventListener\("input", scheduleExactOutputQuoteRefresh\)/);
   assert.match(js, /slippageBps\.addEventListener\("input"/);
   assert.match(js, /renderTradeControls\(\);\s*scheduleQuoteRefresh\(\);/);
+  assert.doesNotMatch(js, /renderMarketVisual/);
   assert.match(js, /document\.addEventListener\("visibilitychange"/);
   assert.match(js, /sender: state\.walletAddress/);
   assert.match(js, /dogeosAggregatorWallet/);
@@ -451,6 +530,8 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(css, /source-issue-detail/);
   assert.match(css, /token-picker/);
   assert.match(css, /knob-control/);
+  assert.match(css, /tradingview-loading/);
+  assert.doesNotMatch(css, /market-bars/);
   assert.match(css, /--te-accent:\s*#ff4d2e/);
   assert.match(css, /--te-gold:\s*#ffcf2e/);
   assert.match(css, /route-card-row-content/);
@@ -496,6 +577,230 @@ test("static web app renders source issue details in the live route monitor", as
   assert.match(detail.textContent, /concentrated-liquidity/);
   assert.match(detail.textContent, /timed out after 1000ms/);
   assert.match(detail.getAttribute("title"), /concentrated-liquidity/);
+});
+
+test("static web app renders the selected pair in TradingView and hides the chart on toggle", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const widgets = [];
+  const symbolUpdates = [];
+  const removedWidgets = [];
+  const harness = createStaticAppHarness({
+    tradingView: {
+      widget(options) {
+        widgets.push(options);
+        return {
+          onChartReady(callback) {
+            callback?.();
+          },
+          setSymbol(symbol, _resolution, callback) {
+            symbolUpdates.push(symbol);
+            callback?.();
+          },
+          remove() {
+            removedWidgets.push(options.container);
+          },
+        };
+      },
+    },
+  });
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  const primaryWidget = widgets.find((widget) => widget.container === "market-visual");
+  assert.equal(primaryWidget?.library_path, "/advanced_charting_library/charting_library/");
+  assert.equal(primaryWidget?.symbol, "USDC/WDOGE");
+  assert.equal(typeof primaryWidget?.datafeed?.getBars, "function");
+  assert.match(harness.element("market-visual").innerHTML, /TradingView/);
+
+  harness.element("chart-toggle").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("chart-panel").hidden, true);
+  assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "false");
+  assert.match(harness.element("chart-toggle").textContent, /Show chart/);
+  assert.deepEqual(removedWidgets, []);
+
+  harness.element("chart-toggle").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("chart-panel").hidden, false);
+  assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "true");
+  assert.match(harness.element("chart-toggle").textContent, /Hide chart/);
+
+  harness.element("flip-tokens").dispatchEvent({ type: "click" });
+
+  assert.equal(symbolUpdates.at(-1), "WDOGE/USDC");
+});
+
+test("static web app opens the chart as a mobile slide-up sheet only", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const widgets = [];
+  const removedWidgets = [];
+  const harness = createStaticAppHarness({
+    mobileChart: true,
+    tradingView: {
+      widget(options) {
+        widgets.push(options);
+        return {
+          onChartReady(callback) {
+            callback?.();
+          },
+          setSymbol(_symbol, _resolution, callback) {
+            callback?.();
+          },
+          remove() {
+            removedWidgets.push(options.container);
+          },
+        };
+      },
+    },
+  });
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  assert.equal(harness.element("chart-panel").hidden, true);
+  assert.equal(harness.element("chart-toggle").textContent.trim(), "Chart");
+  assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "false");
+  assert.equal(widgets.some((widget) => widget.container === "market-visual"), false);
+
+  harness.element("chart-toggle").dispatchEvent({ type: "click" });
+  await drainMicrotasks(16);
+
+  assert.equal(harness.element("chart-panel").hidden, true);
+  assert.equal(harness.element("chart-popout-panel").hidden, false);
+  assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "true");
+  assert.match(harness.element("chart-toggle").textContent, /Hide chart/);
+  assert.equal(widgets.at(-1)?.container, "chart-popout-visual");
+
+  harness.element("chart-popout-scrim").dispatchEvent({ type: "click" });
+
+  assert.equal(harness.element("chart-popout-panel").hidden, true);
+  assert.equal(harness.element("chart-toggle").getAttribute("aria-pressed"), "false");
+  assert.equal(harness.element("chart-toggle").textContent.trim(), "Chart");
+  assert.deepEqual(removedWidgets, ["chart-popout-visual"]);
+});
+
+test("static web app feeds TradingView bars from the latest live quote", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  let datafeed;
+  let realtimeBar;
+  const harness = createStaticAppHarness({
+    tradingView: {
+      widget(options) {
+        datafeed = options.datafeed;
+        return {
+          onChartReady(callback) {
+            callback?.();
+          },
+          setSymbol(_symbol, _resolution, callback) {
+            callback?.();
+          },
+          remove() {},
+        };
+      },
+    },
+  });
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  const bars = await new Promise((resolve, reject) => {
+    datafeed.getBars(
+      { ticker: "USDC/WDOGE" },
+      "1",
+      { from: 0, to: 9_999_999_999, firstDataRequest: true },
+      (result) => resolve(result),
+      reject,
+    );
+  });
+
+  assert.ok(bars.length > 0);
+  assert.equal(bars.at(-1).close, 2);
+
+  datafeed.subscribeBars(
+    { ticker: "USDC/WDOGE" },
+    "1",
+    (bar) => {
+      realtimeBar = bar;
+    },
+    "primary-subscription",
+  );
+
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  assert.equal(realtimeBar.close, 2);
+});
+
+test("static web app rotates live trade knobs when slippage and gas estimates change", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  const initialSlippageTurn = harness.element("slippage-knob").style.getPropertyValue("--knob-turn");
+  assert.match(initialSlippageTurn, /deg$/);
+  assert.match(harness.element("gas-knob").style.getPropertyValue("--knob-turn"), /deg$/);
+  assert.equal(harness.element("gas-priority-value").textContent, "125000 gas");
+
+  harness.element("slippage-bps").value = "125";
+  harness.element("slippage-bps").dispatchEvent({ type: "input" });
+
+  assert.equal(harness.element("slippage-value").textContent, "1.25%");
+  assert.notEqual(
+    harness.element("slippage-knob").style.getPropertyValue("--knob-turn"),
+    initialSlippageTurn,
+  );
+});
+
+test("static web app explains no-route official token pairs using verified live pools", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness({
+    tokens: [
+      { symbol: "USDC", address: usdc, decimals: 18 },
+      { symbol: "WDOGE", address: wdoge, decimals: 18 },
+      { symbol: "USDT", address: usdt, decimals: 18 },
+      { symbol: "WETH", address: weth, decimals: 18 },
+    ],
+    sources: [
+      {
+        sourceId: "muchfi-v3",
+        displayName: "MuchFi V3",
+        protocolType: "v3",
+        status: "active",
+        supportedPairs: ["WDOGE/USDC", "WDOGE/USDT"],
+      },
+    ],
+    quoteHandler: () =>
+      jsonResponse({
+        status: "no-route",
+        best: null,
+        alternatives: [],
+        rejected: [],
+        telemetry: {
+          quoteLatencyMs: 11,
+          sourceErrorCount: 0,
+        },
+      }),
+  });
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+
+  harness.element("sell-token").value = weth;
+  harness.element("buy-token").value = usdc;
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  assert.match(harness.element("quote-status").textContent, /No verified pool for WETH\/USDC/);
+  assert.match(harness.element("quote-status").textContent, /WDOGE\/USDC, WDOGE\/USDT/);
+  assert.equal(harness.element("route-summary").textContent, harness.element("quote-status").textContent);
+  assert.equal(harness.element("swap-button").disabled, true);
 });
 
 test("static web app invalidates executable quotes immediately when either quote input changes", async () => {
@@ -820,7 +1125,7 @@ test("static web app confirms submitted swaps from on-chain receipts", async () 
   const swapRequest = harness.fetchCalls.find((call) => call.path === "/swap");
   assert.equal(JSON.parse(swapRequest.options.body).quote.slippageBps, "50");
   assert.deepEqual(
-    providerCalls.map((call) => call.method),
+    nonBalanceWalletMethods(providerCalls),
     ["eth_sendTransaction", "eth_getTransactionReceipt"],
   );
   assert.match(harness.element("quote-status").textContent, /Swap confirmed/);
@@ -828,6 +1133,215 @@ test("static web app confirms submitted swaps from on-chain receipts", async () 
   assert.match(
     harness.element("activity-list").innerHTML,
     /href="https:\/\/blockscout\.testnet\.dogeos\.com\/tx\/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/,
+  );
+});
+
+test("static web app preflights approval gas and shows the official DogeOS faucet", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const providerCalls = [];
+  const harness = createStaticAppHarness({
+    approvalHandler: () =>
+      jsonResponse({
+        approvalRequired: true,
+        quote: {
+          sourceId: "muchfi-v2",
+          protocolType: "v2",
+          status: "active",
+          quoteMode: "exactInput",
+          sellToken: usdc,
+          buyToken: wdoge,
+          router: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
+          amountIn: "1000000000000000000",
+          amountOut: "2000000000000000000",
+          minAmountOut: "1990000000000000000",
+          quoteTimestampMs: Date.now(),
+          ttlMs: 10_000,
+        },
+        transaction: {
+          to: usdc,
+          data: "0x095ea7b3",
+          value: "0",
+        },
+      }),
+  });
+
+  harness.context.window.dogeosAggregatorWallet = {
+    getChainId: () => "0x5fdaf3",
+    getProvider: () => ({
+      request: async (request) => {
+        providerCalls.push(request);
+        if (request.method === "eth_estimateGas") return "0x5208";
+        if (request.method === "eth_gasPrice") return "0x3b9aca00";
+        if (request.method === "eth_getBalance") return "0x0";
+        if (request.method === "eth_sendTransaction") return "0xshould-not-send";
+        throw new Error(`Unexpected wallet method ${request.method}`);
+      },
+    }),
+    switchToDogeOS: async () => true,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: "0x5fdaf3",
+        chainType: "evm",
+        hasProvider: true,
+        isConnected: true,
+      },
+    }),
+  );
+
+  harness.element("swap-button").dispatchEvent({ type: "click" });
+  await drainMicrotasks(64);
+
+  assert.deepEqual(
+    nonBalanceWalletMethods(providerCalls),
+    ["eth_estimateGas", "eth_gasPrice", "eth_getBalance"],
+  );
+  assert.match(harness.element("quote-status").textContent, /Insufficient DOGE for DogeOS gas/);
+  assert.match(harness.element("quote-status").textContent, /https:\/\/faucet\.testnet\.dogeos\.com/);
+});
+
+test("static web app records the refreshed swap quote amount returned by build", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const providerCalls = [];
+  const swapHash = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const harness = createStaticAppHarness({
+    swapHandler: () =>
+      jsonResponse({
+        quote: {
+          sourceId: "muchfi-v2",
+          protocolType: "v2",
+          status: "active",
+          quoteMode: "exactInput",
+          sellToken: usdc,
+          buyToken: wdoge,
+          router: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
+          amountIn: "1500000000000000000",
+          amountOut: "3000000000000000000",
+          minAmountOut: "2985000000000000000",
+          quoteTimestampMs: Date.now(),
+          ttlMs: 10_000,
+        },
+        transaction: {
+          to: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
+          data: "0x38ed1739",
+          value: "0",
+          gas: "150000",
+        },
+      }),
+  });
+
+  harness.context.window.dogeosAggregatorWallet = {
+    getChainId: () => "0x5fdaf3",
+    getProvider: () => ({
+      request: async (request) => {
+        providerCalls.push(request);
+        if (request.method === "eth_sendTransaction") return swapHash;
+        if (request.method === "eth_getTransactionReceipt") {
+          return {
+            status: "0x1",
+            transactionHash: swapHash,
+            blockNumber: "0x11",
+          };
+        }
+        throw new Error(`Unexpected wallet method ${request.method}`);
+      },
+    }),
+    switchToDogeOS: async () => true,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: "0x5fdaf3",
+        chainType: "evm",
+        hasProvider: true,
+        isConnected: true,
+      },
+    }),
+  );
+
+  harness.element("swap-button").dispatchEvent({ type: "click" });
+  await drainMicrotasks(64);
+
+  assert.deepEqual(
+    nonBalanceWalletMethods(providerCalls),
+    ["eth_sendTransaction", "eth_getTransactionReceipt"],
+  );
+  assert.match(harness.element("activity-list").innerHTML, /1\.5 USDC -&gt; 3 WDOGE/);
+  assert.doesNotMatch(harness.element("activity-list").innerHTML, /1 USDC -&gt; 2 WDOGE/);
+});
+
+test("static web app displays connected wallet balances for selected tokens", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const providerCalls = [];
+  const usdtBalance = "7000000000000000000";
+  const balancesByToken = new Map([
+    [usdc.toLowerCase(), "2500000000000000000"],
+    [wdoge.toLowerCase(), "4000000000000000000"],
+    [usdt.toLowerCase(), usdtBalance],
+  ]);
+  const harness = createStaticAppHarness({
+    tokens: [
+      { symbol: "USDC", address: usdc, decimals: 18 },
+      { symbol: "WDOGE", address: wdoge, decimals: 18 },
+      { symbol: "USDT", address: usdt, decimals: 18 },
+    ],
+  });
+
+  harness.context.window.dogeosAggregatorWallet = {
+    getChainId: () => "0x5fdaf3",
+    getProvider: () => ({
+      request: async (request) => {
+        providerCalls.push(request);
+        if (request.method === "eth_call") {
+          const token = String(request.params?.[0]?.to ?? "").toLowerCase();
+          const balance = balancesByToken.get(token) ?? "0";
+          return `0x${BigInt(balance).toString(16).padStart(64, "0")}`;
+        }
+        throw new Error(`Unexpected wallet method ${request.method}`);
+      },
+    }),
+    switchToDogeOS: async () => true,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: "0x5fdaf3",
+        chainType: "evm",
+        hasProvider: true,
+        isConnected: true,
+      },
+    }),
+  );
+  await drainMicrotasks(32);
+
+  assert.match(harness.element("sell-balance").textContent, /Balance 2\.5 USDC/);
+  assert.match(harness.element("buy-balance").textContent, /Balance 4 WDOGE/);
+
+  harness.element("sell-token").value = usdt;
+  harness.element("sell-token").dispatchEvent({ type: "change" });
+  await drainMicrotasks(32);
+
+  assert.match(harness.element("sell-balance").textContent, /Balance 7 USDT/);
+  assert.equal(
+    providerCalls.some((call) => String(call.params?.[0]?.to).toLowerCase() === usdt.toLowerCase()),
+    true,
   );
 });
 
@@ -883,7 +1397,7 @@ test("static web app treats eip155 DogeOS chain ids as already switched", async 
 
   assert.equal(switchCalls, 0);
   assert.deepEqual(
-    providerCalls.map((call) => call.method),
+    nonBalanceWalletMethods(providerCalls),
     ["eth_sendTransaction", "eth_getTransactionReceipt"],
   );
 });
@@ -903,6 +1417,42 @@ test("static web app maps unsupported-chain wallet connect errors to DogeOS netw
   await drainMicrotasks(64);
 
   harness.element("connect-wallet").dispatchEvent({ type: "click" });
+  await drainMicrotasks(16);
+
+  assert.doesNotMatch(harness.element("quote-status").textContent, /Chain Id not supported/);
+  assert.match(harness.element("quote-status").textContent, /Add DogeOS Chikyu Testnet/);
+  assert.match(harness.element("quote-status").textContent, /chain ID 6281971/);
+});
+
+test("static web app maps async SDK unsupported-chain wallet state errors to DogeOS network guidance", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  harness.context.window.dogeosAggregatorWallet = {
+    openModal: async () => undefined,
+    isConnected: () => false,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(64);
+
+  harness.element("connect-wallet").dispatchEvent({ type: "click" });
+  await drainMicrotasks(16);
+
+  harness.windowDispatch(
+    new harness.context.CustomEvent("dogeos:sdk-wallet-updated", {
+      detail: {
+        address: "",
+        chainId: "",
+        chainType: "",
+        error: "Chain Id not supported",
+        hasProvider: false,
+        isConnected: false,
+        isConnecting: false,
+        walletSource: "dogeos-sdk",
+      },
+    }),
+  );
   await drainMicrotasks(16);
 
   assert.doesNotMatch(harness.element("quote-status").textContent, /Chain Id not supported/);

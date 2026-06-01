@@ -1,10 +1,18 @@
 const DOGEOS_CHAIN_ID = 6_281_971;
 const BLOCKSCOUT_BASE_URL = "https://blockscout.testnet.dogeos.com";
+const DOGEOS_FAUCET_URL = "https://faucet.testnet.dogeos.com";
 const QUOTE_DEBOUNCE_MS = 250;
 const QUOTE_POLL_MS = 10_000;
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
 const SDK_WALLET_READY_EVENT = "dogeos:sdk-wallet-ready";
 const LOAD_SDK_WALLET_EVENT = "dogeos:load-sdk-wallet";
+const CHART_LIBRARY_PATH = "/advanced_charting_library/charting_library/";
+const CHART_LIBRARY_SCRIPT = `${CHART_LIBRARY_PATH}charting_library.standalone.js`;
+const CHART_DEFAULT_RESOLUTION = "1";
+const CHART_PRICE_SCALE = 100_000_000;
+const MAX_CHART_BARS = 240;
+const MOBILE_CHART_QUERY = "(max-width: 760px)";
+const ERC20_BALANCE_OF_SELECTOR = "0x70a08231";
 
 const state = {
   tokens: [],
@@ -27,6 +35,8 @@ const state = {
   walletConnecting: false,
   walletError: "",
   walletSource: "",
+  walletBalances: {},
+  walletBalanceErrors: {},
 };
 
 const elements = {
@@ -47,7 +57,10 @@ const elements = {
   sellTokenChip: document.querySelector("#sell-token-chip"),
   buyTokenChip: document.querySelector("#buy-token-chip"),
   sellBalance: document.querySelector("#sell-balance"),
+  buyBalance: document.querySelector("#buy-balance"),
+  slippageKnob: document.querySelector("#slippage-knob"),
   slippageValue: document.querySelector("#slippage-value"),
+  gasKnob: document.querySelector("#gas-knob"),
   gasPriorityValue: document.querySelector("#gas-priority-value"),
   quoteRefreshRing: document.querySelector("#quote-refresh-ring"),
   flipTokens: document.querySelector("#flip-tokens"),
@@ -104,6 +117,14 @@ let quotePollTimer = null;
 let quoteRequestSeq = 0;
 let activeQuoteController = null;
 let sdkWalletReadyPromise = null;
+let tradingViewLibraryPromise = null;
+let walletBalanceRequestSeq = 0;
+
+const chartWidgets = new Map();
+const chartWidgetSymbols = new Map();
+const chartPendingContainers = new Set();
+const chartBarsBySymbol = new Map();
+const chartSubscribers = new Map();
 
 function tokenByAddress(address) {
   const normalized = String(address ?? "").toLowerCase();
@@ -112,6 +133,19 @@ function tokenByAddress(address) {
 
 function tokenBySymbol(symbol) {
   return state.tokens.find((token) => token.symbol === symbol);
+}
+
+function selectedTokens() {
+  return {
+    sellToken: tokenByAddress(elements.sellToken.value),
+    buyToken: tokenByAddress(elements.buyToken.value),
+  };
+}
+
+function selectedPairLabel() {
+  const { sellToken, buyToken } = selectedTokens();
+  if (!sellToken || !buyToken) return "selected pair";
+  return `${sellToken.symbol}/${buyToken.symbol}`;
 }
 
 function escapeHtml(value) {
@@ -238,6 +272,38 @@ function chainIdMatchesDogeos(value) {
   return parseChainId(value) === BigInt(DOGEOS_CHAIN_ID);
 }
 
+function chartUsesSheet() {
+  return Boolean(window.matchMedia?.(MOBILE_CHART_QUERY)?.matches);
+}
+
+function normalizeHexAddress(value, fieldName = "address") {
+  const address = String(value ?? "").toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(address)) {
+    throw new Error(`${fieldName} must be a 20-byte hex address.`);
+  }
+  return address;
+}
+
+function encodeAddressWord(value, fieldName = "address") {
+  return normalizeHexAddress(value, fieldName).slice(2).padStart(64, "0");
+}
+
+function encodeErc20BalanceOf(owner) {
+  return `${ERC20_BALANCE_OF_SELECTOR}${encodeAddressWord(owner, "owner")}`;
+}
+
+function decodeUint256Result(value, fieldName = "result") {
+  const normalized = String(value ?? "").toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a uint256 ABI result.`);
+  }
+  return BigInt(normalized).toString();
+}
+
+function walletBalanceKey(tokenAddress) {
+  return normalizeHexAddress(tokenAddress, "token");
+}
+
 function errorMessage(error, fallback = "Request failed.") {
   if (typeof error === "string") return error;
   return error?.shortMessage ?? error?.message ?? fallback;
@@ -277,7 +343,7 @@ function decimalToUnits(value, decimals) {
 }
 
 function unitsToDecimal(value, decimals, precision = 6) {
-  if (!value) return "-";
+  if (value === undefined || value === null || value === "") return "-";
   const units = BigInt(value);
   const base = 10n ** BigInt(decimals);
   const whole = units / base;
@@ -291,6 +357,47 @@ function unitsToDecimal(value, decimals, precision = 6) {
 function formatDogeWei(value) {
   if (value === undefined || value === null) return "-";
   return unitsToDecimal(value, 18, 15);
+}
+
+function bigintFromQuantity(value, fieldName = "quantity") {
+  try {
+    return BigInt(value ?? 0);
+  } catch {
+    throw new Error(`${fieldName} must be a numeric quantity.`);
+  }
+}
+
+function hexQuantity(value) {
+  const quantity = bigintFromQuantity(value);
+  if (quantity < 0n) throw new Error("Hex quantity cannot be negative.");
+  return `0x${quantity.toString(16)}`;
+}
+
+function bufferedGasLimit(value, bufferBps = 12_000n) {
+  const gas = bigintFromQuantity(value, "gas");
+  return (gas * bufferBps + 9_999n) / 10_000n;
+}
+
+function nativeDogeFundingMessage(requiredWei, availableWei) {
+  return `Insufficient DOGE for DogeOS gas: need ${formatDogeWei(requiredWei)} DOGE, wallet has ${formatDogeWei(availableWei)} DOGE. Faucet: ${DOGEOS_FAUCET_URL}`;
+}
+
+function transactionErrorMessage(error) {
+  const message = errorMessage(error, "Transaction could not be built.");
+  const nativeMatch = message.match(/Insufficient native DOGE balance:\s*required\s*(\d+),\s*available\s*(\d+)/i);
+  if (nativeMatch) {
+    return nativeDogeFundingMessage(nativeMatch[1], nativeMatch[2]);
+  }
+
+  if (/Insufficient DOGE for DogeOS gas/i.test(message)) {
+    return message;
+  }
+
+  if (/insufficient funds|testnet doge|native doge balance|not enough.*doge/i.test(message)) {
+    return `Insufficient DOGE for DogeOS gas. Use the official DogeOS testnet faucet: ${DOGEOS_FAUCET_URL}`;
+  }
+
+  return message.replace(/https?:\/\/\S*faucet\S*/gi, DOGEOS_FAUCET_URL);
 }
 
 function formatLatencyMs(value) {
@@ -364,8 +471,87 @@ function quoteStatusSuffix(quote) {
   return `${quoteLatencySuffix(quote)}${quoteSourceIssueSuffix(quote)}`;
 }
 
+function normalizedPairKey(left, right) {
+  const first = String(left ?? "").toUpperCase();
+  const second = String(right ?? "").toUpperCase();
+  if (!first || !second) return "";
+  return `${first}/${second}`;
+}
+
+function supportedPairLabels() {
+  const labels = [];
+  const seen = new Set();
+
+  for (const source of state.sources) {
+    if (source.status !== "active") continue;
+    for (const pair of source.supportedPairs ?? []) {
+      const label = String(pair ?? "").trim().toUpperCase();
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+
+  return labels;
+}
+
+function sourceSupportsSelectedPair() {
+  const { sellToken, buyToken } = selectedTokens();
+  if (!sellToken || !buyToken) return false;
+
+  const direct = normalizedPairKey(sellToken.symbol, buyToken.symbol);
+  const inverse = normalizedPairKey(buyToken.symbol, sellToken.symbol);
+  return supportedPairLabels().some((pair) => pair === direct || pair === inverse);
+}
+
+function quoteHasOneHopPreview(quote = state.quote) {
+  const rows = routeRowsFromQuote(quote);
+  return rows.some((route) => route.routeType === "oneHop" || route.reason === "one-hop-execution-preview");
+}
+
+function routeAvailabilityMessage(quote = state.quote) {
+  const pair = selectedPairLabel();
+  const supportedPairs = supportedPairLabels();
+  const supportedText = supportedPairs.length ? supportedPairs.join(", ") : "no verified live pools";
+
+  if (quote?.status === "read-only" && quoteHasOneHopPreview(quote)) {
+    return `Read-only WDOGE bridge preview for ${pair}; execution stays direct-only until multi-leg swap execution is enabled.`;
+  }
+
+  if (!sourceSupportsSelectedPair()) {
+    return `No verified pool for ${pair}. Verified live pools currently cover ${supportedText}.`;
+  }
+
+  return `No executable route returned for ${pair}${quoteSourceIssueSuffix(quote)}.`;
+}
+
 function formatTokenAmount(value, token, precision = 6) {
   return token ? unitsToDecimal(value, token.decimals, precision) : String(value ?? "-");
+}
+
+function mergeExecutionQuote(baseQuote, nextQuote) {
+  if (!nextQuote) return baseQuote;
+  return {
+    ...baseQuote,
+    ...nextQuote,
+    recipient: nextQuote.recipient ?? baseQuote.recipient,
+    deadline: nextQuote.deadline ?? baseQuote.deadline,
+    slippageBps: nextQuote.slippageBps ?? baseQuote.slippageBps,
+  };
+}
+
+function swapActivityTitle(quote) {
+  const sellToken = tokenByAddress(quote.sellToken);
+  const buyToken = tokenByAddress(quote.buyToken);
+  return `${formatTokenAmount(quote.amountIn, sellToken, 4)} ${sellToken?.symbol ?? "sell"} -> ${formatTokenAmount(quote.amountOut, buyToken, 4)} ${buyToken?.symbol ?? "buy"}`;
+}
+
+function swapIntentLabel(quote) {
+  const sellToken = tokenByAddress(quote.sellToken);
+  const buyToken = tokenByAddress(quote.buyToken);
+  const output = quote.quoteMode === "exactOutput" ? quote.amountOut : quote.minAmountOut ?? quote.amountOut;
+  const outputLabel = quote.quoteMode === "exactOutput" ? "" : "at least ";
+  return `${formatTokenAmount(quote.amountIn, sellToken, 4)} ${sellToken?.symbol ?? "sell"} for ${outputLabel}${formatTokenAmount(output, buyToken, 4)} ${buyToken?.symbol ?? "buy"}`;
 }
 
 function formatBlockNumber(value) {
@@ -436,13 +622,50 @@ function slippagePercent() {
   return Number.isFinite(bps) ? bps / 100 : 0;
 }
 
+function setKnobTurn(element, value, min, max) {
+  if (!element?.style?.setProperty) return;
+  const numericValue = Number(value);
+  const numericMin = Number(min);
+  const numericMax = Number(max);
+  if (!Number.isFinite(numericValue) || !Number.isFinite(numericMin) || !Number.isFinite(numericMax)) {
+    return;
+  }
+
+  const progress = Math.min(1, Math.max(0, (numericValue - numericMin) / (numericMax - numericMin || 1)));
+  const degrees = -135 + progress * 270;
+  element.style.setProperty("--knob-turn", `${degrees.toFixed(1)}deg`);
+}
+
 function renderTradeControls() {
   const percent = slippagePercent();
+  const route = state.quote?.best ?? routeRowsFromQuote(state.quote)[0];
+  const gasUnits = route?.gasUnits ? Number(route.gasUnits) : null;
   elements.slippageValue.textContent =
     percent >= 49.995 ? "MAX" : `${percent.toFixed(percent >= 10 ? 0 : 2)}%`;
-  elements.gasPriorityValue.textContent = state.quote?.best?.gasUnits
-    ? `${state.quote.best.gasUnits} gas`
+  elements.gasPriorityValue.textContent = gasUnits
+    ? `${route.gasUnits} gas`
     : "live";
+  setKnobTurn(elements.slippageKnob, elements.slippageBps.value, elements.slippageBps.min ?? 1, elements.slippageBps.max ?? 5000);
+  setKnobTurn(elements.gasKnob, gasUnits ?? 120_000, 80_000, 320_000);
+}
+
+function selectedBalanceText(token) {
+  if (!token) return "balance loading";
+
+  if (!state.walletAddress) {
+    return `${token.symbol} · ${compactAddress(token.address)}`;
+  }
+
+  const key = walletBalanceKey(token.address);
+  if (Object.prototype.hasOwnProperty.call(state.walletBalances, key)) {
+    return `Balance ${formatTokenAmount(state.walletBalances[key], token, 6)} ${token.symbol}`;
+  }
+
+  if (state.walletBalanceErrors[key]) {
+    return `Balance unavailable for ${token.symbol}`;
+  }
+
+  return `Balance loading ${token.symbol}`;
 }
 
 function renderTokenChips() {
@@ -455,9 +678,8 @@ function renderTokenChips() {
   elements.buyTokenChip.innerHTML = buyToken
     ? `${tokenIconHtml(buyToken)}<span>${escapeHtml(buyToken.symbol)}</span>`
     : "Buy token";
-  elements.sellBalance.textContent = sellToken
-    ? `${sellToken.symbol} · ${compactAddress(sellToken.address)}`
-    : "balance loading";
+  elements.sellBalance.textContent = selectedBalanceText(sellToken);
+  elements.buyBalance.textContent = selectedBalanceText(buyToken);
 }
 
 function renderTokenOptions() {
@@ -473,6 +695,82 @@ function renderTokenOptions() {
   if (wdoge) elements.buyToken.value = wdoge.address;
   renderTokenChips();
   renderTradeControls();
+}
+
+function uniqueSelectedBalanceTokens() {
+  const { sellToken, buyToken } = selectedTokens();
+  const tokens = [];
+  const seen = new Set();
+  for (const token of [sellToken, buyToken]) {
+    if (!token) continue;
+    const key = walletBalanceKey(token.address);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+function clearWalletBalances() {
+  state.walletBalances = {};
+  state.walletBalanceErrors = {};
+}
+
+async function readWalletTokenBalance(provider, owner, token) {
+  const result = await provider.request({
+    method: "eth_call",
+    params: [
+      {
+        to: token.address,
+        data: encodeErc20BalanceOf(owner),
+      },
+      "latest",
+    ],
+  });
+  return decodeUint256Result(result, `${token.symbol} balance`);
+}
+
+async function refreshSelectedWalletBalances() {
+  const wallet = sdkWallet();
+  const provider = wallet?.getProvider?.();
+  const owner = state.walletAddress;
+  const tokens = uniqueSelectedBalanceTokens();
+
+  if (!owner || !provider?.request || tokens.length === 0) {
+    clearWalletBalances();
+    renderTokenChips();
+    return;
+  }
+
+  const requestSeq = ++walletBalanceRequestSeq;
+  for (const token of tokens) {
+    const key = walletBalanceKey(token.address);
+    delete state.walletBalanceErrors[key];
+    delete state.walletBalances[key];
+  }
+  renderTokenChips();
+
+  const balances = await Promise.all(
+    tokens.map(async (token) => {
+      const key = walletBalanceKey(token.address);
+      try {
+        return { key, balance: await readWalletTokenBalance(provider, owner, token) };
+      } catch (error) {
+        return { key, error };
+      }
+    }),
+  );
+
+  if (requestSeq !== walletBalanceRequestSeq) return;
+
+  for (const entry of balances) {
+    if (entry.error) {
+      state.walletBalanceErrors[entry.key] = errorMessage(entry.error, "Balance unavailable.");
+    } else {
+      state.walletBalances[entry.key] = entry.balance;
+    }
+  }
+  renderTokenChips();
 }
 
 function renderTokenRow(token, { picker = false } = {}) {
@@ -553,6 +851,7 @@ function chooseToken(address) {
   targetSelect.value = token.address;
   closeTokenPicker();
   renderTokenChips();
+  refreshSelectedWalletBalances();
   scheduleQuoteRefresh();
 }
 
@@ -562,6 +861,7 @@ function flipTokens() {
   elements.buyToken.value = sellValue;
   state.quoteMode = "exactInput";
   renderTokenChips();
+  refreshSelectedWalletBalances();
   scheduleQuoteRefresh();
 }
 
@@ -848,6 +1148,277 @@ function routeStatusLabel(route) {
   return route.status;
 }
 
+function selectedChartSymbol() {
+  const { sellToken, buyToken } = selectedTokens();
+  if (!sellToken || !buyToken) return "";
+  return `${sellToken.symbol}/${buyToken.symbol}`;
+}
+
+function chartSymbolFromRoute(route) {
+  const sellToken = tokenByAddress(route?.sellToken);
+  const buyToken = tokenByAddress(route?.buyToken);
+  if (!sellToken || !buyToken) return "";
+  return `${sellToken.symbol}/${buyToken.symbol}`;
+}
+
+function chartContainerId(targetElement) {
+  return targetElement?.id ? targetElement.id.replace(/^#/, "") : "";
+}
+
+function loadTradingViewLibrary() {
+  if (window.TradingView?.widget) return Promise.resolve(window.TradingView);
+  if (tradingViewLibraryPromise) return tradingViewLibraryPromise;
+
+  tradingViewLibraryPromise = new Promise((resolve, reject) => {
+    if (!document.createElement || !document.head?.appendChild) {
+      reject(new Error("TradingView loader is unavailable."));
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = CHART_LIBRARY_SCRIPT;
+    script.async = true;
+    script.onload = () => {
+      if (window.TradingView?.widget) {
+        resolve(window.TradingView);
+      } else {
+        reject(new Error("TradingView charting library did not expose a widget."));
+      }
+    };
+    script.onerror = () => reject(new Error("TradingView charting library failed to load."));
+    document.head.appendChild(script);
+  });
+
+  return tradingViewLibraryPromise;
+}
+
+function chartSymbolInfo(symbol) {
+  return {
+    name: symbol,
+    ticker: symbol,
+    description: `${symbol} DogeOS live quote`,
+    type: "crypto",
+    session: "24x7",
+    timezone: "Etc/UTC",
+    exchange: "DogeOS",
+    listed_exchange: "DogeOS",
+    minmov: 1,
+    pricescale: CHART_PRICE_SCALE,
+    has_intraday: true,
+    has_daily: true,
+    supported_resolutions: ["1", "5", "15", "60", "1D"],
+    volume_precision: 2,
+    data_status: "streaming",
+  };
+}
+
+function barsForSymbol(symbol) {
+  return chartBarsBySymbol.get(symbol) ?? [];
+}
+
+function deferChartCallback(callback) {
+  Promise.resolve().then(callback);
+}
+
+function createDogeosChartDatafeed() {
+  return {
+    onReady(callback) {
+      deferChartCallback(() => callback({
+        supports_search: false,
+        supports_group_request: false,
+        supports_marks: false,
+        supports_timescale_marks: false,
+        supports_time: true,
+        supported_resolutions: ["1", "5", "15", "60", "1D"],
+      }));
+    },
+    resolveSymbol(symbolName, onResolve) {
+      deferChartCallback(() => onResolve(chartSymbolInfo(symbolName)));
+    },
+    getBars(symbolInfo, _resolution, periodParams, onHistory) {
+      const symbol = symbolInfo?.ticker ?? symbolInfo?.name ?? selectedChartSymbol();
+      const fromMs = Number(periodParams?.from ?? 0) * 1000;
+      const toMs = Number(periodParams?.to ?? Number.MAX_SAFE_INTEGER) * 1000;
+      const bars = barsForSymbol(symbol).filter((bar) => bar.time >= fromMs && bar.time <= toMs);
+      deferChartCallback(() => onHistory(bars, { noData: bars.length === 0 }));
+    },
+    subscribeBars(symbolInfo, _resolution, onRealtime, subscriberUID) {
+      const symbol = symbolInfo?.ticker ?? symbolInfo?.name ?? selectedChartSymbol();
+      chartSubscribers.set(subscriberUID, { symbol, onRealtime });
+    },
+    unsubscribeBars(subscriberUID) {
+      chartSubscribers.delete(subscriberUID);
+    },
+  };
+}
+
+function tokenUnitsToNumber(value, decimals) {
+  if (value === undefined || value === null) return 0;
+  const units = BigInt(value);
+  const base = 10n ** BigInt(decimals);
+  return Number(units / base) + Number(units % base) / Number(base);
+}
+
+function chartPriceForRoute(route) {
+  const sellToken = tokenByAddress(route?.sellToken);
+  const buyToken = tokenByAddress(route?.buyToken);
+  if (!sellToken || !buyToken) return null;
+
+  const amountIn = tokenUnitsToNumber(route.amountIn, sellToken.decimals);
+  const amountOut = tokenUnitsToNumber(route.amountOut, buyToken.decimals);
+  if (!Number.isFinite(amountIn) || !Number.isFinite(amountOut) || amountIn <= 0 || amountOut <= 0) {
+    return null;
+  }
+
+  return amountOut / amountIn;
+}
+
+function notifyChartSubscribers(symbol, bar) {
+  for (const subscriber of chartSubscribers.values()) {
+    if (subscriber.symbol === symbol) subscriber.onRealtime({ ...bar });
+  }
+}
+
+function appendChartBar(symbol, price, { timestampMs = Date.now(), volume = 0 } = {}) {
+  if (!symbol || !Number.isFinite(price) || price <= 0) return;
+
+  const time = Math.floor(timestampMs / 60_000) * 60_000;
+  const bars = [...barsForSymbol(symbol)];
+  const previous = bars.at(-1);
+  let bar;
+
+  if (previous?.time === time) {
+    bar = {
+      ...previous,
+      high: Math.max(previous.high, price),
+      low: Math.min(previous.low, price),
+      close: price,
+      volume: previous.volume + volume,
+    };
+    bars[bars.length - 1] = bar;
+  } else {
+    bar = {
+      time,
+      open: previous?.close ?? price,
+      high: Math.max(previous?.close ?? price, price),
+      low: Math.min(previous?.close ?? price, price),
+      close: price,
+      volume,
+    };
+    bars.push(bar);
+  }
+
+  chartBarsBySymbol.set(symbol, bars.slice(-MAX_CHART_BARS));
+  notifyChartSubscribers(symbol, bar);
+}
+
+function appendChartQuoteSample(quote = state.quote) {
+  const route = routeRowsFromQuote(quote)[0];
+  if (!route) return;
+
+  const symbol = chartSymbolFromRoute(route);
+  const price = chartPriceForRoute(route);
+  if (!symbol || !price) return;
+
+  const timestampMs = Number(route.quoteTimestampMs ?? Date.now());
+  const volume = Number(route.gasUnits ?? 0);
+  appendChartBar(symbol, price, { timestampMs, volume });
+
+  const [base, quoteSymbol] = symbol.split("/");
+  if (base && quoteSymbol) {
+    appendChartBar(`${quoteSymbol}/${base}`, 1 / price, { timestampMs, volume });
+  }
+}
+
+function setChartToggleLabel() {
+  const label = chartUsesSheet()
+    ? state.chartPopoutVisible ? "Hide chart" : "Chart"
+    : state.chartVisible ? "Hide chart" : "Show chart";
+  elements.chartToggle.textContent = label;
+  elements.chartToggle.innerHTML = `<span aria-hidden="true"></span>${label}`;
+}
+
+function removeTradingViewChart(targetElement) {
+  const container = chartContainerId(targetElement);
+  const widget = chartWidgets.get(container);
+  widget?.remove?.();
+  chartWidgets.delete(container);
+  chartWidgetSymbols.delete(container);
+  chartPendingContainers.delete(container);
+}
+
+function updateTradingViewSymbol(targetElement, symbol) {
+  const container = chartContainerId(targetElement);
+  const widget = chartWidgets.get(container);
+  if (!widget) return false;
+  if (chartWidgetSymbols.get(container) === symbol) return true;
+
+  if (typeof widget.setSymbol === "function") {
+    widget.setSymbol(symbol, CHART_DEFAULT_RESOLUTION, () => {});
+    chartWidgetSymbols.set(container, symbol);
+    return true;
+  }
+
+  removeTradingViewChart(targetElement);
+  return false;
+}
+
+function ensureTradingViewChart(targetElement = elements.marketVisual) {
+  const container = chartContainerId(targetElement);
+  const symbol = selectedChartSymbol();
+  if (!container || !symbol) return;
+
+  targetElement.classList.add("tradingview-chart");
+  if (updateTradingViewSymbol(targetElement, symbol) || chartPendingContainers.has(container)) {
+    return;
+  }
+
+  chartPendingContainers.add(container);
+  targetElement.innerHTML = `<div class="tradingview-loading">TradingView · ${escapeHtml(symbol)}</div>`;
+
+  loadTradingViewLibrary()
+    .then((TradingView) => {
+      chartPendingContainers.delete(container);
+      if (chartWidgets.has(container)) {
+        updateTradingViewSymbol(targetElement, symbol);
+        return;
+      }
+
+      const options = {
+        autosize: true,
+        container,
+        library_path: CHART_LIBRARY_PATH,
+        symbol,
+        interval: CHART_DEFAULT_RESOLUTION,
+        timezone: "Etc/UTC",
+        theme: "light",
+        locale: "en",
+        datafeed: createDogeosChartDatafeed(),
+        disabled_features: [
+          "header_symbol_search",
+          "symbol_search_hot_key",
+          "use_localstorage_for_settings",
+        ],
+        enabled_features: ["hide_left_toolbar_by_default"],
+        loading_screen: {
+          backgroundColor: "#f4f0df",
+          foregroundColor: "#1b1a16",
+        },
+      };
+      const Widget = TradingView.widget;
+      const widget = Widget.prototype ? new Widget(options) : Widget(options);
+      chartWidgets.set(container, widget);
+      chartWidgetSymbols.set(container, symbol);
+    })
+    .catch((error) => {
+      chartPendingContainers.delete(container);
+      targetElement.classList.remove("tradingview-chart");
+      targetElement.innerHTML = `
+        <div class="empty-state">TradingView chart unavailable: ${escapeHtml(error.message)}</div>
+      `;
+    });
+}
+
 function routeExplorerLinks(route) {
   const source = sourceById(route.sourceId);
   const links = [];
@@ -887,53 +1458,11 @@ function updateQuoteRing({ loading = false } = {}) {
   elements.quoteRefreshRing.textContent = seconds > 0 ? `best · ${seconds}s` : "expired";
 }
 
-function routeBars(quote = state.quote) {
-  const rows = routeRowsFromQuote(quote).filter((route) => route.amountOut || route.amountIn);
-  if (rows.length === 0) return [];
-  const values = rows.map((route) => {
-    try {
-      return Number(BigInt(route.amountOut ?? route.amountIn ?? 0n));
-    } catch {
-      return 0;
-    }
-  });
-  const max = Math.max(...values, 1);
-  return rows.slice(0, 6).map((route, index) => ({
-    route,
-    height: Math.max(8, Math.round((values[index] / max) * 100)),
-  }));
-}
-
-function renderMarketVisual(targetElement = elements.marketVisual) {
-  const bars = routeBars();
-  const barCount = Math.max(1, bars.length);
-  if (bars.length === 0) {
-    targetElement.innerHTML = `
-      <div class="empty-state">Route monitor waiting for a live quote</div>
-    `;
-    return;
-  }
-
-  targetElement.innerHTML = `
-    <div class="market-bars" style="--bar-count:${barCount}">
-      ${bars.map(({ route, height }, index) => {
-        const source = sourceById(route.sourceId);
-        const color = index === 0 ? "var(--te-gold)" : index === 1 ? "var(--te-accent)" : "var(--te-hair-strong)";
-        return `
-          <span class="market-bar">
-            <i style="height:${height}%;--bar-color:${color}"></i>
-            <span>${escapeHtml(source?.displayName ?? route.sourceId)}</span>
-          </span>
-        `;
-      }).join("")}
-    </div>
-  `;
-}
-
 function renderMarketPanel() {
   const best = state.quote?.best;
   const source = best ? sourceById(best.sourceId) : null;
   const sourceIssueDetail = quoteSourceIssueDetail(state.quote);
+  const sheetMode = chartUsesSheet();
   elements.bestSourceLabel.textContent = source?.displayName ?? "-";
   elements.quoteLatencyLabel.textContent = formatLatencyMs(state.quote?.telemetry?.quoteLatencyMs) || "-";
   elements.sourceIssuesLabel.textContent = String(state.quote?.telemetry?.sourceErrorCount ?? 0);
@@ -945,17 +1474,28 @@ function renderMarketPanel() {
     "title",
     sourceIssueDetail || "No source issues in the latest live route response",
   );
-  elements.chartPanel.hidden = !state.chartVisible;
-  elements.chartToggle.setAttribute("aria-pressed", String(state.chartVisible));
-  elements.chartToggle.classList.toggle("active", state.chartVisible);
-  renderMarketVisual(elements.marketVisual);
-  if (state.chartPopoutVisible) renderMarketVisual(elements.chartPopoutVisual);
+  elements.chartPanel.hidden = sheetMode || !state.chartVisible;
+  const chartControlActive = sheetMode ? state.chartPopoutVisible : state.chartVisible;
+  elements.chartToggle.setAttribute("aria-pressed", String(chartControlActive));
+  elements.chartToggle.classList.toggle("active", chartControlActive);
+  setChartToggleLabel();
+  if (!sheetMode && state.chartVisible) {
+    ensureTradingViewChart(elements.marketVisual);
+  } else if (sheetMode) {
+    removeTradingViewChart(elements.marketVisual);
+  }
+  if (state.chartPopoutVisible) ensureTradingViewChart(elements.chartPopoutVisual);
 }
 
 function toggleChartPopout(open = !state.chartPopoutVisible) {
   state.chartPopoutVisible = open;
   elements.chartPopoutPanel.hidden = !open;
-  if (open) renderMarketVisual(elements.chartPopoutVisual);
+  if (open) {
+    ensureTradingViewChart(elements.chartPopoutVisual);
+  } else {
+    removeTradingViewChart(elements.chartPopoutVisual);
+  }
+  renderMarketPanel();
 }
 
 function renderActivity() {
@@ -1005,7 +1545,7 @@ function renderRoutes() {
 
   if (rows.length === 0) {
     elements.routeRows.innerHTML = `<tr><td class="empty-state" colspan="7">No routes loaded</td></tr>`;
-    elements.routeSummary.textContent = "No quote yet";
+    elements.routeSummary.textContent = state.quote ? routeAvailabilityMessage(state.quote) : "No quote yet";
     if (state.quoteMode === "exactOutput") {
       elements.sellAmount.value = "";
     } else {
@@ -1078,7 +1618,9 @@ function renderRoutes() {
     }
     elements.swapButton.disabled = false;
   } else {
-    elements.routeSummary.textContent = `Read-only quotes${quoteStatusSuffix(state.quote)}`;
+    elements.routeSummary.textContent = quoteHasOneHopPreview(state.quote)
+      ? routeAvailabilityMessage(state.quote)
+      : `Read-only quotes${quoteStatusSuffix(state.quote)}`;
     const first = rows[0];
     if (first?.quoteMode === "exactOutput") {
       elements.sellAmount.value = first && sellToken
@@ -1109,6 +1651,7 @@ async function loadRegistries() {
   state.tokens = tokensBody.data;
   state.sources = sourcesBody.data;
   renderTokenOptions();
+  refreshSelectedWalletBalances();
   renderTokenLists();
   renderActivity();
   renderVerificationSummary();
@@ -1252,15 +1795,18 @@ async function requestQuote({ live = false } = {}) {
     if (requestSeq !== quoteRequestSeq) return;
 
     state.quote = quote;
+    appendChartQuoteSample(quote);
     renderRoutes();
     updateQuoteRing();
 
     if (quote.status === "ok") {
       setStatus(`Executable route ready${quoteSourceIssueSuffix(quote)}`);
     } else if (quote.status === "read-only") {
-      setStatus(`Read-only quote previews returned${quoteSourceIssueSuffix(quote)}`);
+      setStatus(quoteHasOneHopPreview(quote)
+        ? routeAvailabilityMessage(quote)
+        : `Read-only quote previews returned${quoteSourceIssueSuffix(quote)}`);
     } else {
-      setStatus(`No executable route returned${quoteSourceIssueSuffix(quote)}`);
+      setStatus(routeAvailabilityMessage(quote));
     }
   } catch (error) {
     if (error.name === "AbortError") return;
@@ -1306,6 +1852,7 @@ async function connectWallet() {
 function handleSdkWalletUpdate(event) {
   const detail = event.detail ?? {};
   const previousAddress = state.walletAddress;
+  const previousChainId = state.walletChainId;
 
   state.walletAddress = detail.address ?? "";
   state.walletChainId = detail.chainId ?? "";
@@ -1332,7 +1879,20 @@ function handleSdkWalletUpdate(event) {
   if (state.walletAddress && state.walletAddress !== previousAddress) {
     const walletSource = state.walletSource === "injected" ? "injected wallet" : "DogeOS SDK";
     setStatus(`Wallet connected through ${walletSource}`);
+  } else if (!state.walletAddress && !state.walletConnecting && state.walletError) {
+    setStatus(walletConnectErrorMessage(state.walletError), true);
   }
+
+  if (!state.walletAddress) {
+    clearWalletBalances();
+    renderTokenChips();
+    return;
+  }
+
+  if (state.walletAddress !== previousAddress || state.walletChainId !== previousChainId) {
+    clearWalletBalances();
+  }
+  refreshSelectedWalletBalances();
 }
 
 async function buildSwap() {
@@ -1345,14 +1905,14 @@ async function buildSwap() {
     }
 
     const recipient = elements.recipient.value || state.walletAddress;
-    const quote = {
+    let quote = {
       ...state.quote.best,
       slippageBps: elements.slippageBps.value || "50",
       recipient,
       deadline: Math.floor(Date.now() / 1000) + 300,
     };
 
-    await ensureTokenApproval(quote);
+    quote = mergeExecutionQuote(quote, await ensureTokenApproval(quote));
 
     setStatus("Preparing verified swap transaction");
     const body = await fetchJson("/swap", {
@@ -1364,11 +1924,12 @@ async function buildSwap() {
     });
 
     setStatus("Awaiting swap signature");
+    const executionQuote = mergeExecutionQuote(quote, body.quote);
     const txHash = await sendWalletTransaction(body.transaction);
-    const title = `${formatTokenAmount(quote.amountIn, tokenByAddress(quote.sellToken), 4)} ${tokenByAddress(quote.sellToken)?.symbol ?? "sell"} -> ${formatTokenAmount(quote.amountOut, tokenByAddress(quote.buyToken), 4)} ${tokenByAddress(quote.buyToken)?.symbol ?? "buy"}`;
+    const title = swapActivityTitle(executionQuote);
     recordActivity({
       title,
-      detail: `${sourceById(quote.sourceId)?.displayName ?? quote.sourceId} / ${shortAddress(txHash)}`,
+      detail: `${sourceById(executionQuote.sourceId)?.displayName ?? executionQuote.sourceId} / ${shortAddress(txHash)}`,
       status: "submitted",
       txHash,
     });
@@ -1378,14 +1939,14 @@ async function buildSwap() {
     recordActivity({
       title,
       detail:
-        `${sourceById(quote.sourceId)?.displayName ?? quote.sourceId} / ${shortAddress(txHash)}` +
+        `${sourceById(executionQuote.sourceId)?.displayName ?? executionQuote.sourceId} / ${shortAddress(txHash)}` +
         (blockNumber ? ` / block ${blockNumber}` : ""),
       status: "confirmed",
       txHash,
     });
     setStatus(`Swap confirmed and included ${shortAddress(txHash)}${blockNumber ? ` at block ${blockNumber}` : ""}`);
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(transactionErrorMessage(error), true);
   } finally {
     elements.swapButton.disabled = !state.quote?.best;
   }
@@ -1400,13 +1961,59 @@ async function ensureTokenApproval(quote) {
     }),
   });
 
-  if (!approval.approvalRequired) return;
+  const nextQuote = approval.quote ? mergeExecutionQuote(quote, approval.quote) : quote;
 
-  setStatus("Approving sell token");
+  if (!approval.approvalRequired) return nextQuote;
+
+  setStatus(`Approving ${swapIntentLabel(nextQuote)}`);
+  await preflightWalletGas(approval.transaction);
   const approvalHash = await sendWalletTransaction(approval.transaction);
   setStatus(`Approval submitted ${shortAddress(approvalHash)}`);
   await waitForTransactionReceipt(approvalHash, { label: "Approval" });
   setStatus("Approval confirmed");
+  return nextQuote;
+}
+
+async function preflightWalletGas(transaction) {
+  const wallet = sdkWallet();
+  const provider = wallet?.getProvider?.();
+  if (!provider?.request) {
+    throw new Error("Connect an EVM wallet before estimating transaction gas.");
+  }
+
+  const request = {
+    from: state.walletAddress,
+    to: transaction.to,
+    data: transaction.data,
+    value: hexQuantity(transaction.value ?? 0),
+  };
+  const [estimatedGas, gasPrice, nativeBalance] = await Promise.all([
+    provider.request({
+      method: "eth_estimateGas",
+      params: [request],
+    }),
+    provider.request({ method: "eth_gasPrice" }),
+    provider.request({
+      method: "eth_getBalance",
+      params: [state.walletAddress, "latest"],
+    }),
+  ]);
+  const gasLimit = transaction.gas === undefined
+    ? bufferedGasLimit(estimatedGas)
+    : bigintFromQuantity(transaction.gas, "transaction.gas");
+  const requiredWei = gasLimit * bigintFromQuantity(gasPrice, "gasPrice") +
+    bigintFromQuantity(transaction.value ?? 0, "transaction.value");
+  const availableWei = bigintFromQuantity(nativeBalance, "nativeBalance");
+
+  if (availableWei < requiredWei) {
+    throw new Error(nativeDogeFundingMessage(requiredWei, availableWei));
+  }
+
+  return {
+    gasLimit,
+    gasPriceWei: bigintFromQuantity(gasPrice, "gasPrice"),
+    nativeBalance: availableWei,
+  };
 }
 
 async function sendWalletTransaction(transaction) {
@@ -1429,16 +2036,20 @@ async function sendWalletTransaction(transaction) {
     from: state.walletAddress,
     to: transaction.to,
     data: transaction.data,
-    value: `0x${BigInt(transaction.value ?? 0).toString(16)}`,
+    value: hexQuantity(transaction.value ?? 0),
   };
   if (transaction.gas !== undefined) {
-    request.gas = `0x${BigInt(transaction.gas).toString(16)}`;
+    request.gas = hexQuantity(transaction.gas);
   }
 
-  return provider.request({
-    method: "eth_sendTransaction",
-    params: [request],
-  });
+  try {
+    return await provider.request({
+      method: "eth_sendTransaction",
+      params: [request],
+    });
+  } catch (error) {
+    throw new Error(transactionErrorMessage(error));
+  }
 }
 
 function sleep(ms) {
@@ -1500,11 +2111,17 @@ elements.tokenListView.addEventListener("click", (event) => {
   if (!row) return;
   elements.sellToken.value = row.getAttribute("data-token-address");
   renderTokenChips();
+  refreshSelectedWalletBalances();
   switchView("swap");
   scheduleQuoteRefresh();
 });
 elements.flipTokens.addEventListener("click", flipTokens);
 elements.chartToggle.addEventListener("click", () => {
+  if (chartUsesSheet()) {
+    toggleChartPopout(!state.chartPopoutVisible);
+    return;
+  }
+
   state.chartVisible = !state.chartVisible;
   renderMarketPanel();
 });
@@ -1521,10 +2138,12 @@ elements.sellAmount.addEventListener("input", scheduleExactInputQuoteRefresh);
 elements.buyAmount.addEventListener("input", scheduleExactOutputQuoteRefresh);
 elements.sellToken.addEventListener("change", () => {
   renderTokenChips();
+  refreshSelectedWalletBalances();
   scheduleQuoteRefresh();
 });
 elements.buyToken.addEventListener("change", () => {
   renderTokenChips();
+  refreshSelectedWalletBalances();
   scheduleQuoteRefresh();
 });
 elements.slippageBps.addEventListener("input", () => {
@@ -1539,6 +2158,9 @@ document.addEventListener("visibilitychange", () => {
     requestQuote({ live: true });
   }
 });
+const mobileChartMedia = window.matchMedia?.(MOBILE_CHART_QUERY);
+mobileChartMedia?.addEventListener?.("change", renderMarketPanel);
+mobileChartMedia?.addListener?.(renderMarketPanel);
 
 loadRegistries()
   .then(requestQuote)

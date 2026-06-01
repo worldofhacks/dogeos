@@ -103,7 +103,7 @@
 - Create: `packages/aggregator/test/oneHopRoutes.test.ts`
 
 - [x] Test one-hop route composition through WDOGE without changing direct route adapter interfaces.
-- [x] Keep one-hop disabled by default and read-only when enabled until a multi-leg transaction path exists.
+- [x] Keep one-hop read-only by default in the live API until a multi-leg transaction path exists.
 - [x] Add feature flagging so split routing can use the same composed route model later.
 
 ## Task 8: Add Verification Runbook

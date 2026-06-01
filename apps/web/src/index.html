@@ -62,7 +62,7 @@
                   </div>
                   <button class="chart-toggle" id="chart-toggle" type="button" aria-pressed="true">
                     <span aria-hidden="true"></span>
-                    Chart
+                    Hide chart
                   </button>
                 </div>
 
@@ -83,6 +83,7 @@
 
                   <label class="field-block numbered-field" for="buy-amount">
                     <span><b>02</b> You receive</span>
+                    <small id="buy-balance">balance loading</small>
                     <small id="quote-refresh-ring" class="quote-ring">live</small>
                     <div class="amount-row amount-row-output">
                       <input id="buy-amount" name="buyAmount" type="text" inputmode="decimal" value="" placeholder="0" autocomplete="off">
@@ -250,6 +251,7 @@
     <div class="chart-popout" id="chart-popout-panel" hidden>
       <div class="modal-scrim" id="chart-popout-scrim"></div>
       <section class="chart-popout-sheet" role="dialog" aria-modal="true" aria-labelledby="chart-popout-title">
+        <span class="sheet-handle" aria-hidden="true"></span>
         <div class="section-heading">
           <div>
             <p class="panel-kicker">expanded signal</p>

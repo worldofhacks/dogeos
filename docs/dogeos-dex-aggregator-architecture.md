@@ -53,14 +53,13 @@ build transaction
 
 ### Stage 2: One-Hop Routing
 
-Add one-hop routes through WDOGE when direct liquidity is weak. The code path exists behind an explicit `oneHopEnabled` flag; current routing returns one-hop as read-only priced previews only. Execution remains direct-only until a dedicated multi-leg calldata builder, approval plan, simulation path, and wallet flow exist.
+Add one-hop routes through WDOGE when direct liquidity is weak. The live API enables these priced previews by default through `oneHopEnabled`; current routing returns one-hop as read-only previews only. Execution remains direct-only until a dedicated multi-leg calldata builder, approval plan, simulation path, and wallet flow exist.
 
 Examples:
 
 ```text
 USDC -> WDOGE -> USDT
-WETH -> WDOGE -> USDC
-LBTC -> WDOGE -> USDC
+USDT -> WDOGE -> USDC
 ```
 
 The optimizer still chooses one route, not split execution. One-hop candidates reuse the same direct quote provider interface, which keeps the later split-routing model modular without changing venue adapters.
@@ -345,7 +344,7 @@ Runtime rules:
 11. Concentrated-liquidity providers do not synthesize exact-input quotes from partial pool state or unknown quoter selectors.
 12. Default live quote reads cover MuchFi V3 QuoterV2-style output and Barkswap Algebra QuoterV2-style output.
 13. Composite and protocol-family quote providers fail open: a rejected or timed-out source cannot block healthy venue candidates.
-14. One-hop WDOGE routing is controlled with `oneHopEnabled`; disabled default responses stay direct-only, and enabled one-hop responses remain read-only previews until multi-leg execution support exists.
+14. One-hop WDOGE routing is controlled with `oneHopEnabled`; the live API default enables read-only previews, and explicit disabled responses stay direct-only until multi-leg execution support exists.
 15. Output-fee conversion and calldata builders remain injected so live reads can expand without coupling HTTP parsing to adapter logic.
 16. The default local server returns active `ok` quote responses for MuchFi V2, MuchFi V3, and Barkswap Algebra when live liquidity exists.
 17. `/swap` runs through the swap builder and refuses inactive, stale, wrong-chain, or malformed quotes before calldata can be returned.

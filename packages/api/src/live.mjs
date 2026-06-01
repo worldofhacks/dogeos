@@ -90,7 +90,7 @@ export function createLiveAggregatorApiHandler({
   nowMs,
   quoteCandidateProvider,
   quoteProviderTimeoutMs,
-  oneHopEnabled = false,
+  oneHopEnabled = true,
   oneHopViaTokens = defaultOneHopViaTokens(),
   concentratedLiquidityQuoterProvider,
   outputWeiPerFeeWei = 1n,
