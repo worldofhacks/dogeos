@@ -1,4 +1,8 @@
-import { isUnknownChainError, switchInjectedProviderToDogeOS } from "./injected-wallet.js";
+import {
+  connectInjectedProviderToDogeOS,
+  isUnknownChainError,
+  switchInjectedProviderToDogeOS,
+} from "./injected-wallet.js";
 
 function chainLabel(chainInfo) {
   const name = chainInfo?.name || "DogeOS Chikyu Testnet";
@@ -37,4 +41,30 @@ export async function switchDogeosSdkAccountToChain(account, chainInfo, { global
   if (await tryInjectedDogeosSwitch(globalObject)) return true;
 
   throw new Error(dogeosSdkSwitchFailureMessage(chainInfo));
+}
+
+export async function openDogeosSdkWalletModal({ openModal, chainInfo, globalObject } = {}) {
+  if (typeof openModal !== "function") {
+    throw new Error("DogeOS SDK wallet modal is unavailable.");
+  }
+
+  try {
+    await switchInjectedProviderToDogeOS(globalObject);
+  } catch (error) {
+    if (!isUnknownChainError(error)) throw error;
+  }
+
+  try {
+    return await openModal();
+  } catch (error) {
+    if (!isUnknownChainError(error)) throw error;
+
+    const injectedConnection = await connectInjectedProviderToDogeOS(globalObject).catch((connectError) => {
+      if (isUnknownChainError(connectError)) return null;
+      throw connectError;
+    });
+    if (injectedConnection) return injectedConnection;
+
+    throw new Error(dogeosSdkSwitchFailureMessage(chainInfo));
+  }
 }

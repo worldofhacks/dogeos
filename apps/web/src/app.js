@@ -238,6 +238,27 @@ function chainIdMatchesDogeos(value) {
   return parseChainId(value) === BigInt(DOGEOS_CHAIN_ID);
 }
 
+function errorMessage(error, fallback = "Request failed.") {
+  if (typeof error === "string") return error;
+  return error?.shortMessage ?? error?.message ?? fallback;
+}
+
+function isUnsupportedChainMessage(message) {
+  return (
+    /chain id not supported/i.test(message) ||
+    /chain not (configured|supported|added)/i.test(message) ||
+    /unsupported chain/i.test(message) ||
+    /unrecognized chain/i.test(message) ||
+    /unknown chain/i.test(message)
+  );
+}
+
+function walletConnectErrorMessage(error) {
+  const message = errorMessage(error, "Wallet connection failed.");
+  if (!isUnsupportedChainMessage(message)) return message;
+  return "Add DogeOS Chikyu Testnet with RPC https://rpc.testnet.dogeos.com and chain ID 6281971, then connect again.";
+}
+
 function decimalToUnits(value, decimals) {
   const raw = String(value ?? "").trim();
   if (!/^\d+(\.\d*)?$/.test(raw)) {
@@ -1278,7 +1299,7 @@ async function connectWallet() {
     setStatus("Opening wallet");
     await wallet.openModal();
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(walletConnectErrorMessage(error), true);
   }
 }
 

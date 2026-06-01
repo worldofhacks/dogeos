@@ -260,3 +260,29 @@ export async function switchInjectedProviderToDogeOS(globalObject = defaultWindo
   const finalChainId = await readChainId(activeProvider).catch(() => "");
   return chainIdMatchesDogeOS(finalChainId);
 }
+
+export async function connectInjectedProviderToDogeOS(globalObject = defaultWindow()) {
+  const activeProvider = injectedProvider(globalObject);
+  if (!activeProvider?.request) return null;
+
+  const accounts = await activeProvider.request({ method: "eth_requestAccounts" });
+  let chainId = await readChainId(activeProvider);
+
+  if (!chainIdMatchesDogeOS(chainId)) {
+    const switched = await switchInjectedProviderToDogeOS(globalObject, { currentChainId: chainId });
+    if (!switched) return null;
+    chainId = await readChainId(activeProvider).catch(() => DOGEOS_CHAIN_ID_HEX);
+  }
+
+  if (!chainIdMatchesDogeOS(chainId)) return null;
+
+  const address = firstAccount(accounts);
+  if (!address) return null;
+
+  return {
+    address,
+    chainId,
+    chainType: "evm",
+    provider: activeProvider,
+  };
+}

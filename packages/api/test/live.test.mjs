@@ -263,7 +263,7 @@ test("createLiveAggregatorApiHandler uses default V2 pool discovery as executabl
     ),
     false,
   );
-  assert.equal(rpc.calls.at(-1).method, "eth_gasPrice");
+  assert.equal(rpc.calls.some((call) => call.method === "eth_gasPrice"), true);
 });
 
 test("createLiveAggregatorApiHandler uses default V2 exact-output discovery", async () => {
@@ -293,7 +293,8 @@ test("createLiveAggregatorApiHandler uses default V2 exact-output discovery", as
   assert.equal(body.best.amountOut, "1992013");
   assert.equal(body.best.maxAmountIn, "1005000");
   assert.equal(body.best.score.totalInput, "1280000");
-  assert.equal(rpc.calls.at(-1).method, "eth_gasPrice");
+  assert.equal(rpc.calls[0].method, "eth_chainId");
+  assert.equal(rpc.calls.some((call) => call.method === "eth_gasPrice"), true);
 });
 
 test("createLiveAggregatorApiHandler composes verified concentrated-liquidity quotes with live providers", async () => {

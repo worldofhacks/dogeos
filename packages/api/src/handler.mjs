@@ -282,16 +282,26 @@ export function createAggregatorApiHandler({
 
         await preQuoteVerifier(parsed.input);
         const afterPreQuoteVerificationMs = timingNowMs();
-        const candidates = await quoteCandidateProvider(parsed.input);
+        const candidateProviderPromise = quoteCandidateProvider(parsed.input);
+        const outputWeiPerFeeWeiPromise = resolveProvider(outputWeiPerFeeWei, 0n, parsed.input);
+        const scoringProvidersPromise = Promise.all([
+          resolveProvider(nowMs, Date.now(), parsed.input),
+          resolveProvider(gasPriceWei, 0n, parsed.input),
+          outputWeiPerFeeWeiPromise,
+          inputWeiPerFeeWei === undefined
+            ? outputWeiPerFeeWeiPromise
+            : resolveProvider(inputWeiPerFeeWei, undefined, parsed.input),
+        ]);
+        scoringProvidersPromise.catch(() => {});
+
+        const candidates = await candidateProviderPromise;
         const afterCandidateProviderMs = timingNowMs();
-        const now = await resolveProvider(nowMs, Date.now(), parsed.input);
-        const resolvedGasPriceWei = await resolveProvider(gasPriceWei, 0n, parsed.input);
-        const resolvedOutputWeiPerFeeWei = await resolveProvider(outputWeiPerFeeWei, 0n, parsed.input);
-        const resolvedInputWeiPerFeeWei = await resolveProvider(
-          inputWeiPerFeeWei,
+        const [
+          now,
+          resolvedGasPriceWei,
           resolvedOutputWeiPerFeeWei,
-          parsed.input,
-        );
+          resolvedInputWeiPerFeeWei,
+        ] = await scoringProvidersPromise;
         const afterFeeResolutionMs = timingNowMs();
         const response = buildQuoteResponse({
           candidates,

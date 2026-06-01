@@ -313,6 +313,68 @@ test("POST /quote returns timing telemetry for speed monitoring", async () => {
   });
 });
 
+test("POST /quote resolves independent scoring providers while quote candidates are in flight", async () => {
+  let releaseCandidates;
+  let candidateProviderStarted;
+  const candidateProviderStartedPromise = new Promise((resolve) => {
+    candidateProviderStarted = resolve;
+  });
+  let gasPriceStarted = false;
+  let outputFeeStarted = false;
+  let inputFeeStarted = false;
+  let nowStarted = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: async () => {
+      nowStarted = true;
+      return now;
+    },
+    gasPriceWei: async () => {
+      gasPriceStarted = true;
+      return 1n;
+    },
+    outputWeiPerFeeWei: async () => {
+      outputFeeStarted = true;
+      return 1n;
+    },
+    inputWeiPerFeeWei: async () => {
+      inputFeeStarted = true;
+      return 1n;
+    },
+    quoteCandidateProvider: async () => {
+      candidateProviderStarted();
+      await new Promise((resolve) => {
+        releaseCandidates = resolve;
+      });
+      return [candidate()];
+    },
+  });
+
+  const responsePromise = handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+
+  await candidateProviderStartedPromise;
+  await Promise.resolve();
+
+  assert.equal(nowStarted, true);
+  assert.equal(gasPriceStarted, true);
+  assert.equal(outputFeeStarted, true);
+  assert.equal(inputFeeStarted, true);
+
+  releaseCandidates();
+  const response = await responsePromise;
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "ok");
+});
+
 test("POST /quote exposes per-request source diagnostics from live providers", async () => {
   let providerInput;
   const handle = createAggregatorApiHandler({

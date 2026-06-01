@@ -886,6 +886,28 @@ test("static web app treats eip155 DogeOS chain ids as already switched", async 
   );
 });
 
+test("static web app maps unsupported-chain wallet connect errors to DogeOS network guidance", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  harness.context.window.dogeosAggregatorWallet = {
+    openModal: async () => {
+      throw new Error("Chain Id not supported");
+    },
+    isConnected: () => false,
+  };
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(64);
+
+  harness.element("connect-wallet").dispatchEvent({ type: "click" });
+  await drainMicrotasks(16);
+
+  assert.doesNotMatch(harness.element("quote-status").textContent, /Chain Id not supported/);
+  assert.match(harness.element("quote-status").textContent, /Add DogeOS Chikyu Testnet/);
+  assert.match(harness.element("quote-status").textContent, /chain ID 6281971/);
+});
+
 test("static web app loads the DogeOS wallet chunk only on connect intent", async () => {
   const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
   const harness = createStaticAppHarness();

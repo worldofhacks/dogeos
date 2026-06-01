@@ -7,8 +7,16 @@ import {
 } from "@dogeos/dogeos-sdk";
 import "@dogeos/dogeos-sdk/style.css";
 
-import { dogeosSdkSwitchFailureMessage, switchDogeosSdkAccountToChain } from "./sdk-chain-switch.js";
-import { isUnknownChainError, switchInjectedProviderToDogeOS } from "./injected-wallet.js";
+import {
+  dogeosSdkSwitchFailureMessage,
+  openDogeosSdkWalletModal,
+  switchDogeosSdkAccountToChain,
+} from "./sdk-chain-switch.js";
+import {
+  connectInjectedProviderToDogeOS,
+  isUnknownChainError,
+  switchInjectedProviderToDogeOS,
+} from "./injected-wallet.js";
 import { DOGEOS_CHIKYU_TESTNET, dogeConfig, mergeDogeosChains } from "./sdkConfig.js";
 
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
@@ -46,38 +54,67 @@ function walletErrorMessage(error) {
 function DogeOSSdkWalletBridge() {
   const wallet = useWalletConnect();
   const account = useAccount();
-  const switchToDogeOS = useCallback(
-    () => switchDogeosSdkAccountToChain({ switchChain: account.switchChain }, DOGEOS_CHIKYU_TESTNET),
-    [account.switchChain],
-  );
+  const [injectedFallback, setInjectedFallback] = useState(null);
+  const activeAddress = injectedFallback?.address ?? account.address ?? "";
+  const activeChainId = injectedFallback?.chainId ?? account.chainId ?? "";
+  const activeChainType = injectedFallback?.chainType ?? account.chainType ?? "";
+  const activeProvider = injectedFallback?.provider ?? account.currentProvider ?? null;
+  const walletSource = injectedFallback ? "injected" : "dogeos-sdk";
+  const isConnected = Boolean(injectedFallback?.address) || wallet.isConnected;
+  const isConnecting = injectedFallback ? false : wallet.isConnecting;
+  const walletError = injectedFallback ? "" : wallet.error ? walletErrorMessage(wallet.error) : "";
+  const switchToDogeOS = useCallback(async () => {
+    if (injectedFallback?.provider) {
+      const switched = await switchInjectedProviderToDogeOS();
+      if (!switched) return false;
+      const refreshed = await connectInjectedProviderToDogeOS().catch(() => null);
+      if (refreshed) setInjectedFallback(refreshed);
+      return true;
+    }
+
+    return switchDogeosSdkAccountToChain({ switchChain: account.switchChain }, DOGEOS_CHIKYU_TESTNET);
+  }, [account.switchChain, injectedFallback]);
   const openDogeosWalletModal = useCallback(async () => {
-    await switchInjectedProviderToDogeOS();
-    return wallet.openModal();
+    const result = await openDogeosSdkWalletModal({
+      chainInfo: DOGEOS_CHIKYU_TESTNET,
+      openModal: wallet.openModal,
+    });
+
+    if (result?.provider) {
+      setInjectedFallback(result);
+      return result.address;
+    }
+
+    setInjectedFallback(null);
+    return result;
   }, [wallet.openModal]);
 
   useEffect(() => {
     const bridge = {
       openModal: openDogeosWalletModal,
-      disconnect: () => wallet.disconnect(),
+      disconnect: async () => {
+        setInjectedFallback(null);
+        return wallet.disconnect();
+      },
       switchToDogeOS,
-      getAddress: () => account.address ?? "",
-      getChainId: () => account.chainId ?? "",
-      getChainType: () => account.chainType ?? "",
-      getProvider: () => account.currentProvider ?? null,
-      isConnected: () => wallet.isConnected,
+      getAddress: () => activeAddress,
+      getChainId: () => activeChainId,
+      getChainType: () => activeChainType,
+      getProvider: () => activeProvider,
+      isConnected: () => isConnected,
     };
 
     window.dogeosAggregatorWallet = bridge;
     publishWalletReady();
     publishWalletState({
-      address: account.address ?? "",
-      chainId: account.chainId ?? "",
-      chainType: account.chainType ?? "",
-      error: wallet.error ? walletErrorMessage(wallet.error) : "",
-      hasProvider: Boolean(account.currentProvider),
-      isConnected: wallet.isConnected,
-      isConnecting: wallet.isConnecting,
-      walletSource: "dogeos-sdk",
+      address: activeAddress,
+      chainId: activeChainId,
+      chainType: activeChainType,
+      error: walletError,
+      hasProvider: Boolean(activeProvider),
+      isConnected,
+      isConnecting,
+      walletSource,
     });
 
     return () => {
@@ -86,19 +123,21 @@ function DogeOSSdkWalletBridge() {
       }
     };
   }, [
-    account.address,
-    account.chainId,
-    account.chainType,
-    account.currentProvider,
+    activeAddress,
+    activeChainId,
+    activeChainType,
+    activeProvider,
+    isConnected,
+    isConnecting,
     openDogeosWalletModal,
     switchToDogeOS,
     wallet.disconnect,
-    wallet.error,
-    wallet.isConnected,
-    wallet.isConnecting,
+    walletError,
+    walletSource,
   ]);
 
   useEffect(() => {
+    if (injectedFallback) return undefined;
     if (!wallet.isConnected || !account.address) return undefined;
     if (account.chainType && account.chainType !== "evm") return undefined;
     if (chainIdMatchesDogeos(account.chainId)) return undefined;
@@ -151,9 +190,38 @@ function DogeOSSdkWalletBridge() {
     account.chainId,
     account.chainType,
     account.currentProvider,
+    injectedFallback,
     switchToDogeOS,
     wallet.isConnected,
   ]);
+
+  useEffect(() => {
+    const provider = injectedFallback?.provider;
+    if (!provider || typeof provider.on !== "function") return undefined;
+
+    function handleAccountsChanged(accounts) {
+      setInjectedFallback((current) => {
+        if (current?.provider !== provider) return current;
+        const address = Array.isArray(accounts) && accounts[0] ? String(accounts[0]) : "";
+        return { ...current, address };
+      });
+    }
+
+    function handleChainChanged(chainId) {
+      setInjectedFallback((current) => {
+        if (current?.provider !== provider) return current;
+        return { ...current, chainId: String(chainId ?? "") };
+      });
+    }
+
+    provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
+
+    return () => {
+      provider.removeListener?.("accountsChanged", handleAccountsChanged);
+      provider.removeListener?.("chainChanged", handleChainChanged);
+    };
+  }, [injectedFallback?.provider]);
 
   return null;
 }
