@@ -20,6 +20,12 @@ const token = {
   address: "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925",
   decimals: 18,
 };
+const usdtToken = {
+  symbol: "USDT",
+  name: "Tether USD",
+  address: "0xC81800b77D91391Ef03d7868cB81204E753093a9",
+  decimals: 18,
+};
 const wdoge = "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE";
 
 function word(value) {
@@ -74,29 +80,49 @@ function verificationFetch({
 
       if (init.body) {
         const body = JSON.parse(init.body);
-        let result;
-        if (body.method === "eth_chainId") result = "0x5fdaf3";
-        if (body.method === "eth_getCode") {
-          if (body.params[0].toLowerCase() === router.toLowerCase()) result = routerBytecode;
-          else if (body.params[0].toLowerCase() === pool.toLowerCase()) result = poolBytecode;
-          else result = "0x6000";
-        }
-        if (body.method === "eth_call") {
-          const selector = body.params[0].data.slice(0, 10);
-          if (selector === "0xc45a0155") result = addressResult(factory);
-          if (selector === TOKEN_DECIMALS_SELECTOR) result = `0x${word(18n)}`;
-          if (selector === "0x0dfe1681") result = addressResult(poolToken0);
-          if (selector === "0xd21220a7") result = addressResult(poolToken1);
-          if (selector === "0x0902f1ac") result = words(1_000_000n, 2_000_000n, 123n);
-          if (selector === "0x3850c7bd") result = words(79_228_162_514_264_337_593_543_950_336n, 0n);
-          if (selector === "0xe76c01e4") {
-            result = words(79_228_162_514_264_337_593_543_950_336n, 0n, 300n);
+        const rpcResult = (request) => {
+          let result;
+          if (request.method === "eth_chainId") result = "0x5fdaf3";
+          if (request.method === "eth_getCode") {
+            if (request.params[0].toLowerCase() === router.toLowerCase()) result = routerBytecode;
+            else if (request.params[0].toLowerCase() === pool.toLowerCase()) result = poolBytecode;
+            else result = "0x6000";
           }
-          if (selector === "0x1a686502") result = words(5_000_000n);
-        }
-        if (!result) throw new Error(`unexpected RPC call ${body.method}`);
+          if (request.method === "eth_call") {
+            const selector = request.params[0].data.slice(0, 10);
+            if (selector === "0xc45a0155") result = addressResult(factory);
+            if (selector === "0xad5c4648") result = addressResult(wdoge);
+            if (selector === TOKEN_DECIMALS_SELECTOR) result = `0x${word(18n)}`;
+            if (selector === "0x0dfe1681") result = addressResult(poolToken0);
+            if (selector === "0xd21220a7") result = addressResult(poolToken1);
+            if (selector === "0x0902f1ac") result = words(1_000_000n, 2_000_000n, 123n);
+            if (selector === "0x3850c7bd") result = words(79_228_162_514_264_337_593_543_950_336n, 0n);
+            if (selector === "0xe76c01e4") {
+              result = words(79_228_162_514_264_337_593_543_950_336n, 0n, 300n);
+            }
+            if (selector === "0x1a686502") result = words(5_000_000n);
+          }
+          if (!result) throw new Error(`unexpected RPC call ${request.method}`);
+          return result;
+        };
 
-        return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }), {
+        if (Array.isArray(body)) {
+          return new Response(
+            JSON.stringify(
+              body.map((request) => ({
+                jsonrpc: "2.0",
+                id: request.id,
+                result: rpcResult(request),
+              })),
+            ),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: rpcResult(body) }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -181,6 +207,114 @@ test("createVerificationSnapshotProvider verifies sources, token decimals, and c
     poolMismatches: [],
     hasBlockingMismatch: false,
   });
+});
+
+test("createVerificationSnapshotProvider batches source and token on-chain verification reads", async () => {
+  const fetcher = verificationFetch();
+  const provider = createVerificationSnapshotProvider({
+    fetchFn: fetcher.fetchFn,
+    verificationTargets: [
+      {
+        sourceId: "muchfi-v2",
+        protocolType: "v2",
+        displayName: "MuchFi V2",
+        role: "router",
+        address: router,
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x38ed1739"],
+        expectedReadChecks: [
+          {
+            label: "factory()",
+            selector: "0xc45a0155",
+            expectedAddress: factory,
+          },
+          {
+            label: "WETH()",
+            selector: "0xad5c4648",
+            expectedAddress: wdoge,
+          },
+        ],
+      },
+      {
+        sourceId: "muchfi-v2",
+        protocolType: "v2",
+        displayName: "MuchFi V2",
+        role: "pool",
+        address: pool,
+        abiProvenance: "onchain-bytecode",
+        expectedSelectors: ["0x0902f1ac"],
+        expectedPool: {
+          pair: "WDOGE/USDC",
+          token0: token.address,
+          token1: wdoge,
+        },
+      },
+    ],
+    tokens: [token, usdtToken],
+  });
+
+  const report = await provider();
+  const rpcBodies = fetcher.calls.filter((call) => call.body).map((call) => call.body);
+  const batches = rpcBodies.filter(Array.isArray);
+  const hasBatch = (matcher) => batches.some(matcher);
+  const selectors = (batch) => batch.map((request) => request.params?.[0]?.data?.slice(0, 10));
+
+  assert.equal(report.summary.hasBlockingMismatch, false);
+  assert.equal(
+    hasBatch(
+      (batch) =>
+        batch.length === 2 &&
+        batch.every((request) => request.method === "eth_getCode") &&
+        batch.some((request) => request.params[0].toLowerCase() === router.toLowerCase()) &&
+        batch.some((request) => request.params[0].toLowerCase() === pool.toLowerCase()),
+    ),
+    true,
+    "source bytecode reads should be batched",
+  );
+  assert.equal(
+    hasBatch(
+      (batch) =>
+        batch.length === 2 &&
+        batch.every((request) => request.method === "eth_getCode") &&
+        batch.some((request) => request.params[0].toLowerCase() === token.address.toLowerCase()) &&
+        batch.some((request) => request.params[0].toLowerCase() === usdtToken.address.toLowerCase()),
+    ),
+    true,
+    "token bytecode reads should be batched",
+  );
+  assert.equal(
+    hasBatch(
+      (batch) =>
+        batch.length === 2 &&
+        batch.every((request) => request.method === "eth_call") &&
+        selectors(batch).every((selector) => selector === TOKEN_DECIMALS_SELECTOR),
+    ),
+    true,
+    "token decimal reads should be batched",
+  );
+  assert.equal(
+    hasBatch(
+      (batch) =>
+        batch.length === 2 &&
+        batch.every((request) => request.method === "eth_call") &&
+        selectors(batch).includes("0xc45a0155") &&
+        selectors(batch).includes("0xad5c4648"),
+    ),
+    true,
+    "relationship reads should be batched",
+  );
+  assert.equal(
+    hasBatch(
+      (batch) =>
+        batch.length === 3 &&
+        batch.every((request) => request.method === "eth_call") &&
+        selectors(batch).includes("0x0dfe1681") &&
+        selectors(batch).includes("0xd21220a7") &&
+        selectors(batch).includes("0x0902f1ac"),
+    ),
+    true,
+    "pool state reads should be batched",
+  );
 });
 
 test("createVerificationSnapshotProvider verifies pinned V2 pool token sides and live state", async () => {

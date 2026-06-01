@@ -153,6 +153,21 @@ export function createJsonRpcClient({ rpcUrl, fetchFn = fetch } = {}) {
       assertHexData(bytecode, "eth_getCode result");
       return bytecode;
     },
+    async batchGetCode(addresses = [], blockTag = "latest") {
+      const results = await requestBatch(
+        addresses.map((address) => {
+          assertHexAddress(address, "address");
+          return {
+            method: "eth_getCode",
+            params: [address, blockTag],
+          };
+        }),
+      );
+      for (const result of results) {
+        assertHexData(result, "eth_getCode result");
+      }
+      return results;
+    },
     async getBalance(address, blockTag = "latest") {
       assertHexAddress(address, "address");
       return hexQuantityToBigInt(

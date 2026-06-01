@@ -151,6 +151,47 @@ test("createJsonRpcClient batches eth_call requests and preserves request order"
   );
 });
 
+test("createJsonRpcClient batches eth_getCode requests and preserves request order", async () => {
+  const calls = [];
+  const fetchFn = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, body });
+
+    return new Response(
+      JSON.stringify([
+        { jsonrpc: "2.0", id: body[1].id, result: "0x2222" },
+        { jsonrpc: "2.0", id: body[0].id, result: "0x1111" },
+      ]),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  };
+  const client = createJsonRpcClient({
+    rpcUrl: "https://rpc.testnet.dogeos.com",
+    fetchFn,
+  });
+
+  const results = await client.batchGetCode(
+    [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222",
+    ],
+    "0x4f5880",
+  );
+
+  assert.deepEqual(results, ["0x1111", "0x2222"]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    calls[0].body.map((request) => [request.method, request.params]),
+    [
+      ["eth_getCode", ["0x1111111111111111111111111111111111111111", "0x4f5880"]],
+      ["eth_getCode", ["0x2222222222222222222222222222222222222222", "0x4f5880"]],
+    ],
+  );
+});
+
 test("createJsonRpcClient surfaces RPC errors with method context", async () => {
   const rpc = responseQueue([
     {

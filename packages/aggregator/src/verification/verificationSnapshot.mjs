@@ -4,6 +4,7 @@ import {
   abiArtifactPayloadFromArtifact,
   hashAbiArtifactPayload,
 } from "../abi/artifactHash.mjs";
+import { createJsonRpcClient } from "../../../dogeos-rpc/src/index.mjs";
 import { listVerificationTargets } from "../sources/registry.mjs";
 import { deriveExecutableStatus, hasSelector } from "./verifySource.mjs";
 
@@ -209,7 +210,7 @@ function summarizePoolStateError(source, error) {
     stateKind: stateShape.kind,
     hasLiveLiquidity: false,
     matches: false,
-    error: error.message,
+    error: errorMessage(error),
   };
 }
 
@@ -492,94 +493,109 @@ async function fetchOptionalJson(fetchFn, url, options) {
   return response.json();
 }
 
-async function rpc({ method, params, rpcUrl, fetchFn }) {
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: 1,
-    method,
-    params,
-  });
-
-  const response = await fetchJson(fetchFn, rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body,
-  });
-
-  if (response.error) {
-    throw new Error(`${method} failed: ${response.error.message ?? JSON.stringify(response.error)}`);
-  }
-
-  return response.result;
+function rpcClientFor({ rpcClient, rpcUrl, fetchFn }) {
+  return rpcClient ?? createJsonRpcClient({ rpcUrl, fetchFn });
 }
 
-async function verifyReadCheck({ source, check, rpcUrl, fetchFn }) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function getCodeMany({ rpcClient, addresses, blockTag = "latest" }) {
+  if (addresses.length === 0) return [];
+
+  if (addresses.length > 1 && typeof rpcClient.batchGetCode === "function") {
+    try {
+      return await rpcClient.batchGetCode(addresses, blockTag);
+    } catch {
+      // Some RPC frontends reject JSON-RPC batches. Fall back to individual reads.
+    }
+  }
+
+  return Promise.all(addresses.map((address) => rpcClient.getCode(address, blockTag)));
+}
+
+async function getCodeManySettled({ rpcClient, addresses, blockTag = "latest" }) {
   try {
-    const rawResult = await rpc({
-      method: "eth_call",
-      params: [
-        {
-          to: source.address,
-          data: check.selector,
-        },
-        "latest",
-      ],
-      rpcUrl,
-      fetchFn,
-    });
-    return summarizeReadCheck(check, rawResult);
-  } catch (error) {
-    return {
-      label: check.label,
-      selector: check.selector,
-      expectedAddress: normalizeAddress(check.expectedAddress, `${check.label} expectedAddress`),
-      actualAddress: null,
-      rawResult: null,
-      matches: false,
-      error: error.message,
-    };
+    const bytecodes = await getCodeMany({ rpcClient, addresses, blockTag });
+    return bytecodes.map((value) => ({ status: "fulfilled", value }));
+  } catch {
+    return Promise.allSettled(addresses.map((address) => rpcClient.getCode(address, blockTag)));
   }
 }
 
-async function verifyPoolStateCheck({ source, rpcUrl, fetchFn }) {
+async function callMany({ rpcClient, transactions, blockTag = "latest" }) {
+  if (transactions.length === 0) return [];
+
+  if (transactions.length > 1 && typeof rpcClient.batchCall === "function") {
+    try {
+      return await rpcClient.batchCall(transactions, blockTag);
+    } catch {
+      // Some RPC frontends reject JSON-RPC batches. Fall back to individual reads.
+    }
+  }
+
+  return Promise.all(transactions.map((transaction) => rpcClient.call(transaction, blockTag)));
+}
+
+async function callManySettled({ rpcClient, transactions, blockTag = "latest" }) {
+  try {
+    const results = await callMany({ rpcClient, transactions, blockTag });
+    return results.map((value) => ({ status: "fulfilled", value }));
+  } catch {
+    return Promise.allSettled(transactions.map((transaction) => rpcClient.call(transaction, blockTag)));
+  }
+}
+
+async function verifyReadChecks({ source, rpcClient }) {
+  const checks = source.expectedReadChecks ?? [];
+  const results = await callManySettled({
+    rpcClient,
+    transactions: checks.map((check) => ({
+      to: source.address,
+      data: check.selector,
+    })),
+  });
+
+  return checks.map((check, index) => {
+    const result = results[index];
+    try {
+      if (result.status === "rejected") throw result.reason;
+      return summarizeReadCheck(check, result.value);
+    } catch (error) {
+      return {
+        label: check.label,
+        selector: check.selector,
+        expectedAddress: normalizeAddress(check.expectedAddress, `${check.label} expectedAddress`),
+        actualAddress: null,
+        rawResult: null,
+        matches: false,
+        error: errorMessage(error),
+      };
+    }
+  });
+}
+
+async function verifyPoolStateCheck({ source, rpcClient }) {
   if (source.role !== "pool" || !source.expectedPool) return null;
 
   const stateShape = poolStateShape(source.protocolType);
 
   try {
-    const calls = [
-      rpc({
-        method: "eth_call",
-        params: [{ to: source.address, data: POOL_SELECTORS.token0 }, "latest"],
-        rpcUrl,
-        fetchFn,
-      }),
-      rpc({
-        method: "eth_call",
-        params: [{ to: source.address, data: POOL_SELECTORS.token1 }, "latest"],
-        rpcUrl,
-        fetchFn,
-      }),
-      rpc({
-        method: "eth_call",
-        params: [{ to: source.address, data: stateShape.selector }, "latest"],
-        rpcUrl,
-        fetchFn,
-      }),
+    const transactions = [
+      { to: source.address, data: POOL_SELECTORS.token0 },
+      { to: source.address, data: POOL_SELECTORS.token1 },
+      { to: source.address, data: stateShape.selector },
     ];
 
     if (stateShape.needsLiquidityRead) {
-      calls.push(
-        rpc({
-          method: "eth_call",
-          params: [{ to: source.address, data: POOL_SELECTORS.liquidity }, "latest"],
-          rpcUrl,
-          fetchFn,
-        }),
-      );
+      transactions.push({ to: source.address, data: POOL_SELECTORS.liquidity });
     }
 
-    const [rawToken0, rawToken1, rawState, rawLiquidity] = await Promise.all(calls);
+    const [rawToken0, rawToken1, rawState, rawLiquidity] = await callMany({
+      rpcClient,
+      transactions,
+    });
 
     return summarizePoolState({
       source,
@@ -593,19 +609,35 @@ async function verifyPoolStateCheck({ source, rpcUrl, fetchFn }) {
   }
 }
 
-async function verifyTokenDecimal({ token, rpcUrl, fetchFn }) {
-  let hasBytecode = false;
+async function verifyOfficialTokens({ tokens, rpcClient }) {
+  const bytecodeResults = await getCodeManySettled({
+    rpcClient,
+    addresses: tokens.map((token) => token.address),
+  });
+  const tokenChecks = new Array(tokens.length);
+  const decimalJobs = [];
 
-  try {
-    const bytecode = await rpc({
-      method: "eth_getCode",
-      params: [token.address, "latest"],
-      rpcUrl,
-      fetchFn,
-    });
-    hasBytecode = /^0x[0-9a-fA-F]+$/.test(bytecode ?? "") && bytecode !== "0x";
+  tokens.forEach((token, index) => {
+    const bytecodeResult = bytecodeResults[index];
+    if (bytecodeResult.status === "rejected") {
+      tokenChecks[index] = {
+        symbol: token.symbol,
+        address: token.address,
+        selector: TOKEN_DECIMALS_SELECTOR,
+        expectedDecimals: token.decimals,
+        actualDecimals: null,
+        rawResult: null,
+        hasBytecode: false,
+        matches: false,
+        error: errorMessage(bytecodeResult.reason),
+      };
+      return;
+    }
+
+    const bytecode = bytecodeResult.value;
+    const hasBytecode = /^0x[0-9a-fA-F]+$/.test(bytecode ?? "") && bytecode !== "0x";
     if (!hasBytecode) {
-      return {
+      tokenChecks[index] = {
         symbol: token.symbol,
         address: token.address,
         selector: TOKEN_DECIMALS_SELECTOR,
@@ -616,66 +648,67 @@ async function verifyTokenDecimal({ token, rpcUrl, fetchFn }) {
         matches: false,
         error: "No bytecode found at token address.",
       };
+      return;
     }
 
-    const rawResult = await rpc({
-      method: "eth_call",
-      params: [
-        {
-          to: token.address,
-          data: TOKEN_DECIMALS_SELECTOR,
-        },
-        "latest",
-      ],
-      rpcUrl,
-      fetchFn,
+    decimalJobs.push({
+      index,
+      token,
+      transaction: {
+        to: token.address,
+        data: TOKEN_DECIMALS_SELECTOR,
+      },
     });
-    return summarizeTokenDecimalCheck(token, rawResult, { hasBytecode });
-  } catch (error) {
-    return {
-      symbol: token.symbol,
-      address: token.address,
-      selector: TOKEN_DECIMALS_SELECTOR,
-      expectedDecimals: token.decimals,
-      actualDecimals: null,
-      rawResult: null,
-      hasBytecode,
-      matches: false,
-      error: error.message,
-    };
-  }
-}
+  });
 
-async function verifyOfficialTokens({ tokens, rpcUrl, fetchFn }) {
-  return Promise.all(tokens.map((token) => verifyTokenDecimal({ token, rpcUrl, fetchFn })));
+  const decimalResults = await callManySettled({
+    rpcClient,
+    transactions: decimalJobs.map((job) => job.transaction),
+  });
+
+  decimalJobs.forEach((job, resultIndex) => {
+    const result = decimalResults[resultIndex];
+    try {
+      if (result.status === "rejected") throw result.reason;
+      tokenChecks[job.index] = summarizeTokenDecimalCheck(job.token, result.value, {
+        hasBytecode: true,
+      });
+    } catch (error) {
+      tokenChecks[job.index] = {
+        symbol: job.token.symbol,
+        address: job.token.address,
+        selector: TOKEN_DECIMALS_SELECTOR,
+        expectedDecimals: job.token.decimals,
+        actualDecimals: null,
+        rawResult: null,
+        hasBytecode: true,
+        matches: false,
+        error: errorMessage(error),
+      };
+    }
+  });
+
+  return tokenChecks;
 }
 
 export async function verifySource(source, options = {}) {
   const rpcUrl = options.rpcUrl ?? DOGEOS_RPC_URL;
   const fetchFn = options.fetchFn ?? fetch;
+  const rpcClient = rpcClientFor({ rpcClient: options.rpcClient, rpcUrl, fetchFn });
   const blockscoutBaseUrl = options.blockscoutBaseUrl ?? BLOCKSCOUT_BASE_URL;
   const blockscoutUrl = buildBlockscoutAddressUrl(source.address, blockscoutBaseUrl);
   const blockscoutSmartContractUrl = buildBlockscoutSmartContractUrl(source.address, blockscoutBaseUrl);
   const blockscoutAbiEndpointUrl = buildBlockscoutAbiUrl(source.address, blockscoutBaseUrl);
 
   const [bytecode, blockscout, blockscoutContractBody, blockscoutAbiBody] = await Promise.all([
-    rpc({
-      method: "eth_getCode",
-      params: [source.address, "latest"],
-      rpcUrl,
-      fetchFn,
-    }),
+    options.bytecode !== undefined ? options.bytecode : rpcClient.getCode(source.address),
     fetchJson(fetchFn, blockscoutUrl),
     fetchOptionalJson(fetchFn, blockscoutSmartContractUrl),
     fetchOptionalJson(fetchFn, blockscoutAbiEndpointUrl),
   ]);
   const [readChecks, poolStateCheck] = await Promise.all([
-    Promise.all(
-      (source.expectedReadChecks ?? []).map((check) =>
-        verifyReadCheck({ source, check, rpcUrl, fetchFn }),
-      ),
-    ),
-    verifyPoolStateCheck({ source, rpcUrl, fetchFn }),
+    verifyReadChecks({ source, rpcClient }),
+    verifyPoolStateCheck({ source, rpcClient }),
   ]);
   const blockscoutAbi = summarizeBlockscoutAbi(blockscoutAbiBody ?? {});
   const blockscoutContract = mergeBlockscoutContractSummary(
@@ -781,13 +814,30 @@ export function summarizeVerificationReport(report) {
 export async function verifyDefaultSources(options = {}) {
   const rpcUrl = options.rpcUrl ?? DOGEOS_RPC_URL;
   const fetchFn = options.fetchFn ?? fetch;
+  const rpcClient = rpcClientFor({ rpcClient: options.rpcClient, rpcUrl, fetchFn });
   const expectedChainIdHex = options.expectedChainIdHex ?? DOGEOS_CHAIN_ID_HEX;
   const verificationTargets = options.verificationTargets ?? defaultVerificationTargets();
   const tokens = options.tokens ?? OFFICIAL_DOGEOS_TOKENS;
-  const chainId = await rpc({ method: "eth_chainId", params: [], rpcUrl, fetchFn });
-  const [sources, tokenChecks] = await Promise.all([
-    Promise.all(verificationTargets.map((source) => verifySource(source, options))),
-    verifyOfficialTokens({ tokens, rpcUrl, fetchFn }),
+  const chainIdPromise = rpcClient.request("eth_chainId");
+  const sourceBytecodesPromise = getCodeMany({
+    rpcClient,
+    addresses: verificationTargets.map((source) => source.address),
+  });
+  const sourcesPromise = sourceBytecodesPromise.then((sourceBytecodes) =>
+    Promise.all(
+      verificationTargets.map((source, index) =>
+        verifySource(source, {
+          ...options,
+          rpcClient,
+          bytecode: sourceBytecodes[index],
+        }),
+      ),
+    ),
+  );
+  const [chainId, sources, tokenChecks] = await Promise.all([
+    chainIdPromise,
+    sourcesPromise,
+    verifyOfficialTokens({ tokens, rpcClient }),
   ]);
 
   const report = {
