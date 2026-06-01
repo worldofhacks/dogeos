@@ -701,6 +701,17 @@ h2 {
   white-space: nowrap;
 }
 
+.telemetry-detail {
+  min-width: 0;
+  margin: 10px 0 0;
+  color: var(--te-muted);
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
 .quote-ring {
   display: inline-flex;
   min-height: 24px;

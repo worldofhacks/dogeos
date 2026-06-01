@@ -192,7 +192,14 @@ function createStaticAppHarness({ venues = [], quoteHandler, verification } = {}
           alternatives: [],
           rejected: [],
           telemetry: {
-            quoteLatencyMs: 12,
+            quoteLatencyMs: 18,
+            preQuoteVerificationMs: 2,
+            candidateProviderMs: 8,
+            feeResolutionMs: 5,
+            routeScoringMs: 3,
+            candidateCount: 3,
+            executableCandidateCount: 2,
+            rejectedCandidateCount: 1,
             sourceErrorCount: 1,
             sourceErrors: [
               {
@@ -287,6 +294,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(html, /id="view-settings"/);
   assert.match(html, /data-view="swap"/);
   assert.match(html, /id="chart-panel"/);
+  assert.match(html, /id="quote-telemetry-detail"/);
   assert.match(html, /id="token-picker"/);
   assert.match(html, /id="slippage-knob"/);
   assert.match(html, /id="quote-refresh-ring"/);
@@ -331,6 +339,10 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(js, /quoteRequestSeq/);
   assert.match(js, /activeQuoteController/);
   assert.match(js, /quote\.telemetry\?\.quoteLatencyMs/);
+  assert.match(js, /quote\.telemetry\?\.candidateProviderMs/);
+  assert.match(js, /quote\.telemetry\?\.feeResolutionMs/);
+  assert.match(js, /quote\.telemetry\?\.routeScoringMs/);
+  assert.match(js, /quote\.telemetry\?\.candidateCount/);
   assert.match(js, /quote\.telemetry\?\.sourceErrorCount/);
   assert.match(js, /formatLatencyMs/);
   assert.match(js, /new AbortController\(\)/);
@@ -425,6 +437,7 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(css, /device-shell/);
   assert.match(css, /bottom-nav/);
   assert.match(css, /quote-ring/);
+  assert.match(css, /telemetry-detail/);
   assert.match(css, /token-picker/);
   assert.match(css, /knob-control/);
   assert.match(css, /--te-accent:\s*#ff4d2e/);
@@ -436,6 +449,25 @@ test("static web app exposes the primary aggregator workflow", async () => {
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(css, /table-layout:\s*fixed/);
   assert.doesNotMatch(css, /purple|violet|#7c3aed/i);
+});
+
+test("static web app renders detailed quote telemetry in the live route monitor", async () => {
+  const appJs = await readFile(resolve(appRoot, "app.js"), "utf8");
+  const harness = createStaticAppHarness();
+
+  vm.runInNewContext(appJs, harness.context);
+  await drainMicrotasks(16);
+  harness.element("swap-form").dispatchEvent({ type: "submit" });
+  await drainMicrotasks(16);
+
+  const detail = harness.element("quote-telemetry-detail").textContent;
+  assert.match(detail, /verify 2ms/);
+  assert.match(detail, /providers 8ms/);
+  assert.match(detail, /fees 5ms/);
+  assert.match(detail, /score 3ms/);
+  assert.match(detail, /routes 2\/3 live/);
+  assert.match(detail, /1 rejected/);
+  assert.match(detail, /1 issue/);
 });
 
 test("static web app invalidates executable quotes immediately when either quote input changes", async () => {

@@ -62,6 +62,7 @@ const elements = {
   bestSourceLabel: document.querySelector("#best-source-label"),
   quoteLatencyLabel: document.querySelector("#quote-latency-label"),
   sourceIssuesLabel: document.querySelector("#source-issues-label"),
+  quoteTelemetryDetail: document.querySelector("#quote-telemetry-detail"),
   tokenPicker: document.querySelector("#token-picker"),
   tokenPickerScrim: document.querySelector("#token-picker-scrim"),
   tokenPickerClose: document.querySelector("#token-picker-close"),
@@ -275,6 +276,34 @@ function formatLatencyMs(value) {
   const latencyMs = Number(value);
   if (!Number.isFinite(latencyMs)) return "";
   return `${Math.round(latencyMs)}ms`;
+}
+
+function formatTelemetryLatency(value) {
+  return formatLatencyMs(value) || "-";
+}
+
+function formatTelemetryCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? String(Math.max(0, Math.trunc(count))) : "-";
+}
+
+function quoteTelemetryDetail(quote) {
+  if (!quote?.telemetry) return "verify - / providers - / fees - / score - / routes -";
+
+  const verify = formatTelemetryLatency(quote.telemetry?.preQuoteVerificationMs);
+  const providers = formatTelemetryLatency(quote.telemetry?.candidateProviderMs);
+  const fees = formatTelemetryLatency(quote.telemetry?.feeResolutionMs);
+  const score = formatTelemetryLatency(quote.telemetry?.routeScoringMs);
+  const candidateCount = formatTelemetryCount(quote.telemetry?.candidateCount);
+  const executableCount = formatTelemetryCount(quote.telemetry?.executableCandidateCount);
+  const rejectedCount = formatTelemetryCount(quote.telemetry?.rejectedCandidateCount);
+  const sourceIssueCount = Number(quote.telemetry?.sourceErrorCount ?? 0);
+  const sourceIssueText =
+    Number.isFinite(sourceIssueCount) && sourceIssueCount > 0
+      ? ` / ${Math.trunc(sourceIssueCount)} ${sourceIssueCount === 1 ? "issue" : "issues"}`
+      : "";
+
+  return `verify ${verify} / providers ${providers} / fees ${fees} / score ${score} / routes ${executableCount}/${candidateCount} live, ${rejectedCount} rejected${sourceIssueText}`;
 }
 
 function quoteLatencySuffix(quote) {
@@ -828,6 +857,8 @@ function renderMarketPanel() {
   elements.bestSourceLabel.textContent = source?.displayName ?? "-";
   elements.quoteLatencyLabel.textContent = formatLatencyMs(state.quote?.telemetry?.quoteLatencyMs) || "-";
   elements.sourceIssuesLabel.textContent = String(state.quote?.telemetry?.sourceErrorCount ?? 0);
+  elements.quoteTelemetryDetail.textContent = quoteTelemetryDetail(state.quote);
+  elements.quoteTelemetryDetail.setAttribute("title", "Quote timing telemetry from the latest live route response");
   elements.chartPanel.hidden = !state.chartVisible;
   elements.chartToggle.setAttribute("aria-pressed", String(state.chartVisible));
   elements.chartToggle.classList.toggle("active", state.chartVisible);
