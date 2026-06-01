@@ -685,6 +685,92 @@ test("POST /approval can refresh exact-output quotes before allowance planning",
   assert.equal(body.quote.maxAmountIn, "1212000");
 });
 
+test("POST /approval and /swap coalesce identical in-flight refreshed quote work", async () => {
+  let releaseCandidates;
+  let providerCalls = 0;
+  let markProviderStarted;
+  const providerStarted = new Promise((resolve) => {
+    markProviderStarted = resolve;
+  });
+  const activeQuote = {
+    sourceId: "muchfi-v3",
+    protocolType: "v3",
+    status: "active",
+    chainId: DOGEOS_CHAIN.id,
+    router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+    sellToken: usdc.address,
+    buyToken: wdoge.address,
+    amountIn: "1000000",
+    amountOut: "1050000",
+    minAmountOut: "1000000",
+    slippageBps: "100",
+    recipient: "0x1111111111111111111111111111111111111111",
+    deadline: 1_780_000_300,
+    quoteTimestampMs: now,
+    ttlMs: 10_000,
+  };
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    refreshSwapQuoteBeforeBuild: true,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async (input) => {
+      providerCalls += 1;
+      if (providerCalls === 1) markProviderStarted();
+      await new Promise((release) => {
+        releaseCandidates = release;
+      });
+      return [
+        candidate({
+          sourceId: "muchfi-v3",
+          protocolType: "v3",
+          router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+          amountIn: input.amountIn,
+          amountOut: 1_200_000n,
+          quoteTimestampMs: now,
+          ttlMs: 5_000,
+        }),
+      ];
+    },
+    approvalPlanner: async () => ({ approvalRequired: false, allowance: 2_000_000n }),
+    calldataBuilder: () => "0x38ed1739",
+  });
+
+  const approvalResponsePromise = handle(
+    jsonRequest("/approval", {
+      owner: "0x2222222222222222222222222222222222222222",
+      quote: activeQuote,
+    }),
+  );
+  const swapResponsePromise = handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: activeQuote,
+    }),
+  );
+
+  await providerStarted;
+  await Promise.resolve();
+  assert.equal(providerCalls, 1);
+
+  releaseCandidates();
+  const [approvalResponse, swapResponse] = await Promise.all([
+    approvalResponsePromise,
+    swapResponsePromise,
+  ]);
+  const [approvalBody, swapBody] = await Promise.all([
+    approvalResponse.json(),
+    swapResponse.json(),
+  ]);
+
+  assert.equal(approvalResponse.status, 200);
+  assert.equal(swapResponse.status, 200);
+  assert.equal(providerCalls, 1);
+  assert.equal(approvalBody.quote.amountOut, "1200000");
+  assert.equal(swapBody.quote.amountOut, "1200000");
+  assert.equal(swapBody.transaction.routeBinding.minAmountOut, "1188000");
+});
+
 test("POST /approval refuses inactive quotes before reading allowance", async () => {
   let plannerCalled = false;
   const handle = createAggregatorApiHandler({

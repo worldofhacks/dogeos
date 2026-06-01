@@ -151,6 +151,7 @@
 - [x] Remove committed execution-record approvals; active calldata building now uses source status, router match, ABI provenance, typed selector match, and runtime simulation directly.
 - [x] Abort stale browser `/quote` requests when live typing schedules a newer quote so old inputs do not waste API/RPC work.
 - [x] Coalesce identical concurrent `/quote` requests at the API boundary so live typing and repeated clients do not duplicate provider/RPC work.
+- [x] Share the same in-flight quote coalescer with `/approval` and `/swap` quote refreshes so transaction builds do not duplicate identical live refresh work.
 - [x] Add target-bound adapter ABI fragments for the active MuchFi V2, MuchFi V3, and Barkswap router/quoter contracts.
 - [ ] Add venue-authorized ABI artifacts or Blockscout verification records for executable routing.
   - Local support exists for `venue-artifact` provenance: target-bound artifact metadata, recomputed artifact hash, selector matching, relationship reads, and passed simulation are required before active execution. Current `adapter-fragment` artifacts are aggregator-owned ABI fragments, not venue endorsements, so venue-authorized artifacts or Blockscout records remain the preferred provenance upgrade.

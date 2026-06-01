@@ -501,7 +501,7 @@ export function createAggregatorApiHandler({
         const quote = refreshSwapQuoteBeforeBuild
           ? await refreshSwapQuote({
               quote: originalQuote,
-              quoteCandidateProvider,
+              quoteCandidateProvider: resolveQuoteCandidates,
               nowMs,
               gasPriceWei,
               outputWeiPerFeeWei,
@@ -537,7 +537,7 @@ export function createAggregatorApiHandler({
         const quote = refreshSwapQuoteBeforeBuild
           ? await refreshSwapQuote({
               quote: originalQuote,
-              quoteCandidateProvider,
+              quoteCandidateProvider: resolveQuoteCandidates,
               nowMs,
               gasPriceWei,
               outputWeiPerFeeWei,
