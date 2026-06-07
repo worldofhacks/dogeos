@@ -6,3 +6,6 @@ dogeos-*.png
 .env
 .env.local
 .env.*.local
+.claude/settings.local.json
+slither-run.txt
+output/
