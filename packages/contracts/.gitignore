@@ -1,0 +1,8 @@
+out/
+cache/
+broadcast/
+corpus/
+corpus-medusa/
+.forge-snapshots/
+slither_results.json
+lib/
