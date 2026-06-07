@@ -6,3 +6,6 @@ corpus-medusa/
 .forge-snapshots/
 slither_results.json
 lib/
+.env
+.env.*
+!.env.example
