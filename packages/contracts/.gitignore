@@ -3,6 +3,7 @@ cache/
 broadcast/
 corpus/
 corpus-medusa/
+crytic-export/
 .forge-snapshots/
 slither_results.json
 lib/

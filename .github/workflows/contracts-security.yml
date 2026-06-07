@@ -1,0 +1,25 @@
+name: contracts-security
+on:
+  pull_request: { paths: ["packages/contracts/**", ".github/workflows/contracts-security.yml"] }
+  push: { branches: [main], paths: ["packages/contracts/**"] }
+defaults: { run: { working-directory: packages/contracts } }
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with: { version: stable }
+      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
+      - run: forge build --sizes
+      - run: forge test -vvv
+        env: { FOUNDRY_INVARIANT_RUNS: "512", FOUNDRY_INVARIANT_DEPTH: "200" }
+  slither:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with: { version: stable }
+      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
+      - uses: crytic/slither-action@v0.4.2
+        with: { target: "packages/contracts/", slither-config: "packages/contracts/slither.config.json", fail-on: "config" }

@@ -1,0 +1,5 @@
+{
+  "fuzzing": { "workers": 8, "testLimit": 100000, "callSequenceLength": 50, "corpusDirectory": "corpus-medusa", "deploymentOrder": ["EchidnaRouter"], "targetContracts": ["EchidnaRouter"] },
+  "testing": { "stopOnFailedTest": true, "assertionTesting": { "enabled": true }, "propertyTesting": { "enabled": false } },
+  "compilation": { "platform": "crytic-compile", "platformConfig": { "target": ".", "args": ["--foundry-compile-all"] } }
+}

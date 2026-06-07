@@ -1,0 +1,4 @@
+testMode: assertion
+testLimit: 50000
+corpusDir: corpus
+cryticArgs: ["--foundry-compile-all"]

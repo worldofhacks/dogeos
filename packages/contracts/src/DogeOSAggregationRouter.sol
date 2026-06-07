@@ -63,7 +63,8 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
     function unpause() external onlyOwner { _unpause(); }
 
     /// @notice Recover funds NEVER brought in via execute (airdrops/stranded). Not reachable from execute().
-    function rescue(address token, address to, uint256 amount) external onlyOwner {
+    // slither-disable-next-line reentrancy-events
+    function rescue(address token, address to, uint256 amount) external onlyOwner { // onlyOwner (Timelock); event-after-call is benign for an admin-only escape hatch
         _pay(token, to, amount); emit Rescued(token, to, amount);
     }
 
@@ -71,17 +72,19 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
     function execute(bytes calldata commands, bytes[] calldata inputs, Settlement calldata s, uint256 deadline)
         external payable whenNotPaused nonReentrant
     {
-        if (block.timestamp > deadline) revert DeadlineExpired();
+        // slither-disable-next-line timestamp
+        if (block.timestamp > deadline) revert DeadlineExpired(); // deadline check; coarse miner drift is acceptable for swap expiry
         uint256 n = commands.length;
         if (inputs.length != n) revert LengthMismatch();
 
-        Ledger memory L;
+        // slither-disable-next-line uninitialized-local
+        Ledger memory L; // zero-initialized by the EVM; arrays assigned on the next line before any read
         L.tokens = new address[](n + 2); L.entry = new uint256[](n + 2); L.pulled = new uint256[](n + 2);
         // seed native entry EXCLUDING this call's incoming value
         L.tokens[0] = NATIVE; L.entry[0] = address(this).balance - msg.value; L.count = 1;
         if (s.recipient != address(0)) _touch(L, s.buyToken); // snapshot buyToken entry
 
-        for (uint256 i; i < n; ) { _dispatch(commands[i], inputs[i], deadline, L); unchecked { ++i; } }
+        for (uint256 i; i < n; ) { _dispatch(commands[i], inputs[i], deadline, L); unchecked { ++i; } } // per-command external calls are the core design; reentrancy is blocked by nonReentrant + the ledger
 
         _settle(s, L);
         emit Swapped(msg.sender, s.recipient);
@@ -126,12 +129,14 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
         (IAllowanceTransfer.PermitSingle memory p, bytes memory sig) =
             abi.decode(input, (IAllowanceTransfer.PermitSingle, bytes));
         if (p.spender != address(this)) revert InvalidSpender();
-        PERMIT2.permit(msg.sender, p, sig);
+        // slither-disable-next-line calls-loop
+        PERMIT2.permit(msg.sender, p, sig); // canonical Permit2; per-command call is intended, guarded by nonReentrant
     }
     function _permit2TransferFrom(bytes calldata input, Ledger memory L) internal {
         (address token, uint160 amount) = abi.decode(input, (address, uint160));
         _accrueInput(L, token, amount);
-        PERMIT2.transferFrom(msg.sender, address(this), amount, token);
+        // slither-disable-next-line calls-loop
+        PERMIT2.transferFrom(msg.sender, address(this), amount, token); // canonical Permit2; per-command call is intended, guarded by nonReentrant
     }
     /// @dev Resolve a command's input amount to what THIS execute actually brought in.
     ///      CONTRACT_BALANCE => the per-execute delta; an explicit amount must be <= delta.
@@ -143,20 +148,23 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
         return amt;
     }
     function _approveVenue(address t, address venue, uint256 a) internal {
-        if (IERC20(t).allowance(address(this), venue) < a) IERC20(t).forceApprove(venue, type(uint256).max);
+        // slither-disable-next-line calls-loop
+        if (IERC20(t).allowance(address(this), venue) < a) IERC20(t).forceApprove(venue, type(uint256).max); // per-command venue approval is intended
     }
     function _v2Swap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
         (uint256 amountIn, uint256 minOut, address[] memory path) = abi.decode(input, (uint256, uint256, address[]));
         amountIn = _spend(L, amountIn, path[0]); _touch(L, path[path.length - 1]);
         _approveVenue(path[0], MUCHFI_V2_ROUTER, amountIn);
-        IUniswapV2Router(MUCHFI_V2_ROUTER).swapExactTokensForTokens(amountIn, minOut, path, address(this), deadline);
+        // slither-disable-next-line unused-return,calls-loop
+        IUniswapV2Router(MUCHFI_V2_ROUTER).swapExactTokensForTokens(amountIn, minOut, path, address(this), deadline); // output measured by ledger _delta, not the venue's return value
     }
     function _v3Swap(bytes calldata input, Ledger memory L) internal {
         (address tin, address tout, uint24 fee, uint256 amountIn, uint256 minOut) =
             abi.decode(input, (address, address, uint24, uint256, uint256));
         amountIn = _spend(L, amountIn, tin); _touch(L, tout);
         _approveVenue(tin, MUCHFI_V3_ROUTER, amountIn);
-        IUniswapV3SwapRouter(MUCHFI_V3_ROUTER).exactInputSingle(IUniswapV3SwapRouter.ExactInputSingleParams({
+        // slither-disable-next-line unused-return,calls-loop
+        IUniswapV3SwapRouter(MUCHFI_V3_ROUTER).exactInputSingle(IUniswapV3SwapRouter.ExactInputSingleParams({ // output measured by ledger _delta, not the venue's return value
             tokenIn: tin, tokenOut: tout, fee: fee, recipient: address(this),
             amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0 }));
     }
@@ -165,25 +173,29 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
             abi.decode(input, (address, address, address, uint256, uint256));
         amountIn = _spend(L, amountIn, tin); _touch(L, tout);
         _approveVenue(tin, BARKSWAP_ALGEBRA_ROUTER, amountIn);
-        IAlgebraSwapRouter(BARKSWAP_ALGEBRA_ROUTER).exactInputSingle(IAlgebraSwapRouter.ExactInputSingleParams({
+        // slither-disable-next-line unused-return,calls-loop
+        IAlgebraSwapRouter(BARKSWAP_ALGEBRA_ROUTER).exactInputSingle(IAlgebraSwapRouter.ExactInputSingleParams({ // output measured by ledger _delta, not the venue's return value
             tokenIn: tin, tokenOut: tout, deployer: dep, recipient: address(this),
             deadline: deadline, amountIn: amountIn, amountOutMinimum: minOut, limitSqrtPrice: 0 }));
     }
     function _wrapNative(bytes calldata input, Ledger memory L) internal {
         uint256 a = _spend(L, abi.decode(input, (uint256)), NATIVE);
         _accrueInput(L, NATIVE, a); _touch(L, WDOGE);
-        IWETH9(WDOGE).deposit{value: a}();
+        // slither-disable-next-line calls-loop
+        IWETH9(WDOGE).deposit{value: a}(); // immutable WDOGE; per-command wrap is intended
     }
     function _unwrapNative(bytes calldata input, Ledger memory L) internal {
         uint256 a = _spend(L, abi.decode(input, (uint256)), WDOGE);
-        IWETH9(WDOGE).withdraw(a);
+        // slither-disable-next-line calls-loop
+        IWETH9(WDOGE).withdraw(a); // immutable WDOGE; per-command unwrap is intended
     }
 
     // ---- enforced settlement (I2/I4/I5 by construction) ----
     function _settle(Settlement calldata s, Ledger memory L) internal {
         if (s.recipient == address(0)) return; // no-op (unit tests only)
         uint256 out = _delta(L, s.buyToken);
-        uint256 fee;
+        // slither-disable-next-line uninitialized-local
+        uint256 fee; // intentional zero default; only assigned when a fee applies
         if (feeBps != 0 && out != 0) { fee = (out * feeBps) / Constants.BPS_DENOMINATOR; out -= fee; }
         if (out < s.minOut) revert MinOutNotMet();
         if (fee != 0) _pay(s.buyToken, feeRecipient, fee);
@@ -196,8 +208,10 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
         }
     }
     function _pay(address t, address to, uint256 amount) internal {
-        if (amount == 0) return;
-        if (t == NATIVE) { (bool ok,) = to.call{value: amount}(""); if (!ok) revert NativeTransferFailed(); }
+        // slither-disable-next-line incorrect-equality
+        if (amount == 0) return; // exact zero-amount short-circuit is intentional and safe
+        // slither-disable-next-line arbitrary-send-eth,low-level-calls
+        if (t == NATIVE) { (bool ok,) = to.call{value: amount}(""); if (!ok) revert NativeTransferFailed(); } // dest is caller-declared recipient/feeRecipient/msg.sender; amount bounded by per-execute _delta (stranded native unspendable)
         else IERC20(t).safeTransfer(to, amount);
     }
 }
