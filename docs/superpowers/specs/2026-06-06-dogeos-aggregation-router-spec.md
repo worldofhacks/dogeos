@@ -276,6 +276,97 @@ Intents; the router only needs `SWEEP`-to-any-recipient); no limit orders/TWAP; 
 relayer; no proxy upgrades; no on-chain token allowlist (safety is balance-delta + SafeERC20
 based).
 
+## Hardening Revisions — post pre-execution review (2026-06-06)
+
+A pre-execution review (repo/platform/library/security fan-out + Trail of Bits methodology,
+using the installed `building-secure-contracts`, `property-based-testing`, and related skills)
+confirmed the design but surfaced platform facts and security gaps. The following amendments
+are **authoritative and supersede any conflicting text above.**
+
+### Platform facts (verified live on DogeOS testnet)
+
+- **Permit2 is NOT deployed** at the canonical address on DogeOS (`eth_getCode` returned `0x`).
+  Deploying canonical Permit2 (deterministic CREATE2 via the Arachnid proxy
+  `0x4e59b44847b379578588920cA78FbF26c0B4956C`) is a **required, critical-path step** before
+  the router and swap flow — not a contingency.
+- **DogeOS is a pre-Shanghai / pre-Cancun (Bedrock-era) OP-Stack chain**: block headers lack
+  `withdrawalsRoot`/`excessBlobGas`; the GasPriceOracle is pre-Ecotone. Therefore pin
+  `evm_version = "paris"`; **PUSH0 and transient storage (TSTORE/TLOAD) are unavailable** — the
+  reentrancy guard MUST use the storage-slot `ReentrancyGuard`, never `ReentrancyGuardTransient`.
+  Confirm with an on-chain opcode probe in Task #0.
+- Venue routers, WDOGE, and the L1 oracle are confirmed deployed with correct bytecode; chain
+  id `6281971`; testnet only (no mainnet yet); `@dogeos/dogeos-sdk` unchanged.
+
+### H1 — Per-execute balance-delta accounting (enforces I1 & I5)
+
+The router keeps an in-memory ledger of every token it touches during a single `execute`,
+recording each token's balance at first reference (native entry recorded as
+`address(this).balance - msg.value`). All payouts/refunds/min-out checks operate on the
+**delta accrued during this call** (`current - entry`), never absolute balance. The router can
+therefore **never** move pre-existing/airdropped/stranded funds — only what this call brought
+in, making I1 and I5 structurally enforced rather than argued. An owner-only `rescue(token,to,
+amount)` recovers genuinely stuck pre-existing balances out-of-band (not reachable via
+`execute`).
+
+### H2 — Enforced final settlement (enforces I2)
+
+`execute` takes an explicit settlement enforced AFTER the command loop, regardless of the
+command program:
+
+```
+struct Settlement { address buyToken; uint256 minOut; address recipient; }
+function execute(bytes commands, bytes[] inputs, Settlement settlement, uint256 deadline) external payable;
+```
+
+Using the ledger delta of `settlement.buyToken`, the contract takes the protocol fee (≤ cap),
+requires the remaining delta ≥ `settlement.minOut` (else revert), pays it to
+`settlement.recipient`, and refunds any leftover input-token deltas to `msg.sender`.
+`settlement.recipient == address(0)` = no-op settlement (used only by unit tests that
+intentionally leave funds in the router). A native-output sentinel (`NATIVE =
+0xEeee…EEeE`) lets `buyToken` denote native DOGE. This makes "recipient receives ≥ minOut or
+the whole tx reverts" a **contract guarantee**. Because settlement subsumes them, the
+standalone `PAY_FEE`, `MIN_OUT_CHECK`, and buyToken-`SWEEP` commands are **removed**; the
+command set is movement-only (`PERMIT2_PERMIT`, `PERMIT2_TRANSFER_FROM`, `V2_SWAP`, `V3_SWAP`,
+`ALGEBRA_SWAP`, `WRAP_NATIVE`, `UNWRAP_NATIVE`).
+
+### H3 — Per-execute aggregate notional cap + default cap (enforces I8)
+
+The cap is enforced on the **aggregate input within one `execute`**, summed across every
+`PERMIT2_TRANSFER_FROM` and `WRAP_NATIVE` (native), per token — not per pull. A governance-set
+`defaultMaxInputPerTx` bounds tokens without a specific cap (closing the `0 = uncapped` gap for
+arbitrary tokens); a per-token `type(uint256).max` sentinel means "explicitly uncapped."
+Pre-seeded balances cannot be swapped (the H1 ledger ignores them).
+
+### H4 — Real TimelockController governance
+
+The router `owner` is an OpenZeppelin `TimelockController` (min delay 24–48h; proposer/executor
+= the founder Safe). Fee/cap/guardian/unpause changes flow through the timelock. The deploy
+script deploys/wires the timelock, sets the initial guarded-launch caps **in the same
+broadcast** (router never live-and-uncapped), and asserts the Ownable2Step handover. Guardian
+remains pause-only.
+
+### Invariant coverage (I1–I8 all fuzzed, not argued)
+
+Fuzz I1 (residual delta zero), I2 (recipient ≥ minOut or revert), I3 (spend ≤ permitted),
+I4 (fee ≤ cap, exact, only to feeRecipient — relative tolerance, not absolute slack), I5
+(fund destinations ∈ {recipient, feeRecipient, venue, sender-refund}, fuzzing arbitrary
+recipients/tokens), I6 (paused/expired always revert), I7 (only whitelisted venues called —
+via call-tracing mocks), I8 (aggregate input ≤ cap). Add an adversarial test that pre-seeds the
+router with a second party's tokens + native and asserts a different caller's `execute` cannot
+extract them.
+
+### Additional required coverage
+
+- Permit2 live-allowance path: bare `PERMIT2_TRANSFER_FROM` (no permit) within an unexpired
+  allowance succeeds; expired/insufficient allowance reverts with a UI-mappable error.
+- Fee-on-transfer on an **intermediate** hop token; zero working-balance swap step behavior.
+- Native settlement to a recipient that reverts on receive (documented behavior); fork-probe
+  whether any venue router refunds native mid-swap (would interact with the WDOGE-only
+  `receive()` guard).
+- Early `forge build --sizes` gate (24,576-byte limit) once the core compiles.
+- Tooling: install Foundry (`foundryup`) before any `forge`/`cast`; `forge init` uses
+  `--no-git` (the `--no-commit` flag was removed); pin dependency versions at install.
+
 ## Spec self-review
 
 - No placeholders or TBDs remain; the few tunable constants (fee cap, timelock delay, permit

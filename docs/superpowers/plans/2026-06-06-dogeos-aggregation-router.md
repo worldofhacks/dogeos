@@ -48,6 +48,276 @@ Swap commands carry **no router address** — the venue is the contract's immuta
 
 ---
 
+## v2 Hardening Overrides (AUTHORITATIVE — read before the tasks below)
+
+A pre-execution review (commit history; see the spec's "Hardening Revisions" section) changed
+the design. **Where this section conflicts with a base task below, this section wins.** Tasks
+not mentioned here (interfaces 1.1, venue handler bodies 2.1–2.3, Slither/Echidna/Medusa 4.x,
+fork 5.1, audit-prep 6.1) stay valid — but every test's `router.execute(...)` call now uses the
+**4-arg signature** `execute(commands, inputs, settlement, deadline)` (see rule O-5).
+
+### O-1. Revised command set (movement-only)
+
+`PAY_FEE`, `MIN_OUT_CHECK`, and `SWEEP` are **removed** — enforced settlement (O-3) does fee +
+min-out + payout + refund. `Commands.sol` becomes:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+library Commands {
+    bytes1 internal constant PERMIT2_PERMIT        = 0x00;
+    bytes1 internal constant PERMIT2_TRANSFER_FROM = 0x01;
+    bytes1 internal constant V2_SWAP               = 0x02;
+    bytes1 internal constant V3_SWAP               = 0x03;
+    bytes1 internal constant ALGEBRA_SWAP          = 0x04;
+    bytes1 internal constant WRAP_NATIVE           = 0x05;
+    bytes1 internal constant UNWRAP_NATIVE         = 0x06;
+}
+```
+
+`Constants.sol` adds the native sentinel:
+
+```solidity
+address internal constant NATIVE = 0xEEeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+```
+
+### O-2. New Phase 0 (replaces Tasks 0.0–0.5 ordering)
+
+- **Task 0.0 (NEW) — Install Foundry:** `curl -L https://foundry.paradigm.xyz | bash && foundryup && forge --version && cast --version`. Everything else in Phase 0 depends on it.
+- **Task 0.1 — EVM probe (REVISED):** record (evidence in `audit/CHAIN_FACTS.md`) that DogeOS is **pre-Shanghai/pre-Cancun**: `cast block latest --rpc-url $RPC --json | grep -E 'withdrawalsRoot|excessBlobGas'` returns nothing. Pin `evm_version = "paris"`. **Forbid PUSH0/transient storage**; use storage `ReentrancyGuard` (delete the "switch to ReentrancyGuardTransient" note). Resilient Cancun check: `... | grep -q excessBlobGas && echo cancun || echo paris`.
+- **Task 0.2 — Permit2 (REVISED, now REQUIRED):** `cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url $RPC` returns `0x` → Permit2 is absent. Deploy canonical Permit2 deterministically (Arachnid proxy `0x4e59b44847b379578588920cA78FbF26c0B4956C`, canonical salt) — scheduled in the deploy phase BEFORE the router — and verify bytecode + `DOMAIN_SEPARATOR()` on Blockscout. Add `PERMIT2_DEPLOY_SALT`/initcode to Frozen Constants when chosen.
+- **Task 0.4 — Scaffold (REVISED):** `forge init packages/contracts --no-git` (drop the removed `--no-commit`). Pin deps: `forge install foundry-rs/forge-std@v1.9.7 --no-git`, `forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git`, `forge install Uniswap/permit2@<pin> --no-git` (record exact tags in `REPRODUCIBILITY.md`). Mirror the pins in the CI workflow (Task 4.4).
+
+### O-3. Revised core contract (replaces the Task 1.2 skeleton + Task 1.3/1.4 handler bodies)
+
+This is the authoritative `src/DogeOSAggregationRouter.sol`. Build it test-first per the base
+phases, but to THIS shape. (Settlement + the in-memory `Ledger` are the heart of H1/H2/H3.)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import {Ownable2Step, Ownable} from "openzeppelin/access/Ownable2Step.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol"; // storage guard — paris, no transient storage
+import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
+import {Commands} from "./libraries/Commands.sol";
+import {Constants} from "./libraries/Constants.sol";
+import {IWETH9} from "./interfaces/IWETH9.sol";
+import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
+import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
+import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
+
+contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    struct Settlement { address buyToken; uint256 minOut; address recipient; }
+    /// @dev In-memory per-execute ledger (no mappings → memory-safe; linear scan, command lists are short).
+    struct Ledger { address[] tokens; uint256[] entry; uint256[] pulled; uint256 count; }
+
+    IAllowanceTransfer public constant PERMIT2 = IAllowanceTransfer(Constants.PERMIT2);
+    address public constant NATIVE = Constants.NATIVE;
+    address public immutable WDOGE;
+    address public immutable MUCHFI_V2_ROUTER;
+    address public immutable MUCHFI_V3_ROUTER;
+    address public immutable BARKSWAP_ALGEBRA_ROUTER;
+
+    address public guardian;
+    uint256 public feeBps;
+    address public feeRecipient;
+    uint256 public defaultMaxInputPerTx;              // 0 = no default cap
+    mapping(address => uint256) public maxInputPerTx; // 0 = use default; type(uint256).max = explicitly uncapped
+
+    error DeadlineExpired(); error LengthMismatch(); error UnknownCommand(); error Unauthorized();
+    error FeeTooHigh(); error NotionalCapExceeded(); error MinOutNotMet(); error InvalidSpender();
+    error NativeTransferFailed();
+
+    event GuardianUpdated(address indexed guardian);
+    event FeeUpdated(uint256 feeBps, address indexed feeRecipient);
+    event DefaultMaxInputUpdated(uint256 maxAmount);
+    event MaxInputUpdated(address indexed token, uint256 maxAmount);
+    event Swapped(address indexed sender, address indexed recipient);
+    event Rescued(address indexed token, address indexed to, uint256 amount);
+
+    constructor(address owner_, address guardian_, address wdoge_, address v2_, address v3_, address alg_)
+        Ownable(owner_)
+    { guardian = guardian_; WDOGE = wdoge_; MUCHFI_V2_ROUTER = v2_; MUCHFI_V3_ROUTER = v3_; BARKSWAP_ALGEBRA_ROUTER = alg_; }
+
+    receive() external payable { if (msg.sender != WDOGE) revert Unauthorized(); }
+
+    // ---- admin (owner == TimelockController) ----
+    function setGuardian(address g) external onlyOwner { guardian = g; emit GuardianUpdated(g); }
+    function setFee(uint256 bps, address r) external onlyOwner {
+        if (bps > Constants.MAX_FEE_BPS) revert FeeTooHigh();
+        feeBps = bps; feeRecipient = r; emit FeeUpdated(bps, r);
+    }
+    function setDefaultMaxInputPerTx(uint256 a) external onlyOwner { defaultMaxInputPerTx = a; emit DefaultMaxInputUpdated(a); }
+    function setMaxInputPerTx(address t, uint256 a) external onlyOwner { maxInputPerTx[t] = a; emit MaxInputUpdated(t, a); }
+    function pause() external { if (msg.sender != guardian && msg.sender != owner()) revert Unauthorized(); _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice Recover funds NEVER brought in via execute (airdrops/stranded). Not reachable from execute().
+    function rescue(address token, address to, uint256 amount) external onlyOwner {
+        _pay(token, to, amount); emit Rescued(token, to, amount);
+    }
+
+    // ---- core ----
+    function execute(bytes calldata commands, bytes[] calldata inputs, Settlement calldata s, uint256 deadline)
+        external payable whenNotPaused nonReentrant
+    {
+        if (block.timestamp > deadline) revert DeadlineExpired();
+        uint256 n = commands.length;
+        if (inputs.length != n) revert LengthMismatch();
+
+        Ledger memory L;
+        L.tokens = new address[](n + 2); L.entry = new uint256[](n + 2); L.pulled = new uint256[](n + 2);
+        // seed native entry EXCLUDING this call's incoming value
+        L.tokens[0] = NATIVE; L.entry[0] = address(this).balance - msg.value; L.count = 1;
+        if (s.recipient != address(0)) _touch(L, s.buyToken); // snapshot buyToken entry
+
+        for (uint256 i; i < n; ) { _dispatch(commands[i], inputs[i], deadline, L); unchecked { ++i; } }
+
+        _settle(s, L);
+        emit Swapped(msg.sender, s.recipient);
+    }
+
+    // ---- ledger (in-memory; paris-safe) ----
+    function _bal(address t) internal view returns (uint256) {
+        return t == NATIVE ? address(this).balance : IERC20(t).balanceOf(address(this));
+    }
+    function _idx(Ledger memory L, address t) internal view returns (uint256) {
+        for (uint256 i; i < L.count; ++i) if (L.tokens[i] == t) return i;
+        uint256 j = L.count; L.tokens[j] = t; L.entry[j] = _bal(t); L.count = j + 1; return j;
+    }
+    function _touch(Ledger memory L, address t) internal view { _idx(L, t); }
+    function _delta(Ledger memory L, address t) internal view returns (uint256) {
+        uint256 j = _idx(L, t); uint256 cur = _bal(t); return cur > L.entry[j] ? cur - L.entry[j] : 0;
+    }
+    function _capOf(address t) internal view returns (uint256) {
+        uint256 c = maxInputPerTx[t];
+        if (c == type(uint256).max) return type(uint256).max;
+        if (c == 0) return defaultMaxInputPerTx == 0 ? type(uint256).max : defaultMaxInputPerTx;
+        return c;
+    }
+    function _accrueInput(Ledger memory L, address t, uint256 amount) internal view {
+        uint256 j = _idx(L, t); uint256 total = L.pulled[j] + amount; L.pulled[j] = total;
+        uint256 cap = _capOf(t);
+        if (cap != type(uint256).max && total > cap) revert NotionalCapExceeded();
+    }
+
+    function _dispatch(bytes1 c, bytes calldata input, uint256 deadline, Ledger memory L) internal {
+        if (c == Commands.PERMIT2_PERMIT) _permit2Permit(input);
+        else if (c == Commands.PERMIT2_TRANSFER_FROM) _permit2TransferFrom(input, L);
+        else if (c == Commands.V2_SWAP) _v2Swap(input, deadline, L);
+        else if (c == Commands.V3_SWAP) _v3Swap(input, L);
+        else if (c == Commands.ALGEBRA_SWAP) _algebraSwap(input, deadline, L);
+        else if (c == Commands.WRAP_NATIVE) _wrapNative(input, L);
+        else if (c == Commands.UNWRAP_NATIVE) _unwrapNative(input);
+        else revert UnknownCommand();
+    }
+
+    function _permit2Permit(bytes calldata input) internal {
+        (address o, IAllowanceTransfer.PermitSingle memory p, bytes memory sig) =
+            abi.decode(input, (address, IAllowanceTransfer.PermitSingle, bytes));
+        if (p.spender != address(this)) revert InvalidSpender();
+        PERMIT2.permit(o, p, sig);
+    }
+    function _permit2TransferFrom(bytes calldata input, Ledger memory L) internal {
+        (address o, address token, uint160 amount) = abi.decode(input, (address, address, uint160));
+        _accrueInput(L, token, amount);
+        PERMIT2.transferFrom(o, address(this), amount, token);
+    }
+    function _resolve(uint256 a, address t) internal view returns (uint256) {
+        return a == Constants.CONTRACT_BALANCE ? _bal(t) : a;
+    }
+    function _approveVenue(address t, address venue, uint256 a) internal {
+        if (IERC20(t).allowance(address(this), venue) < a) IERC20(t).forceApprove(venue, type(uint256).max);
+    }
+    function _v2Swap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
+        (uint256 amountIn, uint256 minOut, address[] memory path) = abi.decode(input, (uint256, uint256, address[]));
+        amountIn = _resolve(amountIn, path[0]); _touch(L, path[path.length - 1]);
+        _approveVenue(path[0], MUCHFI_V2_ROUTER, amountIn);
+        IUniswapV2Router(MUCHFI_V2_ROUTER).swapExactTokensForTokens(amountIn, minOut, path, address(this), deadline);
+    }
+    function _v3Swap(bytes calldata input, Ledger memory L) internal {
+        (address tin, address tout, uint24 fee, uint256 amountIn, uint256 minOut) =
+            abi.decode(input, (address, address, uint24, uint256, uint256));
+        amountIn = _resolve(amountIn, tin); _touch(L, tout);
+        _approveVenue(tin, MUCHFI_V3_ROUTER, amountIn);
+        IUniswapV3SwapRouter(MUCHFI_V3_ROUTER).exactInputSingle(IUniswapV3SwapRouter.ExactInputSingleParams({
+            tokenIn: tin, tokenOut: tout, fee: fee, recipient: address(this),
+            amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0 }));
+    }
+    function _algebraSwap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
+        (address tin, address tout, address dep, uint256 amountIn, uint256 minOut) =
+            abi.decode(input, (address, address, address, uint256, uint256));
+        amountIn = _resolve(amountIn, tin); _touch(L, tout);
+        _approveVenue(tin, BARKSWAP_ALGEBRA_ROUTER, amountIn);
+        IAlgebraSwapRouter(BARKSWAP_ALGEBRA_ROUTER).exactInputSingle(IAlgebraSwapRouter.ExactInputSingleParams({
+            tokenIn: tin, tokenOut: tout, deployer: dep, recipient: address(this),
+            deadline: deadline, amountIn: amountIn, amountOutMinimum: minOut, limitSqrtPrice: 0 }));
+    }
+    function _wrapNative(bytes calldata input, Ledger memory L) internal {
+        uint256 a = _resolve(abi.decode(input, (uint256)), NATIVE);
+        _accrueInput(L, NATIVE, a); _touch(L, WDOGE);
+        IWETH9(WDOGE).deposit{value: a}();
+    }
+    function _unwrapNative(bytes calldata input) internal {
+        uint256 a = _resolve(abi.decode(input, (uint256)), WDOGE);
+        IWETH9(WDOGE).withdraw(a);
+    }
+
+    // ---- enforced settlement (I2/I4/I5 by construction) ----
+    function _settle(Settlement calldata s, Ledger memory L) internal {
+        if (s.recipient == address(0)) return; // no-op (unit tests only)
+        uint256 out = _delta(L, s.buyToken);
+        uint256 fee;
+        if (feeBps != 0 && out != 0) { fee = (out * feeBps) / Constants.BPS_DENOMINATOR; out -= fee; }
+        if (out < s.minOut) revert MinOutNotMet();
+        if (fee != 0) _pay(s.buyToken, feeRecipient, fee);
+        _pay(s.buyToken, s.recipient, out);
+        for (uint256 i; i < L.count; ++i) {           // refund leftover input deltas to caller
+            address t = L.tokens[i];
+            if (t == s.buyToken) continue;
+            uint256 d = _delta(L, t);
+            if (d != 0) _pay(t, msg.sender, d);
+        }
+    }
+    function _pay(address t, address to, uint256 amount) internal {
+        if (amount == 0) return;
+        if (t == NATIVE) { (bool ok,) = to.call{value: amount}(""); if (!ok) revert NativeTransferFailed(); }
+        else IERC20(t).safeTransfer(to, amount);
+    }
+}
+```
+
+### O-4. New / expanded test tasks
+
+- **Task 3.3 (REPLACE) — invariants I1–I8:** handler builds Permit2 swaps and asserts, as fuzzed invariants: `I1` router delta-residual zero, `I2` recipient ≥ declared minOut or full revert, `I3` spend ≤ permitted, `I4` exact fee (relative tolerance, not the `+1e6` slack), `I5` only {recipient, feeRecipient, venue, sender} balances rise (fuzz arbitrary recipients/tokens), `I6` paused/expired revert, `I7` only whitelisted venues called (use a call-recording venue mock), `I8` aggregate input ≤ cap.
+- **Task 3.5 (NEW) — adversarial stranded-funds theft:** pre-seed the router with a second party's ERC20 **and** native; a different caller's `execute` (with a SWEEP-equivalent settlement) must NOT extract any pre-existing balance (proves H1). Assert `rescue` is owner-only and is the only recovery path.
+- **Task 3.6 (NEW) — Permit2 live-allowance + cap + native edges:** (a) permit once, then a SEPARATE `execute` with only `PERMIT2_TRANSFER_FROM` (no permit) inside the window succeeds; (b) expired/insufficient allowance reverts; (c) two transfer-froms of the same token each < cap but summing > cap revert (aggregate cap); (d) `WRAP_NATIVE` over the native cap reverts; (e) an unlisted token bounded by `defaultMaxInputPerTx`; (f) intermediate-hop fee-on-transfer token with `CONTRACT_BALANCE`; (g) native settlement to a recipient that reverts on receive → documented whole-tx revert.
+
+### O-5. Global test-signature rule
+
+Every `router.execute(...)` call uses **`execute(commands, inputs, settlement, deadline)`**. In
+the base-plan tests:
+- Swaps that pay a recipient: drop the old `PAY_FEE`/`MIN_OUT_CHECK`/`SWEEP` command bytes and instead pass `Settlement({buyToken: <out>, minOut: <floor>, recipient: <to>})`.
+- Unit tests that intentionally leave funds in the router (e.g. the bare V2/V3/Algebra handler tests 2.1–2.3) pass a **no-op** settlement `Settlement({buyToken: address(0), minOut: 0, recipient: address(0)})` and assert on the router's own balance as before.
+- The `PermitSignature` helper, `MockERC20`, `MockWDOGE`, and venue mocks are unchanged; the V3/Algebra `MockV3Router`/`MockAlgebraRouter` get an optional caller-recording field for I7.
+
+### O-6. Timelock + deploy (augments Tasks 5.2/5.3)
+
+- **Task 5.0 (NEW) — TimelockController:** deploy an OZ `TimelockController(minDelay = TIMELOCK_DELAY, proposers = [SAFE], executors = [SAFE])`; the router's `owner_` is this timelock. Tests: fee/cap/unpause routed through the timelock respect `minDelay`; guardian can pause but cannot `setFee`/`setMaxInputPerTx`/`unpause`/`transferOwnership`; Ownable2Step handover requires `acceptOwnership`. Add `TIMELOCK_DELAY` (e.g. `48 hours`) to Frozen Constants.
+- **Task 5.2 (REVISE) DeployRouter.s.sol:** in ONE broadcast — deploy canonical Permit2 if absent → deploy TimelockController → deploy router (owner = timelock) → deploy `RouterRegistry` → `setCurrentRouter` → **set `defaultMaxInputPerTx` + per-token guarded caps** (so the router is never live-and-uncapped) → assert `owner()==timelock`, `guardian` set, `feeBps==0`, caps set. Record all in `DEPLOYMENT.md`.
+
+### O-7. Early size gate
+
+Add `forge build --sizes` (assert ≤ 24,576 bytes) as a step at the end of Task 1.2 (not only Task 6.1), since the ledger + settlement add bytecode.
+
+---
+
 ## File structure
 
 All new on-chain code lives in a self-contained Foundry workspace so it never entangles the Node packages.
