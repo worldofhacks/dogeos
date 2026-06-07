@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+/// @notice Minimal Barkswap Algebra SwapRouter interface for exact-input single swaps.
 interface IAlgebraSwapRouter {
     struct ExactInputSingleParams {
         address tokenIn;

@@ -14,24 +14,67 @@ import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
 import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
 import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 
+/// @title DogeOSAggregationRouter
+/// @author DogeOS
+/// @notice Immutable, command/executor aggregation router for DogeOS. Executes atomic single,
+///         split, and multi-hop swaps across the whitelisted DogeOS venues (MuchFi V2, MuchFi V3,
+///         Barkswap Algebra) in one all-or-nothing transaction. Funds are pulled via Permit2
+///         AllowanceTransfer (the user approves Permit2, never this router), `minOut` and
+///         `deadline` are enforced on-chain, and an off-by-default capped protocol fee is taken in
+///         settlement.
+/// @dev Security model: movement-only command set (no arbitrary calls/delegatecall), immutable
+///      venues, `nonReentrant` (EIP-1153 transient guard), and a per-execute in-memory `Ledger`
+///      that measures every amount by balance delta (`current - entry`). This makes the router
+///      unable to spend pre-existing/airdropped/stranded funds via `execute`, structurally
+///      enforcing invariants I1 and I5. Final settlement (fee → minOut → payout → refunds) runs
+///      after the command loop, making "recipient receives >= minOut or the whole tx reverts" a
+///      contract guarantee (I2). Non-upgradeable: upgrades are a fresh deployment. Governance
+///      (`owner`) is intended to be an OpenZeppelin `TimelockController`; the `guardian` is
+///      pause-only. See `docs/superpowers/specs/2026-06-06-dogeos-aggregation-router-spec.md`.
 contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
+    /// @notice Final settlement enforced after the command loop, independent of the command program.
+    /// @dev Using the per-execute ledger delta of `buyToken`, the contract takes the capped fee,
+    ///      requires the remaining delta >= `minOut` (else revert), pays it to `recipient`, and
+    ///      refunds leftover input-token deltas to `msg.sender`. `recipient == address(0)` is a
+    ///      no-op settlement used only by unit tests that intentionally leave funds in the router.
+    /// @param buyToken The output token to deliver; use `NATIVE` (0xEeee…EEeE) to settle native DOGE.
+    /// @param minOut Minimum net amount of `buyToken` (after fee) the recipient must receive.
+    /// @param recipient Destination of the bought token; `address(0)` disables settlement (tests only).
     struct Settlement { address buyToken; uint256 minOut; address recipient; }
-    /// @dev In-memory per-execute ledger (no mappings → memory-safe; linear scan, command lists are short).
+    /// @notice In-memory per-execute ledger of every token the call touches.
+    /// @dev No mappings → memory-safe; linear scan, command lists are short. `entry` is each token's
+    ///      balance at first reference (native seeded as balance - msg.value); `pulled` is the
+    ///      running input total used for the notional cap. All accounting uses `current - entry`.
+    /// @param tokens Distinct tokens referenced this call (index 0 is always NATIVE).
+    /// @param entry Each token's balance snapshot at first reference (excludes incoming msg.value for native).
+    /// @param pulled Running per-token input total accrued for the aggregate notional cap (I8).
+    /// @param count Number of populated entries.
     struct Ledger { address[] tokens; uint256[] entry; uint256[] pulled; uint256 count; }
 
+    /// @notice Canonical Uniswap Permit2 (same address on every chain).
     IAllowanceTransfer public constant PERMIT2 = IAllowanceTransfer(Constants.PERMIT2);
+    /// @notice Sentinel address denoting native DOGE in settlement and the ledger.
     address public constant NATIVE = Constants.NATIVE;
+    /// @notice Immutable WDOGE (wrapped native) contract; the only authorized `receive()` sender.
     address public immutable WDOGE;
+    /// @notice Immutable MuchFi V2 router (whitelisted venue).
     address public immutable MUCHFI_V2_ROUTER;
+    /// @notice Immutable MuchFi V3 router (whitelisted venue).
     address public immutable MUCHFI_V3_ROUTER;
+    /// @notice Immutable Barkswap Algebra router (whitelisted venue).
     address public immutable BARKSWAP_ALGEBRA_ROUTER;
 
+    /// @notice Pause-only guardian key (may be address(0)).
     address public guardian;
+    /// @notice Protocol fee in basis points (<= MAX_FEE_BPS); 0 disables the fee.
     uint256 public feeBps;
+    /// @notice Recipient of the protocol fee (only paid when `feeBps != 0`).
     address public feeRecipient;
+    /// @notice Default per-execute aggregate input cap for tokens without a specific cap (0 = no default cap).
     uint256 public defaultMaxInputPerTx;              // 0 = no default cap
+    /// @notice Per-token per-execute aggregate input cap (0 = use default; type(uint256).max = explicitly uncapped).
     mapping(address => uint256) public maxInputPerTx; // 0 = use default; type(uint256).max = explicitly uncapped
 
     error DeadlineExpired(); error LengthMismatch(); error UnknownCommand(); error Unauthorized();
@@ -45,30 +88,76 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
     event Swapped(address indexed sender, address indexed recipient);
     event Rescued(address indexed token, address indexed to, uint256 amount);
 
+    /// @notice Deploys the router, fixing the owner, guardian, and the immutable venue/WDOGE set.
+    /// @dev Venue and WDOGE addresses are immutable for the contract's lifetime. `owner_` should be
+    ///      an OpenZeppelin `TimelockController` in production; `guardian_` may be `address(0)` to
+    ///      disable guardian-triggered pause (owner can still pause/unpause).
+    /// @param owner_ Initial owner (intended TimelockController) — controls fee/cap/guardian/unpause/rescue.
+    /// @param guardian_ Pause-only key for fast incident response (may be address(0)).
+    /// @param wdoge_ Immutable WDOGE (wrapped native) contract used for wrap/unwrap and as the only `receive()` sender.
+    /// @param v2_ Immutable MuchFi V2 router.
+    /// @param v3_ Immutable MuchFi V3 router.
+    /// @param alg_ Immutable Barkswap Algebra router.
     constructor(address owner_, address guardian_, address wdoge_, address v2_, address v3_, address alg_)
         Ownable(owner_)
     { guardian = guardian_; WDOGE = wdoge_; MUCHFI_V2_ROUTER = v2_; MUCHFI_V3_ROUTER = v3_; BARKSWAP_ALGEBRA_ROUTER = alg_; }
 
+    /// @notice Accepts native DOGE only from WDOGE (unwrap proceeds); reverts for any other sender.
+    /// @dev Guards against arbitrary native inflows that the per-execute ledger would not have snapshotted.
     receive() external payable { if (msg.sender != WDOGE) revert Unauthorized(); }
 
     // ---- admin (owner == TimelockController) ----
+    /// @notice Sets the guardian (pause-only) key. Owner-only.
+    /// @dev `address(0)` is a valid state that disables guardian-triggered pause.
+    /// @param g New guardian address.
     function setGuardian(address g) external onlyOwner { guardian = g; emit GuardianUpdated(g); }
+    /// @notice Sets the protocol fee (basis points) and its recipient. Owner-only.
+    /// @dev Reverts `FeeTooHigh` if `bps > MAX_FEE_BPS` (1%). Fee is a no-op in settlement when 0.
+    /// @param bps Fee in basis points (<= MAX_FEE_BPS).
+    /// @param r Fee recipient (only paid when `bps != 0`).
     function setFee(uint256 bps, address r) external onlyOwner {
         if (bps > Constants.MAX_FEE_BPS) revert FeeTooHigh();
         feeBps = bps; feeRecipient = r; emit FeeUpdated(bps, r);
     }
+    /// @notice Sets the default per-execute aggregate input cap for tokens without a specific cap. Owner-only.
+    /// @dev `0` means no default cap (such tokens are uncapped unless they have a per-token cap).
+    /// @param a New default aggregate-input cap per execute.
     function setDefaultMaxInputPerTx(uint256 a) external onlyOwner { defaultMaxInputPerTx = a; emit DefaultMaxInputUpdated(a); }
+    /// @notice Sets a per-token per-execute aggregate input cap. Owner-only.
+    /// @dev `0` => fall back to the default cap; `type(uint256).max` => explicitly uncapped.
+    /// @param t Token to cap.
+    /// @param a Aggregate-input cap per execute for `t`.
     function setMaxInputPerTx(address t, uint256 a) external onlyOwner { maxInputPerTx[t] = a; emit MaxInputUpdated(t, a); }
+    /// @notice Pauses `execute`. Callable by the guardian or the owner (fast incident response).
+    /// @dev Non-destructive; only the owner can `unpause`.
     function pause() external { if (msg.sender != guardian && msg.sender != owner()) revert Unauthorized(); _pause(); }
+    /// @notice Unpauses `execute`. Owner-only (guardian cannot unpause).
     function unpause() external onlyOwner { _unpause(); }
 
     /// @notice Recover funds NEVER brought in via execute (airdrops/stranded). Not reachable from execute().
+    /// @dev Owner-only (Timelock) escape hatch for genuinely stuck pre-existing balances, which the
+    ///      per-execute ledger makes unspendable through `execute`. Use `NATIVE` to rescue native DOGE.
+    /// @param token Token to recover (or `NATIVE` for native DOGE).
+    /// @param to Destination for the recovered funds.
+    /// @param amount Amount to recover.
     // slither-disable-next-line reentrancy-events
     function rescue(address token, address to, uint256 amount) external onlyOwner { // onlyOwner (Timelock); event-after-call is benign for an admin-only escape hatch
         _pay(token, to, amount); emit Rescued(token, to, amount);
     }
 
     // ---- core ----
+    /// @notice Executes an atomic command program (pulls, swaps, wraps) then enforces final settlement.
+    /// @dev One byte per command in `commands`; `inputs[i]` is the ABI-encoded args for command `i`.
+    ///      Reverts if paused, past `deadline`, or on length mismatch. Builds a per-execute in-memory
+    ///      `Ledger` (native entry excludes `msg.value`; buyToken entry snapshotted up front), runs each
+    ///      command via `_dispatch`, then `_settle`: takes the capped fee, requires the measured buyToken
+    ///      delta >= `s.minOut`, pays the recipient, and refunds leftover input deltas to `msg.sender`.
+    ///      All amounts are balance deltas, so pre-existing/stranded funds are unspendable here.
+    ///      `payable` to support native DOGE in (wrap) flows. Guarded by `nonReentrant` (EIP-1153).
+    /// @param commands Ordered command ids (one byte each); see `Commands`.
+    /// @param inputs ABI-encoded arguments for each command (same length as `commands`).
+    /// @param s Final settlement (buyToken, minOut, recipient); `recipient == address(0)` disables it.
+    /// @param deadline Unix timestamp after which the call reverts `DeadlineExpired`.
     function execute(bytes calldata commands, bytes[] calldata inputs, Settlement calldata s, uint256 deadline)
         external payable whenNotPaused nonReentrant
     {

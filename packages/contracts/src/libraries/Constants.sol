@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+/// @notice Shared constants for DogeOSAggregationRouter: sentinels, fee cap, and canonical Permit2.
 library Constants {
     /// @dev Sentinel meaning "use the router's full current balance of the token".
     uint256 internal constant CONTRACT_BALANCE = type(uint256).max;

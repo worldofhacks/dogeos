@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+/// @notice Minimal WDOGE (wrapped native) interface used for wrap/unwrap in the router.
 interface IWETH9 {
     function deposit() external payable;
     function withdraw(uint256 amount) external;

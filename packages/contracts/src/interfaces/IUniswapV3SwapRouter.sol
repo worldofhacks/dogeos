@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+/// @notice Minimal MuchFi V3 (Uniswap-V3-style) SwapRouter interface for exact-input single swaps.
 interface IUniswapV3SwapRouter {
     struct ExactInputSingleParams {
         address tokenIn;
