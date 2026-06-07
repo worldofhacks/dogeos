@@ -21,7 +21,8 @@ the router question only**; its non-goals around owned DEX/pools/liquidity still
 
 | Area | Decision |
 | --- | --- |
-| Router model | Unified single-chain atomic router now; cross-chain settlement seam designed for, built later |
+| Router model | Single-chain atomic router; the contract stays single-chain. Cross-chain is handled entirely off-chain (see Cross-chain) and needs no router changes |
+| Cross-chain | Via **NEAR Intents** (off-chain 1Click API), **built now** as Sub-project D. DogeOS isn't a NEAR-Intents-supported chain, so DogeOS-native cross-chain uses an **interim Dogecoin-L1 bridge hop** now (DOGE-focused); a DogeOS listing request is filed to replace the hop later. Router stays single-chain (no contract changes) |
 | Security bar | Mainnet-launch-ready: threat model, invariants, fuzzing, audit-prep package |
 | Architecture | Command/Executor (Universal Router style), hard-constrained |
 | Upgradeability | Immutable, non-proxy; versioned redeploy. Permit2 makes migration need no user re-approval |
@@ -58,18 +59,31 @@ Permit2 signing in the wallet layer, MEV/slippage controls, multi-leg atomic tra
 lifecycle UI, route-provenance visualization, price charts, portfolio/positions, and a
 source-health dashboard. Gets its own spec.
 
+### D. Cross-chain via NEAR Intents (off-chain, built now)
+An off-chain 1Click API client (quote → deposit address → status → refund) plus the interim
+DogeOS ↔ Dogecoin-L1 canonical-bridge hop, so DogeOS-native DOGE cross-chain works now, and
+the general supported-chain cross-chain flow. Needs **no router contract changes** — the
+router's `SWEEP`-to-any-recipient suffices. A DogeOS listing request to NEAR Intents runs
+alongside to retire the interim hop later. Detailed in
+`2026-06-06-dogeos-cross-chain-near-intents-spec.md`.
+
 ## Build order & dependencies
 
 ```
 A (router) ──► B (routing engine / compiler) ──► C (premium UX)
                          ▲                          │
                          └──── C's Permit2 signing overlaps B ──┘
+
+D (cross-chain / NEAR Intents) ── runs in parallel; off-chain, independent of the router
 ```
 
-- A is the hard dependency: B's compiler targets A's command ABI, and C's swap flow targets
-  A's Permit2 mode.
+- A is the hard dependency for B and C: B's compiler targets A's command ABI, and C's swap
+  flow targets A's Permit2 mode.
 - The Permit2 wallet-signing work in C can start in parallel with B once A's command ABI and
   Permit2 mode are frozen.
+- D is independent of A: it depends on the NEAR Intents 1Click API and the DogeOS canonical
+  bridge, not the router. It can be built in parallel; its UI folds into C's app shell, and
+  the interim hop reuses A's router only for the optional local DogeOS swap leg.
 
 ## Cross-cutting principle: Security
 
@@ -112,13 +126,16 @@ Recorded now; not built in the testnet phase.
 - External security audit using the audit-prep package produced in sub-project A.
 - Migrate keys to a true multisig (add Safe co-signers) and confirm timelock parameters.
 - Raise or remove the staged notional cap per real-world confidence.
+- Confirm a DogeOS listing on NEAR Intents to retire the interim Dogecoin-L1 bridge hop.
 
 ## Non-goals (program-wide)
 
 - No owned DEX, pool factory, pool creation, liquidity management, or deployment surface.
 - No arbitrary calldata execution; the router command set is a fixed whitelist.
-- No cross-chain execution in this program (the router is *designed* with a settlement seam
-  for a later, separately specced phase).
+- No cross-chain *contract* logic: the router stays single-chain. Cross-chain is delivered
+  off-chain via NEAR Intents (Sub-project D), with an interim Dogecoin-L1 canonical-bridge hop
+  for DogeOS-native DOGE flows. We operate no solvers or bridges — we integrate NEAR Intents'
+  1Click API and the DogeOS canonical bridge.
 - No limit orders or TWAP/DCA.
 - No gasless relayer / meta-transactions (Permit2 here is not gasless; the user pays gas and
   self-sends every swap).

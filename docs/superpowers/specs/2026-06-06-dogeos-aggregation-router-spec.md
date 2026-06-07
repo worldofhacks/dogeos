@@ -12,7 +12,8 @@ Build a mainnet-launch-grade, immutable, command/executor **aggregation router**
 that executes atomic single, split, and multi-hop swaps across the verified DogeOS venues
 (MuchFi V2, MuchFi V3, Barkswap Algebra) in one all-or-nothing transaction, pulls funds via
 Permit2 AllowanceTransfer, enforces `minOut` + `deadline` on-chain, supports an off-by-default
-capped protocol fee, and is designed with a clean seam for cross-chain settlement later.
+capped protocol fee. It stays single-chain: cross-chain (NEAR Intents, Sub-project D) is delivered
+off-chain and needs only `SWEEP` to a deposit address — no contract changes.
 
 The router must hold ~zero token balance between transactions, only ever move funds to a
 known set of destinations, only ever call whitelisted immutable venues, and degrade safely
@@ -76,9 +77,11 @@ function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadl
 | `MIN_OUT_CHECK` | Assert accumulated `buyToken` ≥ `minOut` (balance-delta based). |
 | `SWEEP` | Send `buyToken` to recipient; refund any leftover sell/intermediate tokens and native to the user. |
 
-Cross-chain seam (later, separately specced): a `SETTLE_REMOTE` command family that routes
-the swept output to a bridge/settlement adapter instead of the local recipient. Not built
-now; the accounting model already supports "output destination is parameterized."
+Cross-chain note: cross-chain is delivered **off-chain** via NEAR Intents (Sub-project D), not
+by a router command. The router's `SWEEP` already targets any recipient (including a 1Click
+deposit address), so **no `SETTLE_REMOTE` command or on-chain bridge/settlement logic is
+added** — the audited surface stays single-chain. A future on-chain settlement command would
+be a separate, separately-audited addition, only if a non-1Click model ever requires it.
 
 ### Custody & accounting model
 
@@ -268,7 +271,8 @@ point and the fix:
 ## Non-goals
 
 Inherits the program non-goals. Specifically for this contract: no owned DEX/pools/liquidity;
-no arbitrary calldata; no cross-chain execution (seam only); no limit orders/TWAP; no gasless
+no arbitrary calldata; no cross-chain logic in the contract (cross-chain is off-chain via NEAR
+Intents; the router only needs `SWEEP`-to-any-recipient); no limit orders/TWAP; no gasless
 relayer; no proxy upgrades; no on-chain token allowlist (safety is balance-delta + SafeERC20
 based).
 
