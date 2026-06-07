@@ -9,10 +9,10 @@ The deploy is one broadcast that, in order:
 
 1. Deterministically deploys **Permit2** to its canonical address (only if it is absent).
 2. Deploys a **TimelockController** (proposer + executor + admin = `ROUTER_SAFE`).
-3. Deploys the immutable **DogeOSAggregationRouter** (owner temporarily = deployer, guardian = `ROUTER_GUARDIAN`).
+3. Deploys the immutable **DogeSwapRouter** (owner temporarily = deployer, guardian = `ROUTER_GUARDIAN`).
 4. **Caps** the router (`defaultMaxInputPerTx` + per-token WDOGE/USDC[/USDT]) and asserts `feeBps() == 0`
    so the router is **never live-and-uncapped**.
-5. Deploys a **RouterRegistry**, points it at the router, and transfers the registry to `ROUTER_SAFE`.
+5. Deploys a **DogeSwapRegistry**, points it at the router, and transfers the registry to `ROUTER_SAFE`.
 6. Transfers the router owner to the timelock (`Ownable2Step` → pending owner = timelock).
 
 The **final handover** (`timelock.acceptOwnership()` on the router) is a post-deploy governance action
@@ -150,8 +150,8 @@ Record the four addresses the script logs:
 |----------|---------|-------|
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | canonical (deterministic) |
 | TimelockController | `__________` | proposer/executor/admin = ROUTER_SAFE |
-| DogeOSAggregationRouter | `__________` | pending owner = timelock; feeBps=0; capped |
-| RouterRegistry | `__________` | pending owner = ROUTER_SAFE |
+| DogeSwapRouter | `__________` | pending owner = timelock; feeBps=0; capped |
+| DogeSwapRegistry | `__________` | pending owner = ROUTER_SAFE |
 
 ---
 
@@ -168,7 +168,7 @@ Compute the calldata once:
 
 ```sh
 ACCEPT=$(cast calldata "acceptOwnership()")
-ROUTER=<DogeOSAggregationRouter address>
+ROUTER=<DogeSwapRouter address>
 TIMELOCK=<TimelockController address>
 DELAY=<TIMELOCK_MIN_DELAY, e.g. 172800>
 ```
@@ -203,12 +203,12 @@ Confirm: `cast call $ROUTER "owner()(address)"` returns the timelock address.
 > In production these two Safe transactions are proposed/signed/executed through the Safe UI or
 > Safe transaction service rather than a raw EOA. The function signatures above are identical.
 
-### 6b. RouterRegistry owner → Safe
+### 6b. DogeSwapRegistry owner → Safe
 
 The registry's pending owner is `ROUTER_SAFE`. The Safe accepts directly (no timelock):
 
 ```sh
-cast send <RouterRegistry address> "acceptOwnership()" \
+cast send <DogeSwapRegistry address> "acceptOwnership()" \
   --rpc-url https://rpc.testnet.dogeos.com --account <safe-signer-or-Safe-tx>
 ```
 
@@ -223,8 +223,8 @@ Confirm: `cast call <registry> "owner()(address)"` returns `ROUTER_SAFE`.
 | Deploy tx hash | `__________` |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | TimelockController | `__________` |
-| DogeOSAggregationRouter | `__________` |
-| RouterRegistry | `__________` |
+| DogeSwapRouter | `__________` |
+| DogeSwapRegistry | `__________` |
 | ROUTER_SAFE | `__________` |
 | ROUTER_GUARDIAN | `__________` |
 | TIMELOCK_MIN_DELAY | `__________` |
@@ -261,7 +261,7 @@ cast create2 \
 ```sh
 export PATH="$HOME/.foundry/bin:$PATH"
 cd packages/contracts
-forge test --match-contract "RouterRegistryTest|RouterGovernanceTest"          # PASS
+forge test --match-contract "DogeSwapRegistryTest|RouterGovernanceTest"          # PASS
 forge test --match-contract RouterForkTest --fork-url https://rpc.testnet.dogeos.com -vv  # PASS / clean SKIP
 forge test                                                                      # full suite, no regressions
 ```

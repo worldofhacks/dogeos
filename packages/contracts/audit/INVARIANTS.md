@@ -1,9 +1,9 @@
-# Invariants I1–I8 — DogeOSAggregationRouter
+# Invariants I1–I8 — DogeSwapRouter
 
 Invariants transcribed verbatim from the spec
 (`docs/superpowers/specs/2026-06-06-dogeos-aggregation-router-spec.md`, lines 193–200) and from
 the Hardening Revisions' fuzz-coverage note (lines 365–373). For each: how it is **enforced**
-(structural mechanism in `src/DogeOSAggregationRouter.sol`) and how it is **verified**.
+(structural mechanism in `src/DogeSwapRouter.sol`) and how it is **verified**.
 
 Verification key:
 - **Fuzzed (Foundry):** stateful invariant in `RouterInvariants.t.sol`, sole target
@@ -53,7 +53,7 @@ Verification key:
 - **Verified — Fuzzed:** `RouterInvariants.t.sol::invariant_I4_feeExactAndCapped` (relative bound
   `feeOut*10000 ≤ grossOut*feeBps`, `feeBps ≤ MAX_FEE_BPS`, and `feeRecipient`'s balance ==
   accrued fee — no leakage). Deterministic: `RouterSwaps.integration.t.sol::test_fee_takenInSettlement`;
-  `DogeOSAggregationRouter.t.sol::test_setFee_revertsAboveCap_andOwnerOnly`.
+  `DogeSwapRouter.t.sol::test_setFee_revertsAboveCap_andOwnerOnly`.
 
 ## I5 — Funds only move to `{recipient, feeRecipient, whitelisted venue, user refund}`.
 - **Enforced (structural):** every payout/refund routes through `_pay`, whose destinations are
@@ -73,7 +73,7 @@ Verification key:
 - **Verified — Deterministic** (I6 is deterministic, not fuzzed):
   `RouterInvariants.t.sol::test_I6_pausedReverts` and
   `RouterInvariants.t.sol::test_I6_expiredDeadlineReverts` (both also assert no state change /
-  no funds pulled). Also `DogeOSAggregationRouter.t.sol::test_execute_revertsOnExpiredDeadline`
+  no funds pulled). Also `DogeSwapRouter.t.sol::test_execute_revertsOnExpiredDeadline`
   and `test_pause_blocksExecute_andRolesEnforced`.
 
 ## I7 — Only whitelisted venues are ever called.
@@ -83,7 +83,7 @@ Verification key:
 - **Verified — Fuzzed (call-tracing mock):**
   `RouterInvariants.t.sol::invariant_I7_onlyWhitelistedVenue` asserts the V3 mock's recorded
   `lastCaller()` is only ever `address(router)` (or zero) across 25,600 calls. Deterministic:
-  `DogeOSAggregationRouter.t.sol::test_execute_revertsOnUnknownCommand`.
+  `DogeSwapRouter.t.sol::test_execute_revertsOnUnknownCommand`.
 
 ## I8 — Input value per `execute` ≤ the active notional cap.
 - **Enforced (structural):** `_accrueInput` maintains a running per-token `pulled` total over the

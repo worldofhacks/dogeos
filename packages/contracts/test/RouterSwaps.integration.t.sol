@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Router} from "./mocks/MockV2Router.sol";
@@ -15,7 +15,7 @@ import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
     IAllowanceTransfer internal permit2;
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     MockV2Router internal v2;
     MockV3Router internal v3;
     MockAlgebraRouter internal alg;
@@ -32,7 +32,7 @@ contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
         v2 = new MockV2Router();
         v3 = new MockV3Router();
         alg = new MockAlgebraRouter();
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             owner, makeAddr("g"), makeAddr("w"), address(v2), address(v3), address(alg)
         );
         tin = new MockERC20("IN", "IN");
@@ -49,9 +49,9 @@ contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
     function _settlement(address buyToken, uint256 minOut, address to)
         internal
         pure
-        returns (DogeOSAggregationRouter.Settlement memory)
+        returns (DogeSwapRouter.Settlement memory)
     {
-        return DogeOSAggregationRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
+        return DogeSwapRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
     }
 
     /// @dev Build a freshly-signed Permit2 PermitSingle for `tin` (nonce 0) and its signature.
@@ -198,7 +198,7 @@ contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
         inputs[0] = _v2Input(250e18, 0, address(tin), address(tout)); // explicit > delta(0)
 
         vm.prank(attacker);
-        vm.expectRevert(DogeOSAggregationRouter.InsufficientLedgerBalance.selector);
+        vm.expectRevert(DogeSwapRouter.InsufficientLedgerBalance.selector);
         router.execute(commands, inputs, _settlement(address(tout), 0, attacker), block.timestamp + 1 hours);
     }
 
@@ -269,7 +269,7 @@ contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
         (bytes memory commands, bytes[] memory inputs) = _assemble(pc, pi, bytes1(0x03), swapInput);
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.MinOutNotMet.selector);
+        vm.expectRevert(DogeSwapRouter.MinOutNotMet.selector);
         router.execute(commands, inputs, _settlement(address(tout), 100e18, recipient), block.timestamp + 1 hours);
     }
 }

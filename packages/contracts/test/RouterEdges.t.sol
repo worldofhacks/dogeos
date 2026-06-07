@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
@@ -15,7 +15,7 @@ import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
     IAllowanceTransfer internal permit2;
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     MockV3Router internal v3;
     MockWDOGE internal wdoge;
     MockERC20 internal tin;
@@ -30,7 +30,7 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         permit2 = IAllowanceTransfer(deployPermit2());
         wdoge = new MockWDOGE();
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             owner, makeAddr("g"), address(wdoge), makeAddr("v2"), address(v3), makeAddr("alg")
         );
         tin = new MockERC20("IN", "IN");
@@ -46,13 +46,13 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
     function _settlement(address buyToken, uint256 minOut, address to)
         internal
         pure
-        returns (DogeOSAggregationRouter.Settlement memory)
+        returns (DogeSwapRouter.Settlement memory)
     {
-        return DogeOSAggregationRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
+        return DogeSwapRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
     }
 
-    function _noop() internal pure returns (DogeOSAggregationRouter.Settlement memory) {
-        return DogeOSAggregationRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+    function _noop() internal pure returns (DogeSwapRouter.Settlement memory) {
+        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
     }
 
     /// @dev Build a freshly-signed Permit2 PermitSingle for `tin` at `nonce` and its signature.
@@ -157,7 +157,7 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         inputs[0] = abi.encode(Constants.CONTRACT_BALANCE); // wraps 5 > 3 cap
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NotionalCapExceeded.selector);
+        vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
         router.execute{value: 5 ether}(commands, inputs, _noop(), block.timestamp + 1 hours);
     }
 
@@ -253,7 +253,7 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         inputs[3] = unwrapIn;
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NativeTransferFailed.selector);
+        vm.expectRevert(DogeSwapRouter.NativeTransferFailed.selector);
         router.execute(
             commands, inputs, _settlement(Constants.NATIVE, 0, badRecipient), block.timestamp + 1 hours
         );

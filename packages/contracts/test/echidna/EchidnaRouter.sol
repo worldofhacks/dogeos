@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {Commands} from "../../src/libraries/Commands.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3Router} from "../mocks/MockV3Router.sol";
 
-/// @title Echidna assertion harness for DogeOSAggregationRouter (stranded-fund guard).
+/// @title Echidna assertion harness for DogeSwapRouter (stranded-fund guard).
 /// @notice Echidna cannot sign Permit2, so this harness deliberately avoids the
 ///         signed-input path. Instead it pre-seeds the router with *stranded* `tin`
 ///         (an airdrop-style balance never pulled in via this execute) and fuzzes the
@@ -24,7 +24,7 @@ import {MockV3Router} from "../mocks/MockV3Router.sol";
 ///           P3 (min-out honored on a real inflow): a settlement that mints fresh `tout`
 ///               into the router via the swap delivers `recipient >= minOut`.
 contract EchidnaRouter {
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     MockV3Router internal v3;
     MockERC20 internal tin;
     MockERC20 internal tout;
@@ -35,7 +35,7 @@ contract EchidnaRouter {
     constructor() {
         v3 = new MockV3Router();
         // Router wired: owner = this harness, guardian/wdoge unused for these props.
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             address(this),          // owner_
             address(this),          // guardian_
             address(0xDEAD),        // wdoge_ (unused in these properties)
@@ -60,9 +60,9 @@ contract EchidnaRouter {
     function _settlement(address to, uint256 minOut)
         internal
         view
-        returns (DogeOSAggregationRouter.Settlement memory)
+        returns (DogeSwapRouter.Settlement memory)
     {
-        return DogeOSAggregationRouter.Settlement({buyToken: address(tout), minOut: minOut, recipient: to});
+        return DogeSwapRouter.Settlement({buyToken: address(tout), minOut: minOut, recipient: to});
     }
 
     // ---- fuzzed entry points (assertion mode) ----

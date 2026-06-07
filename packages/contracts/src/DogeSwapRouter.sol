@@ -14,7 +14,7 @@ import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
 import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
 import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 
-/// @title DogeOSAggregationRouter
+/// @title DogeSwapRouter
 /// @author DogeOS
 /// @notice Immutable, command/executor aggregation router for DogeOS. Executes atomic single,
 ///         split, and multi-hop swaps across the whitelisted DogeOS venues (MuchFi V2, MuchFi V3,
@@ -31,7 +31,7 @@ import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 ///      contract guarantee (I2). Non-upgradeable: upgrades are a fresh deployment. Governance
 ///      (`owner`) is intended to be an OpenZeppelin `TimelockController`; the `guardian` is
 ///      pause-only. See `docs/superpowers/specs/2026-06-06-dogeos-aggregation-router-spec.md`.
-contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
+contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /// @notice Final settlement enforced after the command loop, independent of the command program.

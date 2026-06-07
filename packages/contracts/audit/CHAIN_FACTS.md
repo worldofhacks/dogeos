@@ -82,7 +82,7 @@ Per https://docs.dogeos.com/en/developers/ethereum-and-dogeos-differences, DogeO
 | `SELFDESTRUCT`                            | DISABLED       | reverts |
 | `BLOBHASH` / `BLOBBASEFEE` / EIP-4788     | UNAVAILABLE    | no blob/beacon-root support |
 
-**Router impact:** `DogeOSAggregationRouter` uses **none** of the unsupported
+**Router impact:** `DogeSwapRouter` uses **none** of the unsupported
 precompiles/opcodes. It relies only on `ecrecover` (via Permit2 / EIP-712), which
 IS available, so Permit2 signature flows are safe on DogeOS.
 

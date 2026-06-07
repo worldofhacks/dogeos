@@ -1,9 +1,9 @@
-# DogeOS Routing Engine (Router Integration) — Sub-project B Spec
+# DogeSwap Routing Engine (Router Integration) — Sub-project B Spec
 
 Date: 2026-06-07
 Status: Draft for review (program-approved; grounded in the built Sub-project A router)
 Part of: `2026-06-06-dogeos-premium-aggregator-v2-program.md`
-Depends on: Sub-project A (`packages/contracts/` — the `DogeOSAggregationRouter`, built & audited)
+Depends on: Sub-project A (`packages/contracts/` — the `DogeSwapRouter`, built & audited)
 
 ## Objective
 
@@ -23,7 +23,7 @@ This is **off-chain only** — no contract changes. It targets the frozen A inte
 - Command bytes (movement-only): `0x00 PERMIT2_PERMIT (PermitSingle, bytes sig)` · `0x01 PERMIT2_TRANSFER_FROM (address token, uint160 amount)` · `0x02 V2_SWAP (uint256 amountIn, uint256 amountOutMin, address[] path)` · `0x03 V3_SWAP (address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint256 amountOutMin)` · `0x04 ALGEBRA_SWAP (address tokenIn, address tokenOut, address deployer, uint256 amountIn, uint256 amountOutMin)` · `0x05 WRAP_NATIVE (uint256 amount)` · `0x06 UNWRAP_NATIVE (uint256 amount)`
 - `CONTRACT_BALANCE = type(uint256).max` means "spend the per-execute delta of that token."
 - Permit2 owner is **always msg.sender**; users approve **Permit2** (not the router); AllowanceTransfer mode (approve once, periodic permit signature, per-swap pull needs only the swap tx when a live allowance exists).
-- Router address is read from the on-chain `RouterRegistry.currentRouter()` (immutable + versioned redeploy).
+- Router address is read from the on-chain `DogeSwapRegistry.currentRouter()` (immutable + versioned redeploy).
 
 ## Architecture
 
@@ -57,13 +57,13 @@ Mapping rules:
 - Read the current `(amount, expiration, nonce)` from `Permit2.allowance(owner, token, router)`; **skip the permit command when a live, sufficient allowance exists** (the live-allowance optimization).
 
 ### B3. Execution source + registry — `packages/aggregator/src/sources/registry.mjs`
-- Add a `dogeos-aggregation-router` source (status ACTIVE once deployed/verified): router address (from `RouterRegistry`), command-ABI provenance, selector/bytecode evidence — reusing the existing verification discipline (`verification/`, `verify-dogeos-sources`).
+- Add a `dogeos-aggregation-router` source (status ACTIVE once deployed/verified): router address (from `DogeSwapRegistry`), command-ABI provenance, selector/bytecode evidence — reusing the existing verification discipline (`verification/`, `verify-dogeos-sources`).
 - Routes that were `readOnly` (one-hop/split) become executable **through the router** while remaining read-only through direct venues.
 
 ### B4. API changes — `packages/api/src/handler.mjs` + `live.mjs`
 - `/swap` returns the router `execute` transaction (`to/value/data` built from B1) **plus** the Permit2 payload to sign (from B2), instead of (or alongside) the direct-venue calldata.
 - `/approval` becomes "ensure the one-time Permit2 approval for the sell token."
-- Keep `createVerifiedCalldataBuilder` (direct per-venue) as the **paused-router fallback**: when `RouterRegistry`/router is paused, `/swap` falls back to the existing direct path for direct routes (and one-hop/split revert to read-only).
+- Keep `createVerifiedCalldataBuilder` (direct per-venue) as the **paused-router fallback**: when `DogeSwapRegistry`/router is paused, `/swap` falls back to the existing direct path for direct routes (and one-hop/split revert to read-only).
 - Add router-revert → user-message mapping (minOut, deadline, InsufficientLedgerBalance, NotionalCapExceeded, paused, permit invalid/expired).
 
 ### B5. Token-risk screening — `packages/aggregator/src/sources/tokenRisk.mjs`
@@ -81,7 +81,7 @@ Off-chain checks for the arbitrary-token policy: fee-on-transfer detection (simu
 - Permit2 unit tests: PermitSingle payload correctness (typehash/domain), live-allowance skip, approval-required logic, nonce handling.
 - API tests: `/swap` returns router calldata + permit payload; `/approval` Permit2; paused-router fallback to direct path; revert→message mapping.
 - Token-risk unit tests: FoT/low-liq/honeypot labels.
-- A round-trip test: compiler output decoded and run against the **actual contract** via a Foundry test fixture (optional, high-value) OR an ABI-decode assertion in JS that matches `DogeOSAggregationRouter` expectations.
+- A round-trip test: compiler output decoded and run against the **actual contract** via a Foundry test fixture (optional, high-value) OR an ABI-decode assertion in JS that matches `DogeSwapRouter` expectations.
 
 ## Acceptance criteria
 - A chosen direct/split/multi-hop route compiles to a valid `execute` program that the deployed router accepts (verified by decoding + a contract round-trip).

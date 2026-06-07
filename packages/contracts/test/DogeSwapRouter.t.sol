@@ -2,10 +2,10 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 
 contract RouterCoreTest is Test {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     address owner = makeAddr("owner");        // stands in for the Timelock
     address guardian = makeAddr("guardian");
     address wdoge = makeAddr("wdoge");
@@ -13,12 +13,12 @@ contract RouterCoreTest is Test {
     address v3 = makeAddr("v3");
     address algebra = makeAddr("algebra");
 
-    function _noopSettlement() internal pure returns (DogeOSAggregationRouter.Settlement memory) {
-        return DogeOSAggregationRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+    function _noopSettlement() internal pure returns (DogeSwapRouter.Settlement memory) {
+        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
     }
 
     function setUp() public {
-        router = new DogeOSAggregationRouter(owner, guardian, wdoge, v2, v3, algebra);
+        router = new DogeSwapRouter(owner, guardian, wdoge, v2, v3, algebra);
     }
 
     function test_constructor_setsImmutablesAndRoles() public view {
@@ -34,14 +34,14 @@ contract RouterCoreTest is Test {
     function test_execute_revertsOnExpiredDeadline() public {
         bytes memory commands = "";
         bytes[] memory inputs = new bytes[](0);
-        vm.expectRevert(DogeOSAggregationRouter.DeadlineExpired.selector);
+        vm.expectRevert(DogeSwapRouter.DeadlineExpired.selector);
         router.execute(commands, inputs, _noopSettlement(), block.timestamp == 0 ? 0 : block.timestamp - 1);
     }
 
     function test_execute_revertsOnLengthMismatch() public {
         bytes memory commands = hex"05"; // WRAP_NATIVE
         bytes[] memory inputs = new bytes[](0);
-        vm.expectRevert(DogeOSAggregationRouter.LengthMismatch.selector);
+        vm.expectRevert(DogeSwapRouter.LengthMismatch.selector);
         router.execute(commands, inputs, _noopSettlement(), block.timestamp + 1);
     }
 
@@ -49,13 +49,13 @@ contract RouterCoreTest is Test {
         bytes memory commands = hex"ff";
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = "";
-        vm.expectRevert(DogeOSAggregationRouter.UnknownCommand.selector);
+        vm.expectRevert(DogeSwapRouter.UnknownCommand.selector);
         router.execute(commands, inputs, _noopSettlement(), block.timestamp + 1);
     }
 
     function test_pause_blocksExecute_andRolesEnforced() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(DogeOSAggregationRouter.Unauthorized.selector);
+        vm.expectRevert(DogeSwapRouter.Unauthorized.selector);
         router.pause();
 
         vm.prank(guardian);
@@ -80,7 +80,7 @@ contract RouterCoreTest is Test {
         router.setFee(10, makeAddr("fee"));
 
         vm.prank(owner);
-        vm.expectRevert(DogeOSAggregationRouter.FeeTooHigh.selector);
+        vm.expectRevert(DogeSwapRouter.FeeTooHigh.selector);
         router.setFee(101, makeAddr("fee")); // > MAX_FEE_BPS (100)
 
         vm.prank(owner);

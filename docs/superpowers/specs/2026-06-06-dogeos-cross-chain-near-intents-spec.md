@@ -1,4 +1,4 @@
-# DogeOS Cross-Chain via NEAR Intents — Sub-project D Spec
+# DogeSwap Cross-Chain via NEAR Intents — Sub-project D Spec
 
 Date: 2026-06-06
 Status: Approved (brainstorming → ready for implementation plan); built in parallel with A.

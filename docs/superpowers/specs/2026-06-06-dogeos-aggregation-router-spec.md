@@ -1,4 +1,4 @@
-# DogeOS Aggregation Router — Sub-project A Spec
+# DogeSwap Router — Sub-project A Spec
 
 Date: 2026-06-06
 Status: Approved (brainstorming → ready for implementation plan)
@@ -150,7 +150,7 @@ spends more than the Permit2-authorized amount; funds only ever move to
 
 - The router is **immutable and non-upgradeable** (no proxy). Upgrades = deploy a fresh
   version.
-- A tiny immutable `RouterRegistry` (or off-chain config) records the current router address;
+- A tiny immutable `DogeSwapRegistry` (or off-chain config) records the current router address;
   the app reads it. Permit2 means migration needs no user re-approval.
 
 ## Token handling

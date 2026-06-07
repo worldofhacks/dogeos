@@ -2,11 +2,11 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {RouterRegistry} from "../src/RouterRegistry.sol";
+import {DogeSwapRegistry} from "../src/DogeSwapRegistry.sol";
 import {Ownable} from "openzeppelin/access/Ownable.sol";
 
-contract RouterRegistryTest is Test {
-    RouterRegistry internal registry;
+contract DogeSwapRegistryTest is Test {
+    DogeSwapRegistry internal registry;
 
     address internal owner = makeAddr("owner");
     address internal stranger = makeAddr("stranger");
@@ -16,7 +16,7 @@ contract RouterRegistryTest is Test {
     event RouterUpdated(address indexed router, uint256 version);
 
     function setUp() public {
-        registry = new RouterRegistry(owner);
+        registry = new DogeSwapRegistry(owner);
     }
 
     function test_constructor_setsOwnerAndZeroState() public view {

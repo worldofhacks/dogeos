@@ -1,4 +1,4 @@
-# DogeOS Premium Aggregator v2 — Program Roadmap
+# DogeSwap Premium Aggregator v2 — Program Roadmap
 
 Date: 2026-06-06
 Status: Approved (brainstorming → specs)

@@ -3,9 +3,9 @@ pragma solidity 0.8.30;
 
 import {Ownable2Step, Ownable} from "openzeppelin/access/Ownable2Step.sol";
 
-/// @title RouterRegistry
+/// @title DogeSwapRegistry
 /// @author DogeOS
-/// @notice On-chain pointer to the current canonical DogeOSAggregationRouter deployment.
+/// @notice On-chain pointer to the current canonical DogeSwapRouter deployment.
 /// @dev The aggregation router is immutable (non-upgradeable): a router "upgrade" is a fresh
 ///      deployment. Off-chain integrators (the web app, indexers, partner front-ends) read
 ///      `currentRouter()` here to discover the live router without redeploying themselves, and
@@ -13,7 +13,7 @@ import {Ownable2Step, Ownable} from "openzeppelin/access/Ownable2Step.sol";
 ///      controlled by the project Safe (the registry owner is transferred to `ROUTER_SAFE` at
 ///      deploy time). Pointing the registry at a new router is a single, auditable, two-step-owned
 ///      action — it does NOT move funds and does NOT touch the router's own governance.
-contract RouterRegistry is Ownable2Step {
+contract DogeSwapRegistry is Ownable2Step {
     /// @notice The address of the current canonical aggregation router.
     address public currentRouter;
     /// @notice Monotonically increasing counter, incremented on every `setCurrentRouter` call.

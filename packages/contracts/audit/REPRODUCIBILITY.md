@@ -1,4 +1,4 @@
-# Reproducibility — DogeOSAggregationRouter
+# Reproducibility — DogeSwapRouter
 
 Everything needed to byte-for-byte reproduce the build, tests, and security tooling.
 All commands run from `packages/contracts/` with Foundry on PATH
@@ -67,7 +67,7 @@ Key dependency facts:
 `find src -name '*.sol' | xargs wc -l`:
 
 ```
- 217 src/DogeOSAggregationRouter.sol
+ 217 src/DogeSwapRouter.sol
   14 src/libraries/Constants.sol
   15 src/libraries/Commands.sol
   10 src/interfaces/IWETH9.sol
@@ -104,7 +104,7 @@ forge test --match-contract RouterInvariantsTest   # I1–I8 suite
 ### Slither (static analysis — config `slither.config.json`, `fail_on: high`)
 ```sh
 slither . 2>&1 | tee ../../slither-run.txt
-# Scope: src/DogeOSAggregationRouter.sol; filter_paths = lib|test|script;
+# Scope: src/DogeSwapRouter.sol; filter_paths = lib|test|script;
 # exclude_dependencies = true. Exits 0; triage in audit/SLITHER_TRIAGE.md.
 ```
 

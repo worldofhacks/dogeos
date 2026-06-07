@@ -1,15 +1,15 @@
-# Threat Model — DogeOSAggregationRouter
+# Threat Model — DogeSwapRouter
 
 Methodology: Trail of Bits audit-prep. Each row transcribes the spec's
 `Security program → Threat model → mitigation` table
 (`docs/superpowers/specs/2026-06-06-dogeos-aggregation-router-spec.md`, lines 177–189),
 updated by the authoritative **Hardening Revisions** (H1–H4), and maps it to:
-(1) the exact mitigation in `src/DogeOSAggregationRouter.sol` (function + mechanism), and
+(1) the exact mitigation in `src/DogeSwapRouter.sol` (function + mechanism), and
 (2) the test(s) that prove it (`file::testName`).
 
 Scope: single-chain router only. Cross-chain is delivered off-chain via NEAR Intents
 (Sub-project D); no on-chain bridge/settlement command exists, so the audited surface is
-movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unless noted.
+movement-only. All line references are to `src/DogeSwapRouter.sol` unless noted.
 
 ---
 
@@ -69,8 +69,8 @@ movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unle
   (`MUCHFI_V2_ROUTER`, `MUCHFI_V3_ROUTER`, `BARKSWAP_ALGEBRA_ROUTER`, `WDOGE`) are `immutable`,
   set in the constructor; no input field ever supplies a call destination. Fee/min-out/payout
   are handled by enforced settlement, not by user commands.
-- **Proof:** `DogeOSAggregationRouter.t.sol::test_execute_revertsOnUnknownCommand`;
-  `DogeOSAggregationRouter.t.sol::test_constructor_setsImmutablesAndRoles`;
+- **Proof:** `DogeSwapRouter.t.sol::test_execute_revertsOnUnknownCommand`;
+  `DogeSwapRouter.t.sol::test_constructor_setsImmutablesAndRoles`;
   `RouterInvariants.t.sol::invariant_I7_onlyWhitelistedVenue` (call-tracing mock asserts the
   only venue caller is the router).
 
@@ -82,10 +82,10 @@ movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unle
   `unpause`, `rescue`) are `onlyOwner`; ownership transfer is `Ownable2Step` (two-step, no
   accidental hand-off). The intended `owner` is an OZ `TimelockController` (H4) so changes
   carry a 24–48h delay; guardian is pause-only.
-- **Proof:** `DogeOSAggregationRouter.t.sol::test_setFee_revertsAboveCap_andOwnerOnly`;
+- **Proof:** `DogeSwapRouter.t.sol::test_setFee_revertsAboveCap_andOwnerOnly`;
   `RouterPermit2.t.sol::test_rescue_ownerOnly`;
   `RouterInvariants.t.sol::invariant_I4_feeExactAndCapped` (fee exact, ≤ cap, only to
-  feeRecipient); `DogeOSAggregationRouter.t.sol::test_pause_blocksExecute_andRolesEnforced`.
+  feeRecipient); `DogeSwapRouter.t.sol::test_pause_blocksExecute_andRolesEnforced`.
 
 ### 6. Sandwich / MEV
 - **Spec mitigation:** on-chain `minOut` + `deadline`; off-chain tight slippage defaults.
@@ -96,7 +96,7 @@ movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unle
   is the settlement check on the measured delta.
 - **Proof:** `RouterSwaps.integration.t.sol::test_minOut_breach_revertsWholeTx`;
   `RouterInvariants.t.sol::invariant_I2_minOutHonored` (fuzzed: recipient ≥ minOut or revert);
-  `DogeOSAggregationRouter.t.sol::test_execute_revertsOnExpiredDeadline`;
+  `DogeSwapRouter.t.sol::test_execute_revertsOnExpiredDeadline`;
   `RouterInvariants.t.sol::test_I6_expiredDeadlineReverts`.
 
 ### 7. Fee-on-transfer / rebasing tokens
@@ -131,7 +131,7 @@ movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unle
   recent-block state, and keeps no cross-tx storage of in-flight funds (in-memory ledger only),
   so a reorg cannot strand value or replay partial state on-chain. Confirmation-depth handling is
   off-chain (Sub-project B/C policy), as the spec scopes it.
-- **Proof:** `DogeOSAggregationRouter.t.sol::test_execute_revertsOnExpiredDeadline`;
+- **Proof:** `DogeSwapRouter.t.sol::test_execute_revertsOnExpiredDeadline`;
   `RouterInvariants.t.sol::test_I6_expiredDeadlineReverts`. (Off-chain depth policy is out of
   this contract's scope.)
 
@@ -154,7 +154,7 @@ movement-only. All line references are to `src/DogeOSAggregationRouter.sol` unle
   `unpause()` is `onlyOwner`. A compromised guardian can only halt the router (non-destructive
   incident response), never unpause or change config. `guardian == address(0)` is a valid state
   (disables guardian-triggered pause; owner can still pause/unpause).
-- **Proof:** `DogeOSAggregationRouter.t.sol::test_pause_blocksExecute_andRolesEnforced`
+- **Proof:** `DogeSwapRouter.t.sol::test_pause_blocksExecute_andRolesEnforced`
   (guardian can pause, non-roles cannot, unpause is owner-only);
   `RouterInvariants.t.sol::test_I6_pausedReverts`.
 

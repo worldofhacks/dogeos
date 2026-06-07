@@ -5,14 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
     IAllowanceTransfer internal permit2;
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     MockERC20 internal token;
 
     address internal owner = makeAddr("owner");
@@ -21,7 +21,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
 
     function setUp() public {
         permit2 = IAllowanceTransfer(deployPermit2());
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), makeAddr("v3"), makeAddr("alg")
         );
         token = new MockERC20("Tok", "TOK");
@@ -49,8 +49,8 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         });
     }
 
-    function _noop() internal pure returns (DogeOSAggregationRouter.Settlement memory) {
-        return DogeOSAggregationRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+    function _noop() internal pure returns (DogeSwapRouter.Settlement memory) {
+        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
     }
 
     function _sign(IAllowanceTransfer.PermitSingle memory p) internal view returns (bytes memory) {
@@ -96,7 +96,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         bytes memory commands = hex"01";
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(address(token), uint160(100e18));
-        DogeOSAggregationRouter.Settlement memory s = DogeOSAggregationRouter.Settlement({
+        DogeSwapRouter.Settlement memory s = DogeSwapRouter.Settlement({
             buyToken: address(token), minOut: 0, recipient: attacker
         });
 
@@ -116,7 +116,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         address attacker = makeAddr("attacker");
         bytes memory commands = "";
         bytes[] memory inputs = new bytes[](0);
-        DogeOSAggregationRouter.Settlement memory s = DogeOSAggregationRouter.Settlement({
+        DogeSwapRouter.Settlement memory s = DogeSwapRouter.Settlement({
             buyToken: address(token), minOut: 0, recipient: attacker
         });
 
@@ -161,7 +161,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         inputs[2] = abi.encode(address(token), uint160(80e18)); // 160 > 120 cap
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NotionalCapExceeded.selector);
+        vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
         router.execute(commands, inputs, _noop(), block.timestamp + 1 hours);
     }
 
@@ -179,7 +179,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         inputs[1] = abi.encode(address(token), uint160(80e18)); // 80 > 50 default
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NotionalCapExceeded.selector);
+        vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
         router.execute(commands, inputs, _noop(), block.timestamp + 1 hours);
     }
 }

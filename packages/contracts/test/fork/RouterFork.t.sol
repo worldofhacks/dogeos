@@ -7,7 +7,7 @@ import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {IUniswapV3SwapRouter} from "../../src/interfaces/IUniswapV3SwapRouter.sol";
 import {PermitSignature} from "../utils/PermitSignature.sol";
 
@@ -33,7 +33,7 @@ contract RouterForkTest is Test, DeployPermit2, PermitSignature {
     address internal constant USDC = 0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925;
 
     bool internal forked;
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     IAllowanceTransfer internal permit2;
 
     address internal owner = makeAddr("owner");
@@ -51,7 +51,7 @@ contract RouterForkTest is Test, DeployPermit2, PermitSignature {
         // the fork lacks Permit2 -> etch it at the canonical address
         permit2 = IAllowanceTransfer(deployPermit2());
 
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             owner, makeAddr("g"), WDOGE, MUCHFI_V2_ROUTER, MUCHFI_V3_ROUTER, BARKSWAP_ALGEBRA_ROUTER
         );
         // no cap so the differential isn't bounded by governance config (fork sim only)
@@ -147,8 +147,8 @@ contract RouterForkTest is Test, DeployPermit2, PermitSignature {
         inputs[1] = abi.encode(WDOGE, uint160(amountIn));
         inputs[2] = abi.encode(WDOGE, USDC, fee, amountIn, uint256(0)); // tin,tout,fee,amountIn,minOut
 
-        DogeOSAggregationRouter.Settlement memory s =
-            DogeOSAggregationRouter.Settlement({buyToken: USDC, minOut: 0, recipient: recipient});
+        DogeSwapRouter.Settlement memory s =
+            DogeSwapRouter.Settlement({buyToken: USDC, minOut: 0, recipient: recipient});
 
         vm.prank(user);
         router.execute(commands, inputs, s, block.timestamp + 1 hours);

@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
-import {RouterRegistry} from "../src/RouterRegistry.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
+import {DogeSwapRegistry} from "../src/DogeSwapRegistry.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {TimelockController} from "openzeppelin/governance/TimelockController.sol";
 
@@ -12,7 +12,7 @@ import {TimelockController} from "openzeppelin/governance/TimelockController.sol
 /// @notice One-shot deploy of the DogeOS aggregation stack on DogeOS testnet (chain 6281971):
 ///         (1) deterministic Permit2 (only if absent), (2) a TimelockController governed by the
 ///         project Safe, (3) the immutable aggregation router (capped before it is ever live and
-///         with `feeBps == 0`), and (4) a RouterRegistry pointer owned by the Safe.
+///         with `feeBps == 0`), and (4) a DogeSwapRegistry pointer owned by the Safe.
 /// @dev Run via `forge script script/DeployRouter.s.sol`. The single broadcast keeps the deployer
 ///      as the temporary router owner just long enough to set caps, then hands the router owner to
 ///      the timelock (Ownable2Step -> pending owner = timelock). The FINAL handover
@@ -85,7 +85,7 @@ contract DeployRouter is Script {
         TimelockController timelock = new TimelockController(timelockMinDelay, proposers, executors, routerSafe);
 
         // ---- 3. Router (deployer is TEMPORARY owner so it can cap before going live) ----
-        DogeOSAggregationRouter router = new DogeOSAggregationRouter(
+        DogeSwapRouter router = new DogeSwapRouter(
             msg.sender, // temporary owner = deployer; handed to timelock at step 6
             routerGuardian,
             WDOGE,
@@ -103,8 +103,8 @@ contract DeployRouter is Script {
         }
         require(router.feeBps() == 0, "fee must be 0 at deploy");
 
-        // ---- 5. RouterRegistry: point at the router, then hand registry to the Safe ----
-        RouterRegistry registry = new RouterRegistry(msg.sender);
+        // ---- 5. DogeSwapRegistry: point at the router, then hand registry to the Safe ----
+        DogeSwapRegistry registry = new DogeSwapRegistry(msg.sender);
         registry.setCurrentRouter(address(router));
         registry.transferOwnership(routerSafe); // Ownable2Step -> Safe must acceptOwnership()
 
@@ -118,8 +118,8 @@ contract DeployRouter is Script {
         console2.log("deployer (sender)         ", msg.sender);
         console2.log("Permit2                   ", permit2);
         console2.log("TimelockController        ", address(timelock));
-        console2.log("DogeOSAggregationRouter   ", address(router));
-        console2.log("RouterRegistry            ", address(registry));
+        console2.log("DogeSwapRouter   ", address(router));
+        console2.log("DogeSwapRegistry            ", address(registry));
         console2.log("ROUTER_SAFE (registry+TL) ", routerSafe);
         console2.log("ROUTER_GUARDIAN           ", routerGuardian);
         console2.log("defaultMaxInputPerTx      ", capDefault);
@@ -129,7 +129,7 @@ contract DeployRouter is Script {
         console2.log("POST-DEPLOY GOVERNANCE (manual, via the Safe):");
         console2.log(" - The Safe schedules+executes timelock.acceptOwnership(router) through the");
         console2.log("   TimelockController so the timelock becomes the router's owner.");
-        console2.log(" - The Safe accepts ownership of the RouterRegistry (acceptOwnership()).");
+        console2.log(" - The Safe accepts ownership of the DogeSwapRegistry (acceptOwnership()).");
         console2.log(" See audit/DEPLOYMENT.md.");
     }
 

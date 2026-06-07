@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {TimelockController} from "openzeppelin/governance/TimelockController.sol";
 import {Ownable} from "openzeppelin/access/Ownable.sol";
 import {Ownable2Step} from "openzeppelin/access/Ownable2Step.sol";
@@ -13,7 +13,7 @@ import {Ownable2Step} from "openzeppelin/access/Ownable2Step.sol";
 contract RouterGovernanceTest is Test {
     uint256 internal constant MIN_DELAY = 2 days;
 
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     TimelockController internal timelock;
 
     address internal safe = makeAddr("safe");
@@ -29,7 +29,7 @@ contract RouterGovernanceTest is Test {
         timelock = new TimelockController(MIN_DELAY, proposers, executors, safe);
 
         // deploy router owned by this test, capped + fee off
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             address(this), guardian, makeAddr("w"), makeAddr("v2"), makeAddr("v3"), makeAddr("alg")
         );
 
@@ -62,7 +62,7 @@ contract RouterGovernanceTest is Test {
     // --- (a) timelock delay is enforced on router admin actions ----------------------------------
 
     function test_timelock_executeBeforeDelayReverts_thenSucceeds() public {
-        bytes memory data = abi.encodeCall(DogeOSAggregationRouter.setFee, (50, feeRecipient));
+        bytes memory data = abi.encodeCall(DogeSwapRouter.setFee, (50, feeRecipient));
         bytes32 predecessor = bytes32(0);
         bytes32 salt = bytes32(0);
 
@@ -86,7 +86,7 @@ contract RouterGovernanceTest is Test {
 
     function test_timelock_setMaxInputPerTx_respectsDelay() public {
         address tok = makeAddr("tok");
-        bytes memory data = abi.encodeCall(DogeOSAggregationRouter.setMaxInputPerTx, (tok, 777e18));
+        bytes memory data = abi.encodeCall(DogeSwapRouter.setMaxInputPerTx, (tok, 777e18));
 
         // schedule with too-short a delay must revert at schedule time
         vm.prank(safe);
@@ -128,7 +128,7 @@ contract RouterGovernanceTest is Test {
         assertTrue(router.paused(), "still paused; guardian cannot unpause");
 
         // only the owner (timelock) can unpause
-        _timelockRun(abi.encodeCall(DogeOSAggregationRouter.unpause, ()));
+        _timelockRun(abi.encodeCall(DogeSwapRouter.unpause, ()));
         assertFalse(router.paused(), "timelock unpaused");
     }
 
@@ -148,7 +148,7 @@ contract RouterGovernanceTest is Test {
 
     function test_ownable2Step_strangerCannotAcceptOwnership() public {
         // fresh router with a pending handover to the timelock
-        DogeOSAggregationRouter r2 = new DogeOSAggregationRouter(
+        DogeSwapRouter r2 = new DogeSwapRouter(
             address(this), guardian, makeAddr("w"), makeAddr("v2"), makeAddr("v3"), makeAddr("alg")
         );
         r2.transferOwnership(address(timelock));

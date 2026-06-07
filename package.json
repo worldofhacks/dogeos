@@ -1,5 +1,5 @@
 {
-  "name": "dogeos-dex-aggregator",
+  "name": "dogeswap",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dogeos/dogeos-sdk": "3.2.0",
+    "buffer": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "wagmi": "^2.19.5"

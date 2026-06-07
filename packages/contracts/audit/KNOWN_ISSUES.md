@@ -1,4 +1,4 @@
-# Known Issues & Accepted Trade-offs — DogeOSAggregationRouter
+# Known Issues & Accepted Trade-offs — DogeSwapRouter
 
 Honest disclosure of accepted design trade-offs, residual risks, and open deploy-phase work.
 None is an exploitable vulnerability; each is either a bounded footgun, a config state, or a

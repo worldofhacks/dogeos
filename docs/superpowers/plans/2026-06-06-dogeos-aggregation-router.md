@@ -1,10 +1,10 @@
-# DogeOS Aggregation Router Implementation Plan
+# DogeSwap Router Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a mainnet-grade, immutable command/executor aggregation router in Solidity that executes atomic single/split/multi-hop swaps across MuchFi V2, MuchFi V3, and Barkswap Algebra on DogeOS, pulling funds via Permit2 AllowanceTransfer, with an off-by-default capped fee, Safe+timelock governance, guardian pause, a guarded-launch notional cap, and a full Trail-of-Bits security program.
 
-**Architecture:** A single `DogeOSAggregationRouter` exposes `execute(bytes commands, bytes[] inputs, uint256 deadline)`. Each command byte dispatches to a fixed, whitelisted handler (Permit2 pull, per-venue swap against an *immutable* venue router, wrap/unwrap, fee, min-out, sweep) operating on a shared running balance. Funds are measured by balance delta, never by venue return values; the router holds ~zero balance between transactions. Cross-chain stays off-chain (NEAR Intents, Sub-project D) — no contract changes.
+**Architecture:** A single `DogeSwapRouter` exposes `execute(bytes commands, bytes[] inputs, uint256 deadline)`. Each command byte dispatches to a fixed, whitelisted handler (Permit2 pull, per-venue swap against an *immutable* venue router, wrap/unwrap, fee, min-out, sweep) operating on a shared running balance. Funds are measured by balance delta, never by venue return values; the router holds ~zero balance between transactions. Cross-chain stays off-chain (NEAR Intents, Sub-project D) — no contract changes.
 
 **Tech Stack:** Foundry (forge/cast/anvil), Solidity 0.8.26, OpenZeppelin (SafeERC20, Ownable2Step, Pausable, ReentrancyGuard), Uniswap Permit2 (etched in tests), Slither + Echidna + Medusa, GitHub Actions.
 
@@ -90,7 +90,7 @@ address internal constant NATIVE = 0xEEeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 ### O-3. Revised core contract (replaces the Task 1.2 skeleton + Task 1.3/1.4 handler bodies)
 
-This is the `src/DogeOSAggregationRouter.sol` template. (Settlement + the in-memory `Ledger` are
+This is the `src/DogeSwapRouter.sol` template. (Settlement + the in-memory `Ledger` are
 the heart of H1/H2/H3.)
 
 > **CORRECTIONS (post-audit, commit `ac2f805`) — the committed contract supersedes the code below:**
@@ -121,7 +121,7 @@ import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
 import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
 import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 
-contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
+contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Settlement { address buyToken; uint256 minOut; address recipient; }
@@ -321,7 +321,7 @@ the base-plan tests:
 ### O-6. Timelock + deploy (augments Tasks 5.2/5.3)
 
 - **Task 5.0 (NEW) — TimelockController:** deploy an OZ `TimelockController(minDelay = TIMELOCK_DELAY, proposers = [SAFE], executors = [SAFE])`; the router's `owner_` is this timelock. Tests: fee/cap/unpause routed through the timelock respect `minDelay`; guardian can pause but cannot `setFee`/`setMaxInputPerTx`/`unpause`/`transferOwnership`; Ownable2Step handover requires `acceptOwnership`. Add `TIMELOCK_DELAY` (e.g. `48 hours`) to Frozen Constants.
-- **Task 5.2 (REVISE) DeployRouter.s.sol:** in ONE broadcast — deploy canonical Permit2 if absent → deploy TimelockController → deploy router (owner = timelock) → deploy `RouterRegistry` → `setCurrentRouter` → **set `defaultMaxInputPerTx` + per-token guarded caps** (so the router is never live-and-uncapped) → assert `owner()==timelock`, `guardian` set, `feeBps==0`, caps set. Record all in `DEPLOYMENT.md`.
+- **Task 5.2 (REVISE) DeployRouter.s.sol:** in ONE broadcast — deploy canonical Permit2 if absent → deploy TimelockController → deploy router (owner = timelock) → deploy `DogeSwapRegistry` → `setCurrentRouter` → **set `defaultMaxInputPerTx` + per-token guarded caps** (so the router is never live-and-uncapped) → assert `owner()==timelock`, `guardian` set, `feeBps==0`, caps set. Record all in `DEPLOYMENT.md`.
 
 ### O-7. Early size gate
 
@@ -342,8 +342,8 @@ packages/contracts/
   echidna.yaml                         # Echidna assertion-mode config
   medusa.json                          # Medusa fuzzing config
   src/
-    DogeOSAggregationRouter.sol        # the router
-    RouterRegistry.sol                 # immutable current-version pointer
+    DogeSwapRouter.sol        # the router
+    DogeSwapRegistry.sol                 # immutable current-version pointer
     libraries/Commands.sol             # command byte constants
     libraries/Constants.sol            # CONTRACT_BALANCE, MAX_FEE_BPS
     interfaces/IWETH9.sol              # WDOGE deposit/withdraw
@@ -357,7 +357,7 @@ packages/contracts/
     mocks/MockV3Router.sol
     mocks/MockAlgebraRouter.sol
     utils/PermitSignature.sol          # EIP-712 PermitSingle signing helper
-    DogeOSAggregationRouter.t.sol      # unit tests
+    DogeSwapRouter.t.sol      # unit tests
     RouterExecute.integration.t.sol    # end-to-end single/split/multi-hop
     RouterInvariants.t.sol             # invariants I1..I8 (+ handler)
     handlers/RouterHandler.sol
@@ -574,7 +574,7 @@ git commit -m "chore(contracts): foundry config + remappings"
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-/// @notice Fixed command byte whitelist for DogeOSAggregationRouter.execute.
+/// @notice Fixed command byte whitelist for DogeSwapRouter.execute.
 /// @dev No CALL/DELEGATECALL/arbitrary-target command exists, by design.
 library Commands {
     bytes1 internal constant PERMIT2_PERMIT        = 0x00;
@@ -701,8 +701,8 @@ git commit -m "feat(contracts): command/constant libs + venue & WDOGE interfaces
 ### Task 1.2: Router skeleton — constructor, access control, execute loop, dispatch stubs
 
 **Files:**
-- Create: `packages/contracts/src/DogeOSAggregationRouter.sol`
-- Create: `packages/contracts/test/DogeOSAggregationRouter.t.sol`
+- Create: `packages/contracts/src/DogeSwapRouter.sol`
+- Create: `packages/contracts/test/DogeSwapRouter.t.sol`
 
 - [ ] **Step 1: Write the failing test (deadline, length mismatch, pause, access control)**
 
@@ -711,11 +711,11 @@ git commit -m "feat(contracts): command/constant libs + venue & WDOGE interfaces
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Commands} from "../src/libraries/Commands.sol";
 
 contract RouterSkeletonTest is Test {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     address owner = makeAddr("owner");        // stands in for the Timelock
     address guardian = makeAddr("guardian");
     address wdoge = makeAddr("wdoge");
@@ -724,7 +724,7 @@ contract RouterSkeletonTest is Test {
     address algebra = makeAddr("algebra");
 
     function setUp() public {
-        router = new DogeOSAggregationRouter(owner, guardian, wdoge, v2, v3, algebra);
+        router = new DogeSwapRouter(owner, guardian, wdoge, v2, v3, algebra);
     }
 
     function test_constructor_setsImmutablesAndRoles() public view {
@@ -741,7 +741,7 @@ contract RouterSkeletonTest is Test {
         bytes memory commands = hex"08"; // SWEEP
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(address(0), address(this));
-        vm.expectRevert(DogeOSAggregationRouter.DeadlineExpired.selector);
+        vm.expectRevert(DogeSwapRouter.DeadlineExpired.selector);
         router.execute(commands, inputs, block.timestamp - 1);
     }
 
@@ -749,7 +749,7 @@ contract RouterSkeletonTest is Test {
         bytes memory commands = hex"0808";
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(address(0), address(this));
-        vm.expectRevert(DogeOSAggregationRouter.LengthMismatch.selector);
+        vm.expectRevert(DogeSwapRouter.LengthMismatch.selector);
         router.execute(commands, inputs, block.timestamp + 1);
     }
 
@@ -757,13 +757,13 @@ contract RouterSkeletonTest is Test {
         bytes memory commands = hex"ff";
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = "";
-        vm.expectRevert(DogeOSAggregationRouter.UnknownCommand.selector);
+        vm.expectRevert(DogeSwapRouter.UnknownCommand.selector);
         router.execute(commands, inputs, block.timestamp + 1);
     }
 
     function test_pause_blocksExecuteAndIsGuardianGated() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(DogeOSAggregationRouter.Unauthorized.selector);
+        vm.expectRevert(DogeSwapRouter.Unauthorized.selector);
         router.pause();
 
         vm.prank(guardian);
@@ -776,7 +776,7 @@ contract RouterSkeletonTest is Test {
         router.execute(commands, inputs, block.timestamp + 1);
 
         vm.prank(guardian);
-        vm.expectRevert(DogeOSAggregationRouter.Unauthorized.selector);
+        vm.expectRevert(DogeSwapRouter.Unauthorized.selector);
         router.unpause(); // only owner can unpause
 
         vm.prank(owner);
@@ -812,9 +812,9 @@ import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
 import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
 import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 
-/// @title DogeOSAggregationRouter
+/// @title DogeSwapRouter
 /// @notice Immutable command/executor router for atomic swaps on DogeOS.
-contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
+contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // --- immutables ---
@@ -968,7 +968,7 @@ Expected: PASS (4 tests).
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/DogeOSAggregationRouter.t.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/DogeSwapRouter.t.sol
 git commit -m "feat(contracts): router skeleton with dispatch, access control, sweep, minout"
 ```
 
@@ -977,7 +977,7 @@ git commit -m "feat(contracts): router skeleton with dispatch, access control, s
 **Files:**
 - Create: `packages/contracts/test/mocks/MockERC20.sol`
 - Create: `packages/contracts/test/utils/PermitSignature.sol`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (implement `_permit2Permit`, `_permit2TransferFrom`)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (implement `_permit2Permit`, `_permit2TransferFrom`)
 - Create: `packages/contracts/test/RouterPermit2.t.sol`
 
 - [ ] **Step 1: Write `MockERC20.sol`** (supports standard, fee-on-transfer, and non-returning-`approve` modes)
@@ -1075,13 +1075,13 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     IAllowanceTransfer permit2;
     MockERC20 token;
     address owner = makeAddr("owner");
@@ -1089,7 +1089,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
 
     function setUp() public {
         permit2 = IAllowanceTransfer(deployPermit2()); // etches Permit2 at canonical addr
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), makeAddr("v3"), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), makeAddr("v3"), makeAddr("alg"));
         token = new MockERC20("Tok", "TOK");
         (user, userPk) = makeAddrAndKey("user");
         token.mint(user, 1_000 ether);
@@ -1136,7 +1136,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         inputs[1] = abi.encode(user, address(token), uint160(100 ether));
 
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NotionalCapExceeded.selector);
+        vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
         router.execute(commands, inputs, block.timestamp + 1);
     }
 
@@ -1148,7 +1148,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(user, p, sig);
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.InvalidSpender.selector);
+        vm.expectRevert(DogeSwapRouter.InvalidSpender.selector);
         router.execute(commands, inputs, block.timestamp + 1);
     }
 }
@@ -1159,7 +1159,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
 Run: `cd packages/contracts && forge test --match-contract RouterPermit2Test`
 Expected: FAIL (`_permit2Permit`/`_permit2TransferFrom` still revert `UnknownCommand`).
 
-- [ ] **Step 5: Implement the handlers** (replace the two stubs in `DogeOSAggregationRouter.sol`)
+- [ ] **Step 5: Implement the handlers** (replace the two stubs in `DogeSwapRouter.sol`)
 
 ```solidity
     function _permit2Permit(bytes calldata input) internal {
@@ -1189,7 +1189,7 @@ Expected: PASS (3 tests).
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/RouterPermit2.t.sol packages/contracts/test/mocks/MockERC20.sol packages/contracts/test/utils/PermitSignature.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/RouterPermit2.t.sol packages/contracts/test/mocks/MockERC20.sol packages/contracts/test/utils/PermitSignature.sol
 git commit -m "feat(contracts): permit2 allowance-transfer pull with notional cap"
 ```
 
@@ -1197,7 +1197,7 @@ git commit -m "feat(contracts): permit2 allowance-transfer pull with notional ca
 
 **Files:**
 - Create: `packages/contracts/test/mocks/MockWDOGE.sol`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (implement `_wrapNative`, `_unwrapNative`, `_payFee`)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (implement `_wrapNative`, `_unwrapNative`, `_payFee`)
 - Create: `packages/contracts/test/RouterPayments.t.sol`
 
 - [ ] **Step 1: Write `MockWDOGE.sol`**
@@ -1239,19 +1239,19 @@ contract MockWDOGE {
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {MockWDOGE} from "./mocks/MockWDOGE.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract RouterPaymentsTest is Test {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     MockWDOGE wdoge;
     address owner = makeAddr("owner");
     address feeRecipient = makeAddr("fee");
 
     function setUp() public {
         wdoge = new MockWDOGE();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), address(wdoge), makeAddr("v2"), makeAddr("v3"), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), address(wdoge), makeAddr("v2"), makeAddr("v3"), makeAddr("alg"));
     }
 
     function test_wrapAndUnwrapAndSweepNative() public {
@@ -1344,7 +1344,7 @@ Expected: PASS (3 tests).
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/RouterPayments.t.sol packages/contracts/test/mocks/MockWDOGE.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/RouterPayments.t.sol packages/contracts/test/mocks/MockWDOGE.sol
 git commit -m "feat(contracts): native wrap/unwrap + capped protocol fee"
 ```
 
@@ -1356,7 +1356,7 @@ git commit -m "feat(contracts): native wrap/unwrap + capped protocol fee"
 
 **Files:**
 - Create: `packages/contracts/test/mocks/MockV2Router.sol`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (implement `_v2Swap` + `_approveVenue` helper)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (implement `_v2Swap` + `_approveVenue` helper)
 - Create: `packages/contracts/test/RouterV2Swap.t.sol`
 
 - [ ] **Step 1: Write `MockV2Router.sol`** (pulls `amountIn` of `path[0]`, sends `amountIn * rateBps/10000` of `path[last]`)
@@ -1391,19 +1391,19 @@ contract MockV2Router {
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Router} from "./mocks/MockV2Router.sol";
 
 contract RouterV2SwapTest is Test {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     MockV2Router v2;
     MockERC20 tokenIn; MockERC20 tokenOut;
     address owner = makeAddr("owner");
 
     function setUp() public {
         v2 = new MockV2Router();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), address(v2), makeAddr("v3"), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), address(v2), makeAddr("v3"), makeAddr("alg"));
         tokenIn = new MockERC20("IN","IN"); tokenOut = new MockERC20("OUT","OUT");
         tokenIn.mint(address(router), 100 ether); // simulate post-Permit2 balance
     }
@@ -1467,7 +1467,7 @@ Expected: PASS (2 tests).
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/RouterV2Swap.t.sol packages/contracts/test/mocks/MockV2Router.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/RouterV2Swap.t.sol packages/contracts/test/mocks/MockV2Router.sol
 git commit -m "feat(contracts): V2_SWAP command via immutable MuchFi V2 router"
 ```
 
@@ -1475,7 +1475,7 @@ git commit -m "feat(contracts): V2_SWAP command via immutable MuchFi V2 router"
 
 **Files:**
 - Create: `packages/contracts/test/mocks/MockV3Router.sol`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (implement `_v3Swap`)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (implement `_v3Swap`)
 - Create: `packages/contracts/test/RouterV3Swap.t.sol`
 
 - [ ] **Step 1: Write `MockV3Router.sol`** (SwapRouter02 struct — no deadline)
@@ -1509,16 +1509,16 @@ contract MockV3Router {
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
 
 contract RouterV3SwapTest is Test {
-    DogeOSAggregationRouter router; MockV3Router v3;
+    DogeSwapRouter router; MockV3Router v3;
     MockERC20 tokenIn; MockERC20 tokenOut;
     function setUp() public {
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(makeAddr("o"), makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
+        router = new DogeSwapRouter(makeAddr("o"), makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
         tokenIn = new MockERC20("IN","IN"); tokenOut = new MockERC20("OUT","OUT");
         tokenIn.mint(address(router), 100 ether);
     }
@@ -1564,7 +1564,7 @@ Expected: PASS.
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/RouterV3Swap.t.sol packages/contracts/test/mocks/MockV3Router.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/RouterV3Swap.t.sol packages/contracts/test/mocks/MockV3Router.sol
 git commit -m "feat(contracts): V3_SWAP command via immutable MuchFi V3 router"
 ```
 
@@ -1572,7 +1572,7 @@ git commit -m "feat(contracts): V3_SWAP command via immutable MuchFi V3 router"
 
 **Files:**
 - Create: `packages/contracts/test/mocks/MockAlgebraRouter.sol`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (implement `_algebraSwap`)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (implement `_algebraSwap`)
 - Create: `packages/contracts/test/RouterAlgebraSwap.t.sol`
 
 - [ ] **Step 1: Write `MockAlgebraRouter.sol`** (Integral struct — has deployer + deadline)
@@ -1606,17 +1606,17 @@ contract MockAlgebraRouter {
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockAlgebraRouter} from "./mocks/MockAlgebraRouter.sol";
 
 contract RouterAlgebraSwapTest is Test {
-    DogeOSAggregationRouter router; MockAlgebraRouter alg;
+    DogeSwapRouter router; MockAlgebraRouter alg;
     MockERC20 tokenIn; MockERC20 tokenOut;
     address deployer = makeAddr("poolDeployer");
     function setUp() public {
         alg = new MockAlgebraRouter();
-        router = new DogeOSAggregationRouter(makeAddr("o"), makeAddr("g"), makeAddr("w"), makeAddr("v2"), makeAddr("v3"), address(alg));
+        router = new DogeSwapRouter(makeAddr("o"), makeAddr("g"), makeAddr("w"), makeAddr("v2"), makeAddr("v3"), address(alg));
         tokenIn = new MockERC20("IN","IN"); tokenOut = new MockERC20("OUT","OUT");
         tokenIn.mint(address(router), 100 ether);
     }
@@ -1662,7 +1662,7 @@ Expected: PASS (all suites so far).
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/DogeOSAggregationRouter.sol packages/contracts/test/RouterAlgebraSwap.t.sol packages/contracts/test/mocks/MockAlgebraRouter.sol
+git add packages/contracts/src/DogeSwapRouter.sol packages/contracts/test/RouterAlgebraSwap.t.sol packages/contracts/test/mocks/MockAlgebraRouter.sol
 git commit -m "feat(contracts): ALGEBRA_SWAP command via immutable Barkswap router"
 ```
 
@@ -1685,14 +1685,14 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
 import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterExecuteIntegrationTest is Test, DeployPermit2, PermitSignature {
-    DogeOSAggregationRouter router; IAllowanceTransfer permit2; MockV3Router v3;
+    DogeSwapRouter router; IAllowanceTransfer permit2; MockV3Router v3;
     MockERC20 tin; MockERC20 tout;
     address owner = makeAddr("owner"); address feeRecipient = makeAddr("fee");
     address user; uint256 userPk; address recipient = makeAddr("recipient");
@@ -1700,7 +1700,7 @@ contract RouterExecuteIntegrationTest is Test, DeployPermit2, PermitSignature {
     function setUp() public {
         permit2 = IAllowanceTransfer(deployPermit2());
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
         tin = new MockERC20("IN","IN"); tout = new MockERC20("OUT","OUT");
         (user, userPk) = makeAddrAndKey("user");
         tin.mint(user, 1_000 ether);
@@ -1764,7 +1764,7 @@ git commit -m "test(contracts): end-to-end single-swap integration"
     function test_split_acrossV3andV2_singleMinOutAndSweep() public {
         // Add a V2 venue by redeploying router with both venues wired.
         MockV2RouterLocal v2 = new MockV2RouterLocal();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), address(v2), address(v3), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), address(v2), address(v3), makeAddr("alg"));
         vm.prank(owner); router.setFee(0, address(0));
         // fund router directly to isolate split logic
         tin.mint(address(router), 100 ether);
@@ -1849,14 +1849,14 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3Router} from "../mocks/MockV3Router.sol";
 import {PermitSignature} from "../utils/PermitSignature.sol";
 
 contract RouterHandler is Test, PermitSignature {
-    DogeOSAggregationRouter public router;
+    DogeSwapRouter public router;
     MockERC20 public tin; MockERC20 public tout; MockV3Router public v3;
     address public user; uint256 internal userPk; address public recipient;
     address public feeRecipient;
@@ -1866,7 +1866,7 @@ contract RouterHandler is Test, PermitSignature {
     uint256 public ghost_feeOut;       // total tout sent to feeRecipient
     uint48  internal nonce;
 
-    constructor(DogeOSAggregationRouter r, MockERC20 _tin, MockERC20 _tout, MockV3Router _v3, address _user, uint256 _pk, address _recip, address _fee) {
+    constructor(DogeSwapRouter r, MockERC20 _tin, MockERC20 _tout, MockV3Router _v3, address _user, uint256 _pk, address _recip, address _fee) {
         router = r; tin = _tin; tout = _tout; v3 = _v3; user = _user; userPk = _pk; recipient = _recip; feeRecipient = _fee;
     }
 
@@ -1911,13 +1911,13 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
 import {RouterHandler} from "./handlers/RouterHandler.sol";
 
 contract RouterInvariantsTest is Test, DeployPermit2 {
-    DogeOSAggregationRouter router; RouterHandler handler;
+    DogeSwapRouter router; RouterHandler handler;
     MockERC20 tin; MockERC20 tout; MockV3Router v3;
     address owner = makeAddr("owner"); address feeRecipient = makeAddr("fee");
     address user; uint256 userPk; address recipient = makeAddr("recipient");
@@ -1925,7 +1925,7 @@ contract RouterInvariantsTest is Test, DeployPermit2 {
     function setUp() public {
         deployPermit2();
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
         tin = new MockERC20("IN","IN"); tout = new MockERC20("OUT","OUT");
         (user, userPk) = makeAddrAndKey("user");
         tin.mint(user, 1_000_000 ether);
@@ -1986,21 +1986,21 @@ import {Test} from "forge-std/Test.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
 import {PermitSignature} from "./utils/PermitSignature.sol";
 
 contract RouterNegativeTest is Test, DeployPermit2, PermitSignature {
-    DogeOSAggregationRouter router; IAllowanceTransfer permit2; MockV3Router v3;
+    DogeSwapRouter router; IAllowanceTransfer permit2; MockV3Router v3;
     MockERC20 tin; MockERC20 tout;
     address owner = makeAddr("owner"); address user; uint256 userPk; address recipient = makeAddr("r");
 
     function setUp() public {
         permit2 = IAllowanceTransfer(deployPermit2());
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
+        router = new DogeSwapRouter(owner, makeAddr("g"), makeAddr("w"), makeAddr("v2"), address(v3), makeAddr("alg"));
         tin = new MockERC20("IN","IN"); tout = new MockERC20("OUT","OUT");
         (user, userPk) = makeAddrAndKey("user");
         tin.mint(user, 1_000 ether);
@@ -2052,7 +2052,7 @@ contract RouterNegativeTest is Test, DeployPermit2, PermitSignature {
         bytes[] memory inputs = new bytes[](2);
         inputs[0] = abi.encode(address(tin), address(tout), uint24(500), type(uint256).max, uint256(0));
         inputs[1] = abi.encode(address(tout), uint256(100 ether)); // demand more than 99.5 produced
-        vm.expectRevert(DogeOSAggregationRouter.MinOutNotMet.selector);
+        vm.expectRevert(DogeSwapRouter.MinOutNotMet.selector);
         router.execute(commands, inputs, block.timestamp + 1);
     }
 
@@ -2132,7 +2132,7 @@ In `audit/SLITHER_TRIAGE.md`, list each finding with: detector, location, and di
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/slither.config.json packages/contracts/audit/SLITHER_TRIAGE.md packages/contracts/src/DogeOSAggregationRouter.sol
+git add packages/contracts/slither.config.json packages/contracts/audit/SLITHER_TRIAGE.md packages/contracts/src/DogeSwapRouter.sol
 git commit -m "chore(contracts): slither config + triage to zero unjustified findings"
 ```
 
@@ -2157,7 +2157,7 @@ cryticArgs: ["--foundry-compile-all"]
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3Router} from "../mocks/MockV3Router.sol";
 
@@ -2165,13 +2165,13 @@ import {MockV3Router} from "../mocks/MockV3Router.sol";
 /// Funds are pre-seeded to the router to exercise swap+sweep without Permit2 signing
 /// (Echidna cannot sign; Permit2 paths are covered by Foundry invariant tests).
 contract EchidnaRouter {
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     MockERC20 tin; MockERC20 tout; MockV3Router v3;
     address constant RECIP = address(0xBEEF);
 
     constructor() {
         v3 = new MockV3Router();
-        router = new DogeOSAggregationRouter(address(this), address(this), address(0x1), address(0x2), address(v3), address(0x4));
+        router = new DogeSwapRouter(address(this), address(this), address(0x1), address(0x2), address(v3), address(0x4));
         tin = new MockERC20("IN","IN"); tout = new MockERC20("OUT","OUT");
     }
 
@@ -2331,7 +2331,7 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {IUniswapV3SwapRouter} from "../../src/interfaces/IUniswapV3SwapRouter.sol";
 
 contract RouterForkTest is Test {
@@ -2342,7 +2342,7 @@ contract RouterForkTest is Test {
     address constant V3 = 0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB;
     address constant ALG = 0x77147f436cE9739D2A54Ffe428DBe02b90c0205e;
 
-    DogeOSAggregationRouter router;
+    DogeSwapRouter router;
     address owner = makeAddr("owner");
 
     function setUp() public {
@@ -2352,7 +2352,7 @@ contract RouterForkTest is Test {
         } catch {
             vm.skip(true);
         }
-        router = new DogeOSAggregationRouter(owner, makeAddr("g"), WDOGE, V2, V3, ALG);
+        router = new DogeSwapRouter(owner, makeAddr("g"), WDOGE, V2, V3, ALG);
     }
 
     function test_fork_v3_differential_routerVsDirect() public {
@@ -2402,9 +2402,9 @@ git commit -m "test(contracts): live DogeOS fork differential vs direct venue sw
 ### Task 5.2: Deploy script + version registry
 
 **Files:**
-- Create: `packages/contracts/src/RouterRegistry.sol`
+- Create: `packages/contracts/src/DogeSwapRegistry.sol`
 - Create: `packages/contracts/script/DeployRouter.s.sol`
-- Create: `packages/contracts/test/RouterRegistry.t.sol`
+- Create: `packages/contracts/test/DogeSwapRegistry.t.sol`
 
 - [ ] **Step 1: Write the failing registry test**
 
@@ -2413,12 +2413,12 @@ git commit -m "test(contracts): live DogeOS fork differential vs direct venue sw
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {RouterRegistry} from "../src/RouterRegistry.sol";
+import {DogeSwapRegistry} from "../src/DogeSwapRegistry.sol";
 
-contract RouterRegistryTest is Test {
-    RouterRegistry reg;
+contract DogeSwapRegistryTest is Test {
+    DogeSwapRegistry reg;
     address owner = makeAddr("owner");
-    function setUp() public { reg = new RouterRegistry(owner); }
+    function setUp() public { reg = new DogeSwapRegistry(owner); }
 
     function test_setCurrentRouter_ownerOnly_andReadback() public {
         address r1 = makeAddr("r1");
@@ -2436,10 +2436,10 @@ contract RouterRegistryTest is Test {
 
 - [ ] **Step 2: Run to confirm failure**
 
-Run: `cd packages/contracts && forge test --match-contract RouterRegistryTest`
+Run: `cd packages/contracts && forge test --match-contract DogeSwapRegistryTest`
 Expected: FAIL.
 
-- [ ] **Step 3: Write `RouterRegistry.sol`**
+- [ ] **Step 3: Write `DogeSwapRegistry.sol`**
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -2448,7 +2448,7 @@ pragma solidity 0.8.26;
 import {Ownable, Ownable2Step} from "openzeppelin/access/Ownable2Step.sol";
 
 /// @notice Off-chain readers query currentRouter() to find the active router version.
-contract RouterRegistry is Ownable2Step {
+contract DogeSwapRegistry is Ownable2Step {
     address public currentRouter;
     uint256 public version;
     event RouterUpdated(address indexed router, uint256 indexed version);
@@ -2463,7 +2463,7 @@ contract RouterRegistry is Ownable2Step {
 
 - [ ] **Step 4: Run to confirm pass**
 
-Run: `cd packages/contracts && forge test --match-contract RouterRegistryTest -vvv`
+Run: `cd packages/contracts && forge test --match-contract DogeSwapRegistryTest -vvv`
 Expected: PASS.
 
 - [ ] **Step 5: Write `DeployRouter.s.sol`** (reads deploy params from env; owner is the Timelock/Safe)
@@ -2473,8 +2473,8 @@ Expected: PASS.
 pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
-import {RouterRegistry} from "../src/RouterRegistry.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
+import {DogeSwapRegistry} from "../src/DogeSwapRegistry.sol";
 
 contract DeployRouter is Script {
     address constant WDOGE = 0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE;
@@ -2491,9 +2491,9 @@ contract DeployRouter is Script {
         require(PERMIT2.code.length > 0, "Permit2 not deployed on this chain");
 
         vm.startBroadcast();
-        DogeOSAggregationRouter router =
-            new DogeOSAggregationRouter(owner, guardian, WDOGE, V2, V3, ALG);
-        RouterRegistry registry = new RouterRegistry(owner);
+        DogeSwapRouter router =
+            new DogeSwapRouter(owner, guardian, WDOGE, V2, V3, ALG);
+        DogeSwapRegistry registry = new DogeSwapRegistry(owner);
         registry.setCurrentRouter(address(router));
         vm.stopBroadcast();
 
@@ -2518,7 +2518,7 @@ Expected: simulation succeeds and logs addresses (requires canonical Permit2 pre
 
 ```bash
 cd /Users/quietguy/Documents/Dev/dogeos
-git add packages/contracts/src/RouterRegistry.sol packages/contracts/script/DeployRouter.s.sol packages/contracts/test/RouterRegistry.t.sol
+git add packages/contracts/src/DogeSwapRegistry.sol packages/contracts/script/DeployRouter.s.sol packages/contracts/test/DogeSwapRegistry.t.sol
 git commit -m "feat(contracts): version registry + deploy script with Permit2 guard"
 ```
 
@@ -2569,7 +2569,7 @@ git commit -m "docs(contracts): record DogeOS deployment + evidence swaps"
 - Create: `packages/contracts/audit/THREAT_MODEL.md`
 - Create: `packages/contracts/audit/INVARIANTS.md`
 - Create: `packages/contracts/audit/KNOWN_ISSUES.md`
-- Modify: `packages/contracts/src/DogeOSAggregationRouter.sol` (NatSpec)
+- Modify: `packages/contracts/src/DogeSwapRouter.sol` (NatSpec)
 - Create: `packages/contracts/audit/REPRODUCIBILITY.md`
 
 - [ ] **Step 1: Write `THREAT_MODEL.md`**
@@ -2584,7 +2584,7 @@ List I1–I8 from the spec; for each, name the test (Foundry invariant `invarian
 
 Document accepted trade-offs: per-token notional cap doesn't bound exotic unset tokens (backstop = minOut + balance-delta); standing max allowance from router to trusted immutable venues; interim cross-chain depends on the Dogecoin-L1 bridge (Sub-project D); fee on output measured post-swap.
 
-- [ ] **Step 4: Add full NatSpec** to every external/public function and the contract header in `DogeOSAggregationRouter.sol` (and `RouterRegistry.sol`). Then run `forge build` to confirm it still compiles.
+- [ ] **Step 4: Add full NatSpec** to every external/public function and the contract header in `DogeSwapRouter.sol` (and `DogeSwapRegistry.sol`). Then run `forge build` to confirm it still compiles.
 
 Run: `cd packages/contracts && forge build`
 Expected: PASS.
@@ -2623,7 +2623,7 @@ git commit -m "docs(contracts): audit-prep package (threat model, invariants, re
 - Off-by-default capped fee + governance setters → Tasks 1.4, 1.2. ✓
 - Safe+timelock owner (Ownable2Step, owner = Timelock) + guardian pause → Task 1.2. ✓
 - Staged notional cap → Task 1.3 (`maxInputPerTx`), set live in 5.3. ✓
-- Immutable + versioned redeploy (RouterRegistry, no proxy) → Task 5.2. ✓
+- Immutable + versioned redeploy (DogeSwapRegistry, no proxy) → Task 5.2. ✓
 - Arbitrary tokens via SafeERC20 + balance-delta → MockERC20 FoT test 3.4, `safeTransfer`/`forceApprove`, `_resolveAmount` balance reads. ✓
 - Venue immutability + callback model (call venue SwapRouters) → Tasks 2.1–2.3 (immutables, no router param). ✓
 - Wrap/unwrap native, `receive()` only from WDOGE → Task 1.4, 3.4. ✓

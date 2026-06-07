@@ -1,4 +1,4 @@
-# DogeOS-Native Premium Aggregator Design
+# DogeSwap Premium Aggregator Design
 
 Date: 2026-06-06
 

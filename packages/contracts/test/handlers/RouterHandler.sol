@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../../src/DogeSwapRouter.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3Router} from "../mocks/MockV3Router.sol";
@@ -15,7 +15,7 @@ import {PermitSignature} from "../utils/PermitSignature.sol";
 ///      accumulating ghost variables that the invariant test asserts over. The handler
 ///      deploys nothing; the test wires every dependency and passes it in.
 contract RouterHandler is Test, PermitSignature {
-    DogeOSAggregationRouter public immutable router;
+    DogeSwapRouter public immutable router;
     IAllowanceTransfer public immutable permit2;
     MockV3Router public immutable v3;
     MockERC20 public immutable tin;
@@ -38,7 +38,7 @@ contract RouterHandler is Test, PermitSignature {
     uint48 internal nonce;
 
     constructor(
-        DogeOSAggregationRouter router_,
+        DogeSwapRouter router_,
         IAllowanceTransfer permit2_,
         MockV3Router v3_,
         MockERC20 tin_,
@@ -91,7 +91,7 @@ contract RouterHandler is Test, PermitSignature {
             address(tin), address(tout), uint24(500), Constants.CONTRACT_BALANCE, uint256(0)
         );
 
-        DogeOSAggregationRouter.Settlement memory s = DogeOSAggregationRouter.Settlement({
+        DogeSwapRouter.Settlement memory s = DogeSwapRouter.Settlement({
             buyToken: address(tout),
             minOut: minOut,
             recipient: recipient

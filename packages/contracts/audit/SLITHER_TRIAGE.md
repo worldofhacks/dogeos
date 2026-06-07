@@ -1,9 +1,9 @@
-# Slither Triage — DogeOSAggregationRouter
+# Slither Triage — DogeSwapRouter
 
 - Tool: Slither 0.11.5 (96 detectors), solc 0.8.30 (`solc-select`), evm_version `prague`, compiled via `forge`.
 - Config: [`../slither.config.json`](../slither.config.json) — `filter_paths: lib|test|script`, `exclude_dependencies: true`, `exclude_optimization: true`, `exclude_informational: false`, `fail_on: high`.
 - Run command (from `packages/contracts`): `slither . 2>&1 | tee ../../slither-run.txt`
-- Scope: only `src/DogeOSAggregationRouter.sol` (libraries/interfaces had no findings; deps/tests/scripts filtered out).
+- Scope: only `src/DogeSwapRouter.sol` (libraries/interfaces had no findings; deps/tests/scripts filtered out).
 
 ## Result summary
 
@@ -20,7 +20,7 @@ All suppressions are comment-only `// slither-disable-next-line <detector>` anno
 
 ## Findings
 
-### 1. arbitrary-send-eth — `_pay` (`src/DogeOSAggregationRouter.sol#200`) — HIGH
+### 1. arbitrary-send-eth — `_pay` (`src/DogeSwapRouter.sol#200`) — HIGH
 **Disposition: false-positive-with-reason (suppressed + justified).**
 `_pay` performs `to.call{value: amount}("")`. The destination is never attacker-arbitrary:
 - via `rescue(token,to,amount)` — `onlyOwner` (owner == TimelockController); intended airdrop/stranded-fund escape hatch.

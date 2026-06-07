@@ -6,7 +6,7 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
-import {DogeOSAggregationRouter} from "../src/DogeOSAggregationRouter.sol";
+import {DogeSwapRouter} from "../src/DogeSwapRouter.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Router} from "./mocks/MockV3Router.sol";
@@ -20,7 +20,7 @@ import {RouterHandler} from "./handlers/RouterHandler.sol";
 ///      explicit unit tests in this same file.
 contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
     IAllowanceTransfer internal permit2;
-    DogeOSAggregationRouter internal router;
+    DogeSwapRouter internal router;
     MockV3Router internal v3;
     MockERC20 internal tin;
     MockERC20 internal tout;
@@ -40,7 +40,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
         permit2 = IAllowanceTransfer(deployPermit2());
         v3 = new MockV3Router();
         // venue placeholders for v2/algebra/wdoge are unused by the handler's V3-only program.
-        router = new DogeOSAggregationRouter(
+        router = new DogeSwapRouter(
             owner, guardian, makeAddr("wdoge"), makeAddr("v2"), address(v3), makeAddr("alg")
         );
 
@@ -159,9 +159,9 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
     function _settlement(address buyToken, uint256 minOut, address to)
         internal
         pure
-        returns (DogeOSAggregationRouter.Settlement memory)
+        returns (DogeSwapRouter.Settlement memory)
     {
-        return DogeOSAggregationRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
+        return DogeSwapRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
     }
 
     /// I6: when paused, execute always reverts (no state change).
@@ -187,7 +187,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
 
         vm.warp(1_000);
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.DeadlineExpired.selector);
+        vm.expectRevert(DogeSwapRouter.DeadlineExpired.selector);
         router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp - 1);
 
         assertEq(tin.balanceOf(user), userBefore, "I6: expired execute changed state");
@@ -220,7 +220,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
 
         uint256 userBefore = tin.balanceOf(user);
         vm.prank(user);
-        vm.expectRevert(DogeOSAggregationRouter.NotionalCapExceeded.selector);
+        vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
         router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp + 1);
 
         assertEq(tin.balanceOf(user), userBefore, "I8: capped execute changed state");

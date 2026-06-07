@@ -1,7 +1,7 @@
-# Code Maturity Scorecard — DogeOSAggregationRouter
+# Code Maturity Scorecard — DogeSwapRouter
 
 Trail of Bits code-maturity methodology. Ratings: **Strong / Satisfactory / Moderate / Weak**.
-Each is grounded in the actual `src/DogeOSAggregationRouter.sol` code and `test/` suite. Honest
+Each is grounded in the actual `src/DogeSwapRouter.sol` code and `test/` suite. Honest
 assessment — launch-stage residuals (timelock, deploy) are called out where relevant.
 
 | Category | Rating | Justification |
