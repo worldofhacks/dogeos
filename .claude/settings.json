@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "property-based-testing@trailofbits": true,
+    "building-secure-contracts@trailofbits": true,
+    "testing-handbook-skills@trailofbits": true
+  }
+}
