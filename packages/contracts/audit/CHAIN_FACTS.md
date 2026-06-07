@@ -16,33 +16,75 @@ Hex: `0x5fdaf3` — confirmed DogeOS testnet.
 
 ---
 
-## 2. OP-Stack Confirmation (GasPriceOracle predeploy)
+## 2. Chain Type — Dogecoin zkEVM (NOT OP-Stack Bedrock)
 
 ```
 $ cast code 0x5300000000000000000000000000000000000002 --rpc-url https://rpc.testnet.dogeos.com | head -c 60
 0x608060405234801561000f575f80fd5b50600436106101a1575f3560e0
 ```
 
-Bytecode is present (non-empty `0x...`) at the canonical OP-Stack GasPriceOracle predeploy address. This confirms the chain is an OP-Stack (Bedrock) deployment.
+Bytecode is present at `0x5300...0002`. **CORRECTION:** Per the official DogeOS docs
+(https://docs.dogeos.com/en/getting-started/overview and https://docs.dogeos.com/en/developers),
+**DogeOS is a Dogecoin zkEVM**, NOT an OP-Stack (Bedrock) deployment. The `GasPriceOracle`
+predeploy at `0x5300...0002` is a documented fee oracle — it is **not** proof of an OP-Stack
+fork timeline. The earlier "OP-Stack (Bedrock), confirmed via predeploy" conclusion is
+SUPERSEDED by the docs.
 
 ---
 
-## 3. EVM Version — Pre-Shanghai / Pre-Cancun
+## 3. EVM Version — Prague-compatible (PUSH0 + EIP-1153 + MCOPY confirmed)
 
-```
-$ cast block latest --rpc-url https://rpc.testnet.dogeos.com --json \
-    | grep -E 'withdrawalsRoot|excessBlobGas|blobGasUsed' \
-    || echo "NO_SHANGHAI_OR_CANCUN_FIELDS"
-NO_SHANGHAI_OR_CANCUN_FIELDS
-```
+> **CORRECTION / SUPERSEDED.** The earlier "paris / pre-Shanghai / pre-Cancun /
+> no PUSH0 / no transient storage" conclusion (which inferred the EVM target from
+> the *absence* of `withdrawalsRoot`/`excessBlobGas`/`blobGasUsed` block-header
+> fields) is **WRONG and SUPERSEDED**. Header-field absence is not a reliable EVM
+> opcode-support signal on a zkEVM. The correct conclusion comes from (a) the
+> official DogeOS docs and (b) a direct on-chain opcode probe.
 
-The latest block header contains **no** `withdrawalsRoot` (Shanghai), `excessBlobGas`, or `blobGasUsed` (Cancun) fields.
+**Docs alignment.** Per the official DogeOS developer docs
+(https://docs.dogeos.com/en/developers/developer-quickstart and
+https://docs.dogeos.com/en/developers/ethereum-and-dogeos-differences):
+**use the `prague` EVM target and Solidity ≥ 0.8.30.**
 
-**Conclusion:**
-- `evm_version = "paris"` in foundry.toml
-- `PUSH0` opcode is **forbidden** (introduced in Shanghai/EIP-3855)
-- Transient storage (`TLOAD`/`TSTORE`) is **forbidden** (introduced in Cancun/EIP-1153)
-- ReentrancyGuard must use **storage-based** locking (not transient-storage variant)
+**On-chain opcode probe (eth_call `--create`, 2026-06-06).** A throwaway init-code
+blob exercising each opcode was deployed/called via `eth_call` against chain 6281971.
+Results CONFIRM:
+
+| Opcode                         | Introduced      | Probe result |
+|--------------------------------|-----------------|--------------|
+| `PUSH0` (0x5f)                 | Shanghai/EIP-3855 | OK         |
+| `TSTORE` / `TLOAD`             | Cancun/EIP-1153 | OK           |
+| `MCOPY` (0x5e)                 | Cancun/EIP-5656 | OK           |
+
+→ Transient storage **is available**. PUSH0 **is available**.
+
+**Conclusion (current):**
+- `evm_version = "prague"` in foundry.toml
+- `solc = "0.8.30"`
+- `PUSH0` opcode is **allowed**
+- Transient storage (`TLOAD`/`TSTORE`) is **allowed** (EIP-1153)
+- ReentrancyGuard uses the **transient-storage** variant (`ReentrancyGuardTransient`)
+
+---
+
+## 3a. Precompile & Opcode Constraints (DogeOS-specific)
+
+Per https://docs.dogeos.com/en/developers/ethereum-and-dogeos-differences, DogeOS
+(as a zkEVM) does NOT support some mainnet precompiles/opcodes:
+
+| Feature                                   | DogeOS support | Notes |
+|-------------------------------------------|----------------|-------|
+| `ecrecover` (0x01)                        | **AVAILABLE**  | EIP-712 / Permit2 signature recovery works |
+| `RIPEMD-160` (0x03)                       | UNSUPPORTED    | |
+| `blake2f` (0x09)                          | UNSUPPORTED    | |
+| `point-evaluation` (0x0a, KZG)            | UNSUPPORTED    | |
+| `modexp` (0x05)                           | LIMITED        | inputs must be ≤ 32 bytes |
+| `SELFDESTRUCT`                            | DISABLED       | reverts |
+| `BLOBHASH` / `BLOBBASEFEE` / EIP-4788     | UNAVAILABLE    | no blob/beacon-root support |
+
+**Router impact:** `DogeOSAggregationRouter` uses **none** of the unsupported
+precompiles/opcodes. It relies only on `ecrecover` (via Permit2 / EIP-712), which
+IS available, so Permit2 signature flows are safe on DogeOS.
 
 ---
 
@@ -98,11 +140,13 @@ Build:         2026-05-08T07:54:31.470926000Z
 | Constraint                        | Value / Decision                                          |
 |-----------------------------------|-----------------------------------------------------------|
 | Chain ID                          | 6281971 (0x5fdaf3)                                        |
-| Chain type                        | OP-Stack (Bedrock), confirmed via predeploy               |
-| EVM version                       | paris (pre-Shanghai, pre-Cancun)                          |
-| PUSH0 allowed                     | NO                                                        |
-| Transient storage allowed         | NO                                                        |
-| ReentrancyGuard style             | Storage-based (NOT OZ v5 transient variant)               |
+| Chain type                        | Dogecoin zkEVM (per docs; NOT OP-Stack Bedrock)           |
+| EVM version                       | prague (PUSH0 + EIP-1153 + MCOPY confirmed on-chain)      |
+| Solidity version                  | 0.8.30 (per DogeOS docs: ≥ 0.8.30)                        |
+| PUSH0 allowed                     | YES (probe-confirmed)                                     |
+| Transient storage allowed         | YES (EIP-1153 probe-confirmed)                            |
+| ReentrancyGuard style             | Transient (OZ v5 ReentrancyGuardTransient)               |
+| Precompiles unsupported           | RIPEMD-160, blake2f, point-eval; modexp ≤32B; SELFDESTRUCT off; no blobs — router uses none |
 | Permit2 on-chain                  | ABSENT — must deploy via Arachnid CREATE2 proxy in Phase 5 |
 | MuchFi V2 router present          | YES (0xC653e745FC613a03D156DACB924AE8e9148B18dc)          |
 | MuchFi V3 router present          | YES (0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB)          |

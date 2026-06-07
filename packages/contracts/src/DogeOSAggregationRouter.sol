@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity 0.8.30;
 
 import {Ownable2Step, Ownable} from "openzeppelin/access/Ownable2Step.sol";
 import {Pausable} from "openzeppelin/utils/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol"; // storage guard — paris, no transient storage
+import {ReentrancyGuardTransient} from "openzeppelin/utils/ReentrancyGuardTransient.sol"; // EIP-1153 transient guard — DogeOS is Prague (transient storage confirmed by on-chain probe)
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -14,7 +14,7 @@ import {IUniswapV2Router} from "./interfaces/IUniswapV2Router.sol";
 import {IUniswapV3SwapRouter} from "./interfaces/IUniswapV3SwapRouter.sol";
 import {IAlgebraSwapRouter} from "./interfaces/IAlgebraSwapRouter.sol";
 
-contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
+contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     struct Settlement { address buyToken; uint256 minOut; address recipient; }
@@ -36,7 +36,7 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
 
     error DeadlineExpired(); error LengthMismatch(); error UnknownCommand(); error Unauthorized();
     error FeeTooHigh(); error NotionalCapExceeded(); error MinOutNotMet(); error InvalidSpender();
-    error NativeTransferFailed();
+    error NativeTransferFailed(); error InsufficientLedgerBalance();
 
     event GuardianUpdated(address indexed guardian);
     event FeeUpdated(uint256 feeBps, address indexed feeRecipient);
@@ -87,7 +87,7 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
         emit Swapped(msg.sender, s.recipient);
     }
 
-    // ---- ledger (in-memory; paris-safe) ----
+    // ---- ledger (in-memory) ----
     function _bal(address t) internal view returns (uint256) {
         return t == NATIVE ? address(this).balance : IERC20(t).balanceOf(address(this));
     }
@@ -118,37 +118,43 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
         else if (c == Commands.V3_SWAP) _v3Swap(input, L);
         else if (c == Commands.ALGEBRA_SWAP) _algebraSwap(input, deadline, L);
         else if (c == Commands.WRAP_NATIVE) _wrapNative(input, L);
-        else if (c == Commands.UNWRAP_NATIVE) _unwrapNative(input);
+        else if (c == Commands.UNWRAP_NATIVE) _unwrapNative(input, L);
         else revert UnknownCommand();
     }
 
     function _permit2Permit(bytes calldata input) internal {
-        (address o, IAllowanceTransfer.PermitSingle memory p, bytes memory sig) =
-            abi.decode(input, (address, IAllowanceTransfer.PermitSingle, bytes));
+        (IAllowanceTransfer.PermitSingle memory p, bytes memory sig) =
+            abi.decode(input, (IAllowanceTransfer.PermitSingle, bytes));
         if (p.spender != address(this)) revert InvalidSpender();
-        PERMIT2.permit(o, p, sig);
+        PERMIT2.permit(msg.sender, p, sig);
     }
     function _permit2TransferFrom(bytes calldata input, Ledger memory L) internal {
-        (address o, address token, uint160 amount) = abi.decode(input, (address, address, uint160));
+        (address token, uint160 amount) = abi.decode(input, (address, uint160));
         _accrueInput(L, token, amount);
-        PERMIT2.transferFrom(o, address(this), amount, token);
+        PERMIT2.transferFrom(msg.sender, address(this), amount, token);
     }
-    function _resolve(uint256 a, address t) internal view returns (uint256) {
-        return a == Constants.CONTRACT_BALANCE ? _bal(t) : a;
+    /// @dev Resolve a command's input amount to what THIS execute actually brought in.
+    ///      CONTRACT_BALANCE => the per-execute delta; an explicit amount must be <= delta.
+    ///      This makes pre-existing/airdropped balances unspendable via execute (I1/I5).
+    function _spend(Ledger memory L, uint256 amount, address token) internal view returns (uint256) {
+        uint256 d = _delta(L, token);
+        uint256 amt = amount == Constants.CONTRACT_BALANCE ? d : amount;
+        if (amt > d) revert InsufficientLedgerBalance();
+        return amt;
     }
     function _approveVenue(address t, address venue, uint256 a) internal {
         if (IERC20(t).allowance(address(this), venue) < a) IERC20(t).forceApprove(venue, type(uint256).max);
     }
     function _v2Swap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
         (uint256 amountIn, uint256 minOut, address[] memory path) = abi.decode(input, (uint256, uint256, address[]));
-        amountIn = _resolve(amountIn, path[0]); _touch(L, path[path.length - 1]);
+        amountIn = _spend(L, amountIn, path[0]); _touch(L, path[path.length - 1]);
         _approveVenue(path[0], MUCHFI_V2_ROUTER, amountIn);
         IUniswapV2Router(MUCHFI_V2_ROUTER).swapExactTokensForTokens(amountIn, minOut, path, address(this), deadline);
     }
     function _v3Swap(bytes calldata input, Ledger memory L) internal {
         (address tin, address tout, uint24 fee, uint256 amountIn, uint256 minOut) =
             abi.decode(input, (address, address, uint24, uint256, uint256));
-        amountIn = _resolve(amountIn, tin); _touch(L, tout);
+        amountIn = _spend(L, amountIn, tin); _touch(L, tout);
         _approveVenue(tin, MUCHFI_V3_ROUTER, amountIn);
         IUniswapV3SwapRouter(MUCHFI_V3_ROUTER).exactInputSingle(IUniswapV3SwapRouter.ExactInputSingleParams({
             tokenIn: tin, tokenOut: tout, fee: fee, recipient: address(this),
@@ -157,19 +163,19 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuard {
     function _algebraSwap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
         (address tin, address tout, address dep, uint256 amountIn, uint256 minOut) =
             abi.decode(input, (address, address, address, uint256, uint256));
-        amountIn = _resolve(amountIn, tin); _touch(L, tout);
+        amountIn = _spend(L, amountIn, tin); _touch(L, tout);
         _approveVenue(tin, BARKSWAP_ALGEBRA_ROUTER, amountIn);
         IAlgebraSwapRouter(BARKSWAP_ALGEBRA_ROUTER).exactInputSingle(IAlgebraSwapRouter.ExactInputSingleParams({
             tokenIn: tin, tokenOut: tout, deployer: dep, recipient: address(this),
             deadline: deadline, amountIn: amountIn, amountOutMinimum: minOut, limitSqrtPrice: 0 }));
     }
     function _wrapNative(bytes calldata input, Ledger memory L) internal {
-        uint256 a = _resolve(abi.decode(input, (uint256)), NATIVE);
+        uint256 a = _spend(L, abi.decode(input, (uint256)), NATIVE);
         _accrueInput(L, NATIVE, a); _touch(L, WDOGE);
         IWETH9(WDOGE).deposit{value: a}();
     }
-    function _unwrapNative(bytes calldata input) internal {
-        uint256 a = _resolve(abi.decode(input, (uint256)), WDOGE);
+    function _unwrapNative(bytes calldata input, Ledger memory L) internal {
+        uint256 a = _spend(L, abi.decode(input, (uint256)), WDOGE);
         IWETH9(WDOGE).withdraw(a);
     }
 

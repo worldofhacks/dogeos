@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity 0.8.30;
 
 /// @notice Fixed, movement-only command whitelist for DogeOSAggregationRouter.execute.
 /// @dev No CALL/DELEGATECALL/arbitrary-target command exists, by design. Fee/min-out/payout
