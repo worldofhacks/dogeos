@@ -79,7 +79,7 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
 
     error DeadlineExpired(); error LengthMismatch(); error UnknownCommand(); error Unauthorized();
     error FeeTooHigh(); error NotionalCapExceeded(); error MinOutNotMet(); error InvalidSpender();
-    error NativeTransferFailed(); error InsufficientLedgerBalance();
+    error NativeTransferFailed(); error InsufficientLedgerBalance(); error LedgerOverflow();
 
     event GuardianUpdated(address indexed guardian);
     event FeeUpdated(uint256 feeBps, address indexed feeRecipient);
@@ -168,7 +168,10 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
 
         // slither-disable-next-line uninitialized-local
         Ledger memory L; // zero-initialized by the EVM; arrays assigned on the next line before any read
-        L.tokens = new address[](n + 2); L.entry = new uint256[](n + 2); L.pulled = new uint256[](n + 2);
+        // sized for the worst case: each command may introduce up to 2 new tokens (swap in + out),
+        // plus the NATIVE seed and the buyToken snapshot. _idx also guards against overflow.
+        uint256 cap = 2 * n + 2;
+        L.tokens = new address[](cap); L.entry = new uint256[](cap); L.pulled = new uint256[](cap);
         // seed native entry EXCLUDING this call's incoming value
         L.tokens[0] = NATIVE; L.entry[0] = address(this).balance - msg.value; L.count = 1;
         if (s.recipient != address(0)) _touch(L, s.buyToken); // snapshot buyToken entry
@@ -185,7 +188,8 @@ contract DogeOSAggregationRouter is Ownable2Step, Pausable, ReentrancyGuardTrans
     }
     function _idx(Ledger memory L, address t) internal view returns (uint256) {
         for (uint256 i; i < L.count; ++i) if (L.tokens[i] == t) return i;
-        uint256 j = L.count; L.tokens[j] = t; L.entry[j] = _bal(t); L.count = j + 1; return j;
+        uint256 j = L.count; if (j >= L.tokens.length) revert LedgerOverflow();
+        L.tokens[j] = t; L.entry[j] = _bal(t); L.count = j + 1; return j;
     }
     function _touch(Ledger memory L, address t) internal view { _idx(L, t); }
     function _delta(Ledger memory L, address t) internal view returns (uint256) {
