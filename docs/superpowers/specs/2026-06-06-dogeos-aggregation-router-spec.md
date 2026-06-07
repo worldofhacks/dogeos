@@ -289,11 +289,19 @@ are **authoritative and supersede any conflicting text above.**
   Deploying canonical Permit2 (deterministic CREATE2 via the Arachnid proxy
   `0x4e59b44847b379578588920cA78FbF26c0B4956C`) is a **required, critical-path step** before
   the router and swap flow — not a contingency.
-- **DogeOS is a pre-Shanghai / pre-Cancun (Bedrock-era) OP-Stack chain**: block headers lack
-  `withdrawalsRoot`/`excessBlobGas`; the GasPriceOracle is pre-Ecotone. Therefore pin
-  `evm_version = "paris"`; **PUSH0 and transient storage (TSTORE/TLOAD) are unavailable** — the
-  reentrancy guard MUST use the storage-slot `ReentrancyGuard`, never `ReentrancyGuardTransient`.
-  Confirm with an on-chain opcode probe in Task #0.
+- **DogeOS is a Dogecoin zkEVM, Prague-compatible** (NOT OP-Stack Bedrock). The official docs
+  (developer-quickstart, ethereum-and-dogeos-differences) say: use `evm_version = "prague"` and
+  Solidity ≥ `0.8.30`. An on-chain opcode probe (`eth_call --create`, 2026-06-06) confirms
+  **PUSH0, transient storage (EIP-1153 TSTORE/TLOAD), and MCOPY all execute** — so the reentrancy
+  guard uses OZ `ReentrancyGuardTransient`. (An earlier OP-Stack/Bedrock heuristic wrongly
+  inferred pre-Shanghai from absent `withdrawalsRoot`/`excessBlobGas` header fields — **superseded**.
+  The GasPriceOracle predeploy at `0x5300…0002` is a documented fee oracle, not an OP-Stack fork
+  marker.)
+- **Precompile constraints (DogeOS-specific):** RIPEMD-160 (`0x3`), blake2f (`0x9`), and
+  point-evaluation (`0x0a`) are unsupported; `modexp` accepts only ≤32-byte inputs; `SELFDESTRUCT`
+  is disabled (reverts); blob opcodes / EIP-4788 are unavailable. `ecrecover` (`0x1`) IS available,
+  so EIP-712 / Permit2 signature recovery works. The router uses none of the unsupported
+  precompiles.
 - Venue routers, WDOGE, and the L1 oracle are confirmed deployed with correct bytecode; chain
   id `6281971`; testnet only (no mainnet yet); `@dogeos/dogeos-sdk` unchanged.
 
@@ -306,7 +314,10 @@ recording each token's balance at first reference (native entry recorded as
 therefore **never** move pre-existing/airdropped/stranded funds — only what this call brought
 in, making I1 and I5 structurally enforced rather than argued. An owner-only `rescue(token,to,
 amount)` recovers genuinely stuck pre-existing balances out-of-band (not reachable via
-`execute`).
+`execute`). Swap/wrap/unwrap commands spend only the per-execute delta of their input token via
+`_spend`: an explicit amount may not exceed what this call brought in, and `CONTRACT_BALANCE`
+resolves to the delta (never absolute balance) — so pre-existing/airdropped balances are
+unspendable through `execute`.
 
 ### H2 — Enforced final settlement (enforces I2)
 
@@ -328,6 +339,12 @@ the whole tx reverts" a **contract guarantee**. Because settlement subsumes them
 standalone `PAY_FEE`, `MIN_OUT_CHECK`, and buyToken-`SWEEP` commands are **removed**; the
 command set is movement-only (`PERMIT2_PERMIT`, `PERMIT2_TRANSFER_FROM`, `V2_SWAP`, `V3_SWAP`,
 `ALGEBRA_SWAP`, `WRAP_NATIVE`, `UNWRAP_NATIVE`).
+
+**Permit2 security (the UniversalRouter pattern):** the Permit2 owner is ALWAYS `msg.sender` —
+the router never accepts a caller-supplied `from`/`owner`, so it cannot pull a third party's
+permitted funds even when many users hold live router allowances. Command inputs reflect this:
+`PERMIT2_PERMIT` = `(IAllowanceTransfer.PermitSingle, bytes signature)` and
+`PERMIT2_TRANSFER_FROM` = `(address token, uint160 amount)` — neither carries an `owner` field.
 
 ### H3 — Per-execute aggregate notional cap + default cap (enforces I8)
 

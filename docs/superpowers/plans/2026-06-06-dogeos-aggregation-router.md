@@ -33,8 +33,8 @@
 
 | Byte | Command | Input (abi.encode) |
 | --- | --- | --- |
-| `0x00` | `PERMIT2_PERMIT` | `(address owner, IAllowanceTransfer.PermitSingle permitSingle, bytes signature)` |
-| `0x01` | `PERMIT2_TRANSFER_FROM` | `(address owner, address token, uint160 amount)` |
+| `0x00` | `PERMIT2_PERMIT` | `(IAllowanceTransfer.PermitSingle permitSingle, bytes signature)` — owner is always `msg.sender` |
+| `0x01` | `PERMIT2_TRANSFER_FROM` | `(address token, uint160 amount)` — pulls from `msg.sender` only |
 | `0x02` | `V2_SWAP` | `(uint256 amountIn, uint256 amountOutMin, address[] path)` |
 | `0x03` | `V3_SWAP` | `(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint256 amountOutMin)` |
 | `0x04` | `ALGEBRA_SWAP` | `(address tokenIn, address tokenOut, address deployer, uint256 amountIn, uint256 amountOutMin)` |
@@ -84,14 +84,25 @@ address internal constant NATIVE = 0xEEeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 ### O-2. New Phase 0 (replaces Tasks 0.0–0.5 ordering)
 
 - **Task 0.0 (NEW) — Install Foundry:** `curl -L https://foundry.paradigm.xyz | bash && foundryup && forge --version && cast --version`. Everything else in Phase 0 depends on it.
-- **Task 0.1 — EVM probe (REVISED):** record (evidence in `audit/CHAIN_FACTS.md`) that DogeOS is **pre-Shanghai/pre-Cancun**: `cast block latest --rpc-url $RPC --json | grep -E 'withdrawalsRoot|excessBlobGas'` returns nothing. Pin `evm_version = "paris"`. **Forbid PUSH0/transient storage**; use storage `ReentrancyGuard` (delete the "switch to ReentrancyGuardTransient" note). Resilient Cancun check: `... | grep -q excessBlobGas && echo cancun || echo paris`.
+- **Task 0.1 — EVM target (REVISED per DogeOS docs + on-chain probe):** DogeOS is a **Prague-compatible Dogecoin zkEVM**. Per the official docs use `evm_version = "prague"` and Solidity ≥ `0.8.30`. Confirm with a key-free opcode probe: `cast call --rpc-url $RPC --create 0x5f5ff3` (PUSH0), `cast call --rpc-url $RPC --create 0x600160005c60005d5000` (TSTORE/TLOAD), `cast call --rpc-url $RPC --create 0x6000600060005e00` (MCOPY) — all return `0x` (supported, verified 2026-06-06). Use OZ `ReentrancyGuardTransient`. Record in `audit/CHAIN_FACTS.md` the probe result + precompile constraints (RIPEMD-160/blake2f/point-eval unsupported; modexp ≤32B; SELFDESTRUCT disabled; ecrecover available so Permit2/EIP-712 works). The earlier OP-Stack/Bedrock "pre-Shanghai" header heuristic was WRONG — superseded.
 - **Task 0.2 — Permit2 (REVISED, now REQUIRED):** `cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url $RPC` returns `0x` → Permit2 is absent. Deploy canonical Permit2 deterministically (Arachnid proxy `0x4e59b44847b379578588920cA78FbF26c0B4956C`, canonical salt) — scheduled in the deploy phase BEFORE the router — and verify bytecode + `DOMAIN_SEPARATOR()` on Blockscout. Add `PERMIT2_DEPLOY_SALT`/initcode to Frozen Constants when chosen.
 - **Task 0.4 — Scaffold (REVISED):** `forge init packages/contracts --no-git` (drop the removed `--no-commit`). Pin deps: `forge install foundry-rs/forge-std@v1.9.7 --no-git`, `forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git`, `forge install Uniswap/permit2@<pin> --no-git` (record exact tags in `REPRODUCIBILITY.md`). Mirror the pins in the CI workflow (Task 4.4).
 
 ### O-3. Revised core contract (replaces the Task 1.2 skeleton + Task 1.3/1.4 handler bodies)
 
-This is the authoritative `src/DogeOSAggregationRouter.sol`. Build it test-first per the base
-phases, but to THIS shape. (Settlement + the in-memory `Ledger` are the heart of H1/H2/H3.)
+This is the `src/DogeOSAggregationRouter.sol` template. (Settlement + the in-memory `Ledger` are
+the heart of H1/H2/H3.)
+
+> **CORRECTIONS (post-audit, commit `ac2f805`) — the committed contract supersedes the code below:**
+> 1. `_permit2Permit` / `_permit2TransferFrom` take **NO `owner` field** and use `msg.sender`
+>    (`PERMIT2.permit(msg.sender, p, sig)`, `PERMIT2.transferFrom(msg.sender, …)`). Inputs are
+>    `(PermitSingle, sig)` and `(token, amount)`. This closes a critical third-party allowance-drain.
+> 2. Swap/wrap/unwrap use **`_spend(L, amount, token)`** (delta-only; reverts
+>    `InsufficientLedgerBalance` if amount > per-execute delta) instead of `_resolve` (absolute).
+>    This closes a high-severity stranded-funds drain and makes `CONTRACT_BALANCE` = delta.
+> 3. EVM target is **prague / solc 0.8.30** with **`ReentrancyGuardTransient`** (DogeOS is a
+>    Prague zkEVM; transient storage confirmed on-chain). Refer to the live contract, not the
+>    `paris`/`ReentrancyGuard`/`_resolve` code shown below.
 
 ```solidity
 // SPDX-License-Identifier: MIT
