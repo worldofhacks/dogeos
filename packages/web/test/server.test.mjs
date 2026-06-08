@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
   createWebRequestListener,
   startAggregatorWebServer,
 } from "../src/server.mjs";
+
+// Pin the static root to the authored React source so the shell assertions are
+// deterministic whether or not a (possibly stale) Vite `dist/` build is present.
+const sourceRoot = fileURLToPath(new URL("../../../apps/web/src/", import.meta.url));
 
 function collectResponse(listener, request) {
   return new Promise((resolve, reject) => {
@@ -53,24 +58,31 @@ function incomingRequest({ method = "GET", url = "/", body = "", headers = {} } 
   };
 }
 
-test("web listener serves the swap app shell and static assets", async () => {
+test("web listener serves the React app shell and static assets", async () => {
   const listener = createWebRequestListener({
     apiHandle: async () => new Response("{}", { headers: { "content-type": "application/json" } }),
+    staticRoot: sourceRoot,
   });
 
   const index = await collectResponse(listener, incomingRequest({ url: "/" }));
-  const cssHref = index.body.match(/href="([^"]+\.css)"/)?.[1] ?? "/styles.css";
-  const css = await collectResponse(listener, incomingRequest({ url: cssHref }));
+  const entry = await collectResponse(listener, incomingRequest({ url: "/main.jsx" }));
   const favicon = await collectResponse(listener, incomingRequest({ url: "/favicon.ico" }));
 
+  // The shell the server returns is the React mount document, not the legacy
+  // vanilla aggregator markup.
   assert.equal(index.statusCode, 200);
   assert.match(index.headers["content-type"], /text\/html/);
-  assert.match(index.body, /DogeOS Aggregator/);
-  assert.match(index.body, /route-table/);
+  assert.match(index.body, /DogeSwap/);
+  assert.match(index.body, /<div id="root"><\/div>/);
+  assert.match(index.body, /<script type="module" src="\/main\.jsx">/);
+  assert.match(index.body, /src="\/runtime-config\.js"/);
+  assert.doesNotMatch(index.body, /id="swap-form"/);
+  assert.doesNotMatch(index.body, /route-table/);
 
-  assert.equal(css.statusCode, 200);
-  assert.match(css.headers["content-type"], /text\/css/);
-  assert.match(css.body, /@media/);
+  // The static file server resolves the React entry module that the shell loads
+  // (Vite transpiles .jsx in dev/build; the dev server resolves the raw module).
+  assert.equal(entry.statusCode, 200);
+  assert.match(entry.body, /import App from "\.\/ui\/App\.jsx"/);
 
   assert.equal(favicon.statusCode, 200);
   assert.match(favicon.headers["content-type"], /image\/svg\+xml/);
@@ -119,6 +131,34 @@ test("web listener delegates aggregator API routes without a cross-origin proxy"
   assert.equal(response.statusCode, 200);
   assert.deepEqual(seen, [["POST", "/quote", "{\"amountIn\":\"1000\"}"]]);
   assert.deepEqual(JSON.parse(response.body), { status: "no-route" });
+});
+
+test("web listener delegates wallet activity through the same API boundary", async () => {
+  const seen = [];
+  const listener = createWebRequestListener({
+    apiHandle: async (request) => {
+      const url = new URL(request.url);
+      seen.push([request.method, url.pathname, url.searchParams.get("address")]);
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    },
+  });
+
+  const response = await collectResponse(
+    listener,
+    incomingRequest({
+      method: "GET",
+      url: "/activity?address=0x1111111111111111111111111111111111111111",
+    }),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(seen, [
+    ["GET", "/activity", "0x1111111111111111111111111111111111111111"],
+  ]);
+  assert.deepEqual(JSON.parse(response.body), { data: [] });
 });
 
 test("web listener delegates approval preflight through the same API boundary", async () => {
@@ -173,6 +213,31 @@ test("web listener delegates verification snapshots through the API boundary", a
   assert.equal(response.statusCode, 200);
   assert.deepEqual(seen, [["GET", "/verification"]]);
   assert.deepEqual(JSON.parse(response.body), { summary: { hasBlockingMismatch: false } });
+});
+
+test("web listener delegates DogeOS chain status through the same API boundary", async () => {
+  const seen = [];
+  const listener = createWebRequestListener({
+    apiHandle: async (request) => {
+      seen.push([request.method, new URL(request.url).pathname]);
+      return new Response(JSON.stringify({ data: { chainMatches: true } }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    },
+  });
+
+  const response = await collectResponse(
+    listener,
+    incomingRequest({
+      method: "GET",
+      url: "/chain-status",
+    }),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(seen, [["GET", "/chain-status"]]);
+  assert.deepEqual(JSON.parse(response.body), { data: { chainMatches: true } });
 });
 
 test("web listener delegates venue contract maps through the API boundary", async () => {
