@@ -8,6 +8,7 @@ import { ThemeCtx, makeTheme } from "./theme.js";
 import { Label, useIsMobile, haptic, truncateAddress } from "./primitives.jsx";
 import { useWallet } from "./useWallet.js";
 import SwapView from "./SwapView.jsx";
+import { ToastHost } from "./Toast.jsx";
 import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
 
 const NAV_ITEMS = [
@@ -125,7 +126,6 @@ export default function Shell() {
   // Overlay slots (stubbed for now; later tasks mount real overlays here).
   const [picker, setPicker] = useState(null); // 'pay' | 'get' | null
   const [showConnect, setShowConnect] = useState(false);
-  const [swapFlow, setSwapFlow] = useState(false);
   const [chartPop, setChartPop] = useState(false);
 
   // Live chain status for the footer (chain id / latest block).
@@ -195,7 +195,7 @@ export default function Shell() {
   // until their later tasks land.
   const renderView = () =>
     view === "swap" ? (
-      <SwapView chartOn={chartPop} onToggleChart={() => setChartPop((v) => !v)} onReview={() => setSwapFlow(true)} />
+      <SwapView chartOn={chartPop} onToggleChart={() => setChartPop((v) => !v)} />
     ) : (
       <PlaceholderView view={view} theme={theme} />
     );
@@ -206,13 +206,16 @@ export default function Shell() {
     </div>
   );
 
-  // Overlay slots — empty scaffolding for now.
+  // Overlay slots. The SwapFlow execution modal renders inside SwapView (it owns
+  // the live quote/route/balances); the swapFlow flag here mirrors its open state
+  // (set via onReview) for shell-level coordination. The ToastHost lives here so
+  // confirmed-swap toasts render above the whole shell.
   const overlays = (
     <>
       {picker && null}
       {showConnect && null}
-      {swapFlow && null}
       {chartPop && null}
+      <ToastHost />
     </>
   );
 

@@ -22,6 +22,8 @@ import { useTheme } from "./theme.js";
 import { Label, TokenIcon, Skeleton, fmt, compact, haptic, useIsMobile } from "./primitives.jsx";
 import Slider from "./Slider.jsx";
 import TokenPicker from "./TokenPicker.jsx";
+import SwapFlow from "./SwapFlow.jsx";
+import { showToast } from "./Toast.jsx";
 import { useWallet } from "./useWallet.js";
 import { useQuote } from "./useQuote.js";
 import { useTokenBalances } from "./useTokenBalances.js";
@@ -100,12 +102,13 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
   const [slippage, setSlippage] = useState(SLIPPAGE_DEFAULT); // percent
   const [spin, setSpin] = useState(0);
   const [routeOpen, setRouteOpen] = useState(false);
+  const [showFlow, setShowFlow] = useState(false); // swap execution overlay
 
   const slippageBps = Math.round(slippage * 100);
 
   // ---- live balances (real, via wallet provider eth_call) ----
   const balanceTokens = useMemo(() => [pay, get].filter(Boolean), [pay, get]);
-  const { balances } = useTokenBalances({
+  const { balances, refresh: refreshBalances } = useTokenBalances({
     owner: wallet.address,
     chainId: wallet.chainId,
     tokens: balanceTokens,
@@ -141,6 +144,11 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
   const best = rows[0] ?? null;
   const venueCount = quote ? executableRouteCount(quote) : 0;
   const outNum = best ? routeOutputNumber(best, get) : 0;
+  const minRecvNum = useMemo(() => {
+    if (!best || !get) return 0;
+    const n = Number(minReceivedDecimal(best, get, 8));
+    return Number.isFinite(n) ? n : 0;
+  }, [best, get]);
   const rate = best ? effectiveRate(best, pay, get) : null;
   const saveVsNext = quote ? bestVsNextPercent(quote, get) : 0;
 
@@ -432,7 +440,17 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
 
           <button
             className="tap"
-            onClick={connected ? (reviewable ? () => { haptic(12); onReview?.(); } : undefined) : onConnect}
+            onClick={
+              connected
+                ? reviewable
+                  ? () => {
+                      haptic(12);
+                      onReview?.();
+                      setShowFlow(true);
+                    }
+                  : undefined
+                : onConnect
+            }
             disabled={connected && (amt <= 0 || overBal)}
             style={{
               width: "100%",
@@ -788,6 +806,36 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
           onClose={() => setPicker(null)}
           balances={balances}
           owner={wallet.address}
+        />
+      )}
+
+      {showFlow && (
+        <SwapFlow
+          pay={pay}
+          get={get}
+          payAmt={payAmt}
+          outNum={outNum}
+          minRecvNum={minRecvNum}
+          slippage={slippage}
+          venue={bestName}
+          bestRoute={best}
+          quote={quote}
+          slippageBps={slippageBps}
+          sender={wallet.address}
+          onRefresh={refresh}
+          isScanning={scanning}
+          onClose={() => setShowFlow(false)}
+          onComplete={(result) => {
+            showToast(
+              `Swapped ${fmt(result.payAmt, 2)} ${result.paySym} → ${fmt(
+                result.recv,
+                result.recv < 1 ? 4 : 2,
+              )} ${result.getSym}`,
+              "ok",
+            );
+            // refresh balances now that the swap is confirmed on-chain.
+            refreshBalances?.();
+          }}
         />
       )}
     </>
