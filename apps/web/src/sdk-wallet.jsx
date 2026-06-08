@@ -55,8 +55,14 @@ function InjectedWalletBridge() {
 function DogeOSSdkWalletRoot() {
   // When no clientId is provisioned the DogeOS Connect Kit cannot mount, so we
   // keep the EIP-6963 injected bridge as the graceful fallback (MyDoge still
-  // connects via window.ethereum). With a clientId we mount the SDK provider and
-  // the Connect Kit modal becomes the primary chooser for all wallets.
+  // connects via window.ethereum — see useWallet.connect()). With a clientId we
+  // mount the SDK provider and the Connect Kit modal becomes the primary chooser
+  // for all wallets (and unlocks mobile MyDoge via WalletConnect).
+  //
+  // To provision the clientId set DOGEOS_CLIENT_ID (or VITE_DOGEOS_CLIENT_ID) in
+  // .env / the environment. It is read at runtime in packages/web/src/server.mjs
+  // and at build time in vite.config.mjs, then surfaced via sdkConfig.js
+  // (dogeConfig.clientId) / window.DOGEOS_AGGREGATOR_CONFIG.dogeosClientId.
   if (!dogeConfig.clientId) {
     noticeInjectedFallbackOnce();
     return <InjectedWalletBridge />;

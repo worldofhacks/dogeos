@@ -2,9 +2,10 @@
 //
 // Faithful port of the design's swap.jsx, wired to the REAL backend:
 //   • amount input ([0-9.] only) + token pair with flip (spins 180°, haptic)
+//   • "you receive" output readout (amount + buy symbol + icon; skeleton while
+//     scanning) — follows the live best route + the flip
 //   • freshness line: scanning spinner OR countdown ring (tap-to-refresh)
 //   • CTA states: connect / enter amount / insufficient balance / review swap
-//     (+ "≈ {out} {sym}" sublabel from the live best route)
 //   • amount + slippage sliders w/ presets + escalating slippage warning bands
 //   • expandable aggregator scan (best venue, "best of N", ranked venues with
 //     per-venue output + −X.XX% vs best, winner gold) — REAL from best+alternatives
@@ -426,6 +427,61 @@ export default function SwapView({
           </div>
         </Section>
 
+        {/* you receive — prominent output readout (replaces the tiny CTA
+            sublabel). Honesty: no "≈ $USD" line (no price feed) — amount +
+            symbol + icon only. The number follows the live quote + the flip. */}
+        <div style={{ padding: mobile ? "0 18px 11px" : "0 20px 15px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: mobile ? "11px 14px" : "13px 16px",
+              borderRadius: 12,
+              border: `1px solid ${th.hair}`,
+              background: th.panelHi,
+            }}
+          >
+            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              <Label>you receive</Label>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
+                {scanning ? (
+                  <Skeleton w={140} h={26} r={6} />
+                ) : (
+                  <span
+                    style={{
+                      fontFamily: "'DM Mono',monospace",
+                      fontVariantNumeric: "tabular-nums",
+                      fontSize: 30,
+                      fontWeight: 500,
+                      color: th.ink,
+                      letterSpacing: "-0.02em",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {hasResult ? fmt(outNum, dpFor(outNum)) : "0"}
+                  </span>
+                )}
+                <span
+                  style={{
+                    fontFamily: "'Space Grotesk',sans-serif",
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: th.inkSoft,
+                    flexShrink: 0,
+                  }}
+                >
+                  {get?.symbol ?? ""}
+                </span>
+              </div>
+            </div>
+            <TokenIcon token={get ? decorateToken(get) : null} size={mobile ? 32 : 36} />
+          </div>
+        </div>
+
         {/* action — sits where the receive section used to be */}
         <div style={{ padding: mobile ? "12px 16px 14px" : "14px 20px 16px" }}>
           {/* freshness line — fixed height so no layout shift */}
@@ -524,13 +580,11 @@ export default function SwapView({
               cursor: !connected || (amt > 0 && !overBal) ? "pointer" : "not-allowed",
               boxShadow: (!connected || (amt > 0 && !overBal)) && !th.dark ? "0 2px 0 rgba(0,0,0,0.18)" : "none",
               textTransform: "uppercase",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
               lineHeight: 1.1,
             }}
           >
+            {/* CTA label only — the "you receive" readout above now shows the
+                output amount (no redundant "≈ {out} {sym}" sublabel here). */}
             <span style={{ whiteSpace: "nowrap" }}>
               {!connected
                 ? "connect wallet"
@@ -540,20 +594,6 @@ export default function SwapView({
                     ? "enter an amount"
                     : "review swap"}
             </span>
-            {connected && amt > 0 && !overBal && hasResult && (
-              <span
-                style={{
-                  fontFamily: "'DM Mono',monospace",
-                  fontSize: 11.5,
-                  fontWeight: 400,
-                  letterSpacing: "0.04em",
-                  textTransform: "none",
-                  opacity: 0.9,
-                }}
-              >
-                ≈ {fmt(outNum, dpFor(outNum))} {get?.symbol ?? ""}
-              </span>
-            )}
           </button>
         </div>
 

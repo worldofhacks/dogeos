@@ -13,6 +13,7 @@ import TokensView from "./TokensView.jsx";
 import ActivityView from "./ActivityView.jsx";
 import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
+import WalletChooser from "./WalletChooser.jsx";
 import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
 
 const NAV_ITEMS = [
@@ -203,8 +204,19 @@ export default function Shell() {
 
   // Overlay slots. The SwapFlow execution modal + chart panel/popout render
   // inside SwapView (it owns the live quote/route/balances/pair). The ToastHost
-  // lives here so confirmed-swap toasts render above the whole shell.
-  const overlays = <ToastHost />;
+  // lives here so confirmed-swap toasts render above the whole shell. The
+  // WalletChooser appears only in the injected (no-clientId) path when several
+  // injected wallets are present and the user hasn't picked one.
+  const overlays = (
+    <>
+      <ToastHost />
+      <WalletChooser
+        chooser={wallet.chooser}
+        onChoose={(preference) => wallet.chooseWallet(preference)}
+        onCancel={() => wallet.cancelChooser()}
+      />
+    </>
+  );
 
   // ===== MOBILE: edge-to-edge, sticky frosted header, fixed bottom tab bar =====
   if (mobile) {

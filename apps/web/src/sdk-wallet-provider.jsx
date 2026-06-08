@@ -128,6 +128,9 @@ function DogeOSSdkWalletBridge() {
         return wallet.disconnect();
       },
       switchToDogeOS,
+      // In SDK mode the DogeOS Connect Kit modal is the single chooser for ALL
+      // wallets, so there is no separate injected chooser to surface here.
+      listInjectedWallets: () => [],
       getAddress: () => activeAddress,
       getChainId: () => activeChainId,
       getChainType: () => activeChainType,

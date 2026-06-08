@@ -61,6 +61,16 @@ function providerStronglyMatchesPreference(provider, walletPreference, info) {
   return true;
 }
 
+// Best-effort classification of a discovered provider into a known preference
+// key (so the UI chooser can label/route entries). Used only for the injected
+// fallback chooser; defaults to "" (generic injected) when unrecognised.
+function classifyProviderPreference(provider, info) {
+  if (providerStronglyMatchesPreference(provider, "mydoge", info)) return "mydoge";
+  if (providerLooksLikeRainbow(provider, info)) return "rainbow";
+  if (providerStronglyMatchesPreference(provider, "metamask", info)) return "metamask";
+  return "";
+}
+
 function providerMatchesPreference(provider, walletPreference, info, { strongOnly = false } = {}) {
   if (!provider?.request) return false;
   if (strongOnly) return providerStronglyMatchesPreference(provider, walletPreference, info);
@@ -433,6 +443,10 @@ export function createInjectedWalletBridge({
   }
 
   const bridge = {
+    // Identifies this as the injected EIP-6963 fallback bridge (no clientId).
+    // The UI reads this synchronously to route connect() to the injected path
+    // (with a wallet preference / chooser) vs. the SDK Connect Kit modal.
+    walletSource: "injected",
     async openModal({ walletPreference = "" } = {}) {
       selectedWalletPreference = walletPreference;
       walletLabel = walletPreferenceLabel(walletPreference);
@@ -473,6 +487,25 @@ export function createInjectedWalletBridge({
       publish();
     },
     switchToDogeOS,
+    // Enumerate the injected EIP-1193 providers discovered on the page (window
+    // .ethereum[.providers] + EIP-6963 announcements), each tagged with a known
+    // preference key + display label. The UI uses this to decide between a
+    // direct MyDoge connect and a minimal chooser when several wallets exist.
+    listInjectedWallets() {
+      const seen = new Set();
+      const wallets = [];
+      for (const entry of requestProviderEntries(globalObject)) {
+        if (seen.has(entry.provider)) continue;
+        seen.add(entry.provider);
+        const preference = classifyProviderPreference(entry.provider, entry.info);
+        wallets.push({
+          preference,
+          label: entry.info?.name || walletPreferenceLabel(preference),
+          rdns: providerRdns(entry.provider, entry.info),
+        });
+      }
+      return wallets;
+    },
     getAddress: () => address,
     getChainId: () => chainId,
     getChainType: () => "evm",
