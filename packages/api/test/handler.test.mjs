@@ -65,6 +65,51 @@ test("GET /sources and /tokens expose UI metadata without executable custom venu
   );
 });
 
+test("GET /chain-status exposes DogeOS RPC, gas, block, and fee-oracle metadata", async () => {
+  let providerCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    chainStatusProvider: async () => {
+      providerCalled = true;
+      return {
+        checkedAt: "2026-06-06T18:00:00.000Z",
+        live: true,
+        status: "live",
+        chainId: DOGEOS_CHAIN.id,
+        expectedChainId: DOGEOS_CHAIN.id,
+        chainMatches: true,
+        blockNumber: 5_348_657n,
+        gasPriceWei: 1_250_000_000n,
+        dataFinalityFeeWei: 456_000_000_000n,
+        dataFinalityFeeSample: "v2-swap-payload",
+        nativeCurrency: DOGEOS_CHAIN.nativeCurrency,
+        rpcUrl: DOGEOS_CHAIN.rpcUrls[0],
+        blockscoutBaseUrl: DOGEOS_CHAIN.blockscoutBaseUrl,
+        docsUrl: DOGEOS_CHAIN.docsUrl,
+        faucetUrl: DOGEOS_CHAIN.faucetUrl,
+        l1GasPriceOracle: DOGEOS_CHAIN.l1GasPriceOracle,
+        documentedMaxReorgDepth: DOGEOS_CHAIN.documentedMaxReorgDepth,
+      };
+    },
+  });
+
+  const response = await handle(new Request("https://aggregator.local/chain-status"));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(providerCalled, true);
+  assert.equal(body.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.data.chainMatches, true);
+  assert.equal(body.data.blockNumber, "5348657");
+  assert.equal(body.data.gasPriceWei, "1250000000");
+  assert.equal(body.data.dataFinalityFeeWei, "456000000000");
+  assert.equal(body.data.nativeCurrency.symbol, "DOGE");
+  assert.equal(body.data.rpcUrl, "https://rpc.testnet.dogeos.com");
+  assert.equal(body.data.blockscoutBaseUrl, "https://blockscout.testnet.dogeos.com");
+  assert.equal(body.data.l1GasPriceOracle, DOGEOS_CHAIN.l1GasPriceOracle);
+  assert.equal(body.data.documentedMaxReorgDepth, 17);
+});
+
 test("GET /verification exposes router and token provenance snapshots without quote work", async () => {
   let quoteProviderCalled = false;
   const handle = createAggregatorApiHandler({
@@ -224,6 +269,125 @@ test("GET /venues exposes contract addresses with Blockscout and adapter ABI pro
   assert.equal(router.executionEvidence.abiProof.provenance, "adapter-fragment");
   assert.equal(router.executionEvidence.abiProof.adapterAbiArtifactVerified, true);
   assert.equal(router.executionEvidence.blockscout.abiAvailable, false);
+});
+
+test("GET /intelligence exposes venue classes and rejected non-spot surfaces without quote work", async () => {
+  let quoteProviderCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    quoteCandidateProvider: async () => {
+      quoteProviderCalled = true;
+      return [];
+    },
+    verificationSnapshotProvider: async () => ({
+      checkedAt: "2026-06-02T03:28:16.161Z",
+      sources: [
+        {
+          sourceId: "muchfi-v2",
+          role: "router",
+          address: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
+          executionEvidence: {
+            executable: true,
+            abiProof: {
+              provenance: "adapter-fragment",
+              adapterAbiArtifactVerified: true,
+            },
+          },
+        },
+        {
+          sourceId: "muchfi-v2",
+          role: "pool",
+          address: "0xD826428b6a0ead35Dcb31A75DB61be94f2ee87F4",
+          executionEvidence: {
+            onchainProof: {
+              poolPair: "WDOGE/USDC",
+              poolHasLiveLiquidity: true,
+            },
+          },
+        },
+      ],
+    }),
+  });
+
+  const response = await handle(new Request("https://aggregator.local/intelligence"));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(quoteProviderCalled, false);
+  assert.equal(body.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.checkedAt, "2026-06-02T03:28:16.161Z");
+  assert.equal(body.data.summary.activeExecutable, 3);
+  assert.equal(body.data.summary.watchlist, 2);
+  assert.equal(body.data.activeExecutable.some((source) => source.sourceId === "muchfi-v2"), true);
+  assert.equal(
+    body.data.activeExecutable.find((source) => source.sourceId === "muchfi-v2")
+      .contracts.executableRouters,
+    1,
+  );
+  assert.equal(
+    body.data.activeExecutable.find((source) => source.sourceId === "muchfi-v2")
+      .liquidity.livePoolCount,
+    1,
+  );
+  assert.equal(body.data.rejectedSurfaces.some((surface) => surface.surfaceId === "derps-perps"), true);
+});
+
+test("GET /activity exposes connected wallet DogeOS Blockscout transaction history", async () => {
+  let activityInput;
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  const txHash = "0x206aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2907";
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    activityProvider: async (input) => {
+      activityInput = input;
+      return {
+        items: [
+          {
+            hash: txHash,
+            status: "ok",
+            method: "swapExactTokensForTokens",
+            block_number: 5_348_657,
+            timestamp: "2026-06-03T19:15:00.000000Z",
+            from: { hash: walletAddress },
+            to: { hash: "0xC653e745FC613a03D156DACB924AE8e9148B18dc" },
+          },
+        ],
+        nextPageParams: null,
+        sourceUrl: `https://blockscout.testnet.dogeos.com/api/v2/addresses/${walletAddress}/transactions`,
+      };
+    },
+  });
+
+  const response = await handle(new Request(`https://aggregator.local/activity?address=${walletAddress}`));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(activityInput.address, walletAddress);
+  assert.equal(activityInput.limit, 20);
+  assert.equal(body.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.address, walletAddress);
+  assert.equal(body.source, "blockscout");
+  assert.equal(body.blockscoutUrl.endsWith(`/addresses/${walletAddress}/transactions`), true);
+  assert.equal(body.data[0].hash, txHash);
+  assert.equal(body.data[0].method, "swapExactTokensForTokens");
+});
+
+test("GET /activity rejects malformed wallet addresses before Blockscout work", async () => {
+  let providerCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    activityProvider: async () => {
+      providerCalled = true;
+      return { items: [] };
+    },
+  });
+
+  const response = await handle(new Request("https://aggregator.local/activity?address=not-a-wallet"));
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error.code, "invalid-activity-request");
+  assert.equal(providerCalled, false);
 });
 
 test("POST /quote returns gas-aware quote responses with bigint values serialized as strings", async () => {
@@ -1053,6 +1217,11 @@ test("POST /swap attaches on-chain simulation and gas estimates for active quote
   assert.equal(verifierInput.quote.sourceId, "muchfi-v3");
   assert.equal(balanceInput.sender, "0x2222222222222222222222222222222222222222");
   assert.equal(balanceInput.verification.gasLimit, 120_000n);
+  assert.equal(body.transaction.from, "0x2222222222222222222222222222222222222222");
+  assert.equal(body.transaction.chainId, DOGEOS_CHAIN.id);
+  assert.equal(body.transaction.to, "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB");
+  assert.equal(body.transaction.data, "0x38ed1739");
+  assert.equal(body.transaction.value, "0");
   assert.equal(body.transaction.gas, "120000");
   assert.deepEqual(body.verification, {
     status: "simulated",

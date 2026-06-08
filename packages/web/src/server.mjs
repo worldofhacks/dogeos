@@ -11,8 +11,11 @@ const DEFAULT_DIST_ROOT = fileURLToPath(new URL("../../../apps/web/dist/", impor
 const API_PATHS = new Set([
   "/sources",
   "/tokens",
+  "/chain-status",
   "/venues",
+  "/intelligence",
   "/verification",
+  "/activity",
   "/quote",
   "/approval",
   "/swap",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { dogeosApiPlugin } from "../../../vite.config.mjs";
+import viteConfig, { dogeosApiPlugin, runtimeConfigFromEnv } from "../../../vite.config.mjs";
 
 function collectMiddlewareResponse(middleware, request) {
   return new Promise((resolve, reject) => {
@@ -87,6 +87,13 @@ test("Vite dev server delegates every app API route and serves runtime DogeOS SD
   );
 
   const venues = await collectMiddlewareResponse(middleware, incomingRequest({ url: "/venues" }));
+  const chainStatus = await collectMiddlewareResponse(middleware, incomingRequest({ url: "/chain-status" }));
+  const activity = await collectMiddlewareResponse(
+    middleware,
+    incomingRequest({
+      url: "/activity?address=0x1111111111111111111111111111111111111111",
+    }),
+  );
   const approval = await collectMiddlewareResponse(
     middleware,
     incomingRequest({
@@ -106,9 +113,13 @@ test("Vite dev server delegates every app API route and serves runtime DogeOS SD
   );
 
   assert.equal(venues.statusCode, 200);
+  assert.equal(chainStatus.statusCode, 200);
+  assert.equal(activity.statusCode, 200);
   assert.equal(approval.statusCode, 200);
   assert.deepEqual(seen, [
     ["GET", "/venues", ""],
+    ["GET", "/chain-status", ""],
+    ["GET", "/activity", ""],
     ["POST", "/approval", "{\"owner\":\"0x1111111111111111111111111111111111111111\"}"],
   ]);
   assert.equal(runtimeConfig.statusCode, 200);
@@ -116,4 +127,39 @@ test("Vite dev server delegates every app API route and serves runtime DogeOS SD
   assert.match(runtimeConfig.body, /"dogeosClientId":"dev-dogeos-client"/);
   assert.match(runtimeConfig.body, /"walletConnectProjectId":"dev-walletconnect"/);
   assert.equal(staticAsset.nextCalled, true);
+});
+
+test("Vite config defines browser process globals required by the DogeOS SDK wallet chunk", () => {
+  assert.equal(viteConfig.define?.["process.browser"], "true");
+  assert.equal(viteConfig.define?.["process.env"], "{}");
+  assert.equal(viteConfig.define?.["process.version"], JSON.stringify("v18.0.0"));
+  assert.equal(viteConfig.define?.global, "globalThis");
+  assert.equal(viteConfig.resolve?.alias?.buffer, "buffer/");
+  assert.equal(viteConfig.resolve?.alias?.util, "util/");
+});
+
+test("Vite runtime config reads DogeOS SDK ids from Vite-loaded env values", () => {
+  assert.deepEqual(
+    runtimeConfigFromEnv({
+      VITE_DOGEOS_CLIENT_ID: "vite-dogeos-client",
+      VITE_WALLETCONNECT_PROJECT_ID: "vite-walletconnect",
+    }),
+    {
+      dogeosClientId: "vite-dogeos-client",
+      walletConnectProjectId: "vite-walletconnect",
+    },
+  );
+
+  assert.deepEqual(
+    runtimeConfigFromEnv({
+      DOGEOS_CLIENT_ID: "server-dogeos-client",
+      VITE_DOGEOS_CLIENT_ID: "vite-dogeos-client",
+      WALLETCONNECT_PROJECT_ID: "server-walletconnect",
+      VITE_WALLETCONNECT_PROJECT_ID: "vite-walletconnect",
+    }),
+    {
+      dogeosClientId: "server-dogeos-client",
+      walletConnectProjectId: "server-walletconnect",
+    },
+  );
 });

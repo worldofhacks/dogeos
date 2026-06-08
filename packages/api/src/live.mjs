@@ -67,6 +67,44 @@ function createRequestBlockNumberProvider(client) {
   };
 }
 
+function createLiveChainStatusProvider({
+  client,
+  rpcUrl,
+  dataFinalityFeeWei,
+  nowMs = () => Date.now(),
+}) {
+  return async function liveChainStatus() {
+    const [chainId, blockNumber, gasPriceWei, resolvedDataFinalityFeeWei] = await Promise.all([
+      client.getChainId(),
+      client.getBlockNumber(),
+      client.getGasPriceWei(),
+      dataFinalityFeeWei({ protocolType: "v2" }),
+    ]);
+    const chainMatches = chainId === DOGEOS_CHAIN.id;
+
+    return {
+      checkedAt: new Date(nowMs()).toISOString(),
+      live: true,
+      status: chainMatches ? "live" : "mismatch",
+      chainId,
+      expectedChainId: DOGEOS_CHAIN.id,
+      chainMatches,
+      blockNumber,
+      gasPriceWei,
+      dataFinalityFeeWei: resolvedDataFinalityFeeWei,
+      dataFinalityFeeSample: "v2-swap-payload",
+      nativeCurrency: DOGEOS_CHAIN.nativeCurrency,
+      rpcUrl,
+      fallbackRpcUrls: DOGEOS_CHAIN.fallbackRpcUrls,
+      blockscoutBaseUrl: DOGEOS_CHAIN.blockscoutBaseUrl,
+      docsUrl: DOGEOS_CHAIN.docsUrl,
+      faucetUrl: DOGEOS_CHAIN.faucetUrl,
+      l1GasPriceOracle: DOGEOS_CHAIN.l1GasPriceOracle,
+      documentedMaxReorgDepth: DOGEOS_CHAIN.documentedMaxReorgDepth,
+    };
+  };
+}
+
 function errorMessage(error) {
   return error?.shortMessage ?? error?.message ?? String(error);
 }
@@ -207,6 +245,13 @@ export function createLiveAggregatorApiHandler({
     gasPriceWei: async () => client.getGasPriceWei(),
     outputWeiPerFeeWei,
     inputWeiPerFeeWei,
+    chainStatusProvider:
+      createLiveChainStatusProvider({
+        client,
+        rpcUrl,
+        dataFinalityFeeWei: resolvedDataFinalityFeeWei,
+        nowMs,
+      }),
     verificationSnapshotProvider: resolvedVerificationSnapshotProvider,
     calldataBuilder:
       calldataBuilder ??

@@ -7,6 +7,10 @@ export {
   listSources,
 } from "./sources/registry.mjs";
 export {
+  buildVenueIntelligence,
+  listRejectedSurfaces,
+} from "./sources/intelligence.mjs";
+export {
   VENUE_ABI_PROVENANCE,
   abiFunctionSignaturesFromAbi,
   createVenueAbiArtifact,

@@ -1,4 +1,5 @@
 import {
+  buildVenueIntelligence,
   buildQuoteResponse,
   buildSwapTx,
   listSources,
@@ -13,6 +14,8 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "content-type",
   "content-type": "application/json; charset=utf-8",
 };
+const DEFAULT_ACTIVITY_LIMIT = 20;
+const MAX_ACTIVITY_LIMIT = 50;
 
 function jsonReplacer(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
@@ -35,6 +38,64 @@ function errorResponse(status, code, message) {
     },
     { status },
   );
+}
+
+function isHexAddress(value) {
+  return /^0x[0-9a-fA-F]{40}$/.test(String(value ?? ""));
+}
+
+function normalizedActivityLimit(value) {
+  const numericLimit = Number(value ?? DEFAULT_ACTIVITY_LIMIT);
+  if (!Number.isFinite(numericLimit)) return DEFAULT_ACTIVITY_LIMIT;
+  return Math.max(1, Math.min(MAX_ACTIVITY_LIMIT, Math.trunc(numericLimit)));
+}
+
+function blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl) {
+  return `${blockscoutBaseUrl}/api/v2/addresses/${address}/transactions`;
+}
+
+function defaultChainStatus() {
+  return {
+    checkedAt: null,
+    live: false,
+    status: "static",
+    chainId: DOGEOS_CHAIN.id,
+    expectedChainId: DOGEOS_CHAIN.id,
+    chainMatches: null,
+    blockNumber: null,
+    gasPriceWei: null,
+    dataFinalityFeeWei: null,
+    dataFinalityFeeSample: "v2-swap-payload",
+    nativeCurrency: DOGEOS_CHAIN.nativeCurrency,
+    rpcUrl: DOGEOS_CHAIN.rpcUrls[0],
+    fallbackRpcUrls: DOGEOS_CHAIN.fallbackRpcUrls,
+    blockscoutBaseUrl: DOGEOS_CHAIN.blockscoutBaseUrl,
+    docsUrl: DOGEOS_CHAIN.docsUrl,
+    faucetUrl: DOGEOS_CHAIN.faucetUrl,
+    l1GasPriceOracle: DOGEOS_CHAIN.l1GasPriceOracle,
+    documentedMaxReorgDepth: DOGEOS_CHAIN.documentedMaxReorgDepth,
+  };
+}
+
+async function fetchBlockscoutAddressTransactions({
+  address,
+  limit = DEFAULT_ACTIVITY_LIMIT,
+  fetchFn = fetch,
+  blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl,
+} = {}) {
+  const sourceUrl = blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl);
+  const response = await fetchFn(sourceUrl);
+  const body = await response.json();
+
+  if (!response.ok) {
+    throw new Error(body?.message ?? body?.error ?? `Blockscout request failed: ${response.status}`);
+  }
+
+  return {
+    items: (Array.isArray(body.items) ? body.items : []).slice(0, limit),
+    nextPageParams: body.next_page_params ?? null,
+    sourceUrl,
+  };
 }
 
 function defaultTimingNowMs() {
@@ -337,6 +398,8 @@ export function createAggregatorApiHandler({
   swapVerifier,
   approvalPlanner,
   balanceVerifier,
+  activityProvider = fetchBlockscoutAddressTransactions,
+  chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
     throw new Error("No calldata builder configured.");
   },
@@ -396,6 +459,17 @@ export function createAggregatorApiHandler({
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/chain-status") {
+      try {
+        return jsonResponse({
+          chainId: DOGEOS_CHAIN.id,
+          data: await chainStatusProvider(),
+        });
+      } catch (error) {
+        return errorResponse(503, "chain-status-unavailable", error.message);
+      }
+    }
+
     if (request.method === "GET" && url.pathname === "/venues") {
       try {
         const verificationSnapshot = await verificationSnapshotProvider();
@@ -409,6 +483,24 @@ export function createAggregatorApiHandler({
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/intelligence") {
+      try {
+        const verificationSnapshot = await verificationSnapshotProvider();
+        const venues = mergeVenueVerification(listVenueContracts(), verificationSnapshot);
+
+        return jsonResponse({
+          chainId: DOGEOS_CHAIN.id,
+          checkedAt: verificationSnapshot.checkedAt ?? null,
+          data: buildVenueIntelligence({
+            sources: listSources(),
+            venues,
+          }),
+        });
+      } catch (error) {
+        return errorResponse(503, "intelligence-unavailable", error.message);
+      }
+    }
+
     if (request.method === "GET" && url.pathname === "/verification") {
       try {
         return jsonResponse({
@@ -417,6 +509,38 @@ export function createAggregatorApiHandler({
         });
       } catch (error) {
         return errorResponse(503, "verification-unavailable", error.message);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/activity") {
+      const address = url.searchParams.get("address") ?? "";
+      const limit = normalizedActivityLimit(url.searchParams.get("limit"));
+
+      if (!isHexAddress(address)) {
+        return errorResponse(400, "invalid-activity-request", "A valid 20-byte wallet address is required.");
+      }
+
+      try {
+        const activity = await activityProvider({ address, limit });
+        const items = Array.isArray(activity)
+          ? activity
+          : Array.isArray(activity?.items)
+            ? activity.items
+            : Array.isArray(activity?.data)
+              ? activity.data
+              : [];
+
+        return jsonResponse({
+          chainId: DOGEOS_CHAIN.id,
+          address,
+          source: "blockscout",
+          blockscoutUrl:
+            activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address),
+          data: items.slice(0, limit),
+          nextPageParams: activity?.nextPageParams ?? activity?.next_page_params ?? null,
+        });
+      } catch (error) {
+        return errorResponse(503, "activity-unavailable", error.message);
       }
     }
 
@@ -553,9 +677,13 @@ export function createAggregatorApiHandler({
           expectedChainId: DOGEOS_CHAIN.id,
           calldataBuilder,
         });
+        const walletTransaction = {
+          ...tx,
+          from: sender,
+        };
 
         if (!swapVerifier) {
-          return jsonResponse({ transaction: tx, quote });
+          return jsonResponse({ transaction: walletTransaction, quote });
         }
 
         const verification = await swapVerifier({ transaction: tx, quote, sender });
@@ -566,7 +694,7 @@ export function createAggregatorApiHandler({
         return jsonResponse({
           quote,
           transaction: {
-            ...tx,
+            ...walletTransaction,
             gas: verification.gasLimit,
           },
           verification: {
