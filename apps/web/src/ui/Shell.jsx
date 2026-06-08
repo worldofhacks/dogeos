@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ThemeCtx, makeTheme } from "./theme.js";
 import { Label, useIsMobile, haptic, truncateAddress } from "./primitives.jsx";
 import { useWallet } from "./useWallet.js";
+import SwapView from "./SwapView.jsx";
 import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
 
 const NAV_ITEMS = [
@@ -190,9 +191,18 @@ export default function Shell() {
     </button>
   );
 
+  // Render the active view — swap is the real SwapView; others stay placeholders
+  // until their later tasks land.
+  const renderView = () =>
+    view === "swap" ? (
+      <SwapView chartOn={chartPop} onToggleChart={() => setChartPop((v) => !v)} onReview={() => setSwapFlow(true)} />
+    ) : (
+      <PlaceholderView view={view} theme={theme} />
+    );
+
   const content = (
     <div key={view} className="anim-rise" style={{ padding: mobile ? "16px 14px 0" : "clamp(14px,2vw,22px)" }}>
-      <PlaceholderView view={view} theme={theme} />
+      {renderView()}
     </div>
   );
 
@@ -279,7 +289,7 @@ export default function Shell() {
           {/* content + provenance footer */}
           <div style={{ padding: "16px 14px", paddingBottom: "calc(94px + env(safe-area-inset-bottom))" }}>
             <div key={view} className="anim-rise">
-              <PlaceholderView view={view} theme={theme} />
+              {renderView()}
             </div>
             <div
               style={{

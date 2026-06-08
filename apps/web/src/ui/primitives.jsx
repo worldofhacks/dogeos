@@ -101,6 +101,27 @@ export function TokenIcon({ token, size = 26 }) {
   );
 }
 
+// shimmer skeleton bar (core.jsx) — theme-aware; uses the .shimmer keyframe from
+// global.css and degrades to a flat visible bar if the animation stalls.
+export function Skeleton({ w = "100%", h = 14, r = 6, style }) {
+  const th = useTheme();
+  const a = th.dark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.05)";
+  const b = th.dark ? "rgba(255,255,255,0.13)" : "rgba(0,0,0,0.11)";
+  return (
+    <span
+      className="shimmer"
+      style={{
+        display: "inline-block",
+        width: w,
+        height: h,
+        borderRadius: r,
+        background: `linear-gradient(90deg, ${a} 25%, ${b} 50%, ${a} 75%)`,
+        ...style,
+      }}
+    />
+  );
+}
+
 // segmented control (ported from settings.jsx Seg)
 export function Seg({ value, options, onChange, fmt: fmtLabel }) {
   const th = useTheme();
