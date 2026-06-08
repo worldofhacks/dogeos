@@ -23,6 +23,15 @@ async function tryInjectedDogeosSwitch(globalObject) {
   }
 }
 
+async function tryInjectedDogeosConnection(globalObject, walletPreference = "") {
+  try {
+    return await connectInjectedProviderToDogeOS(globalObject, { walletPreference });
+  } catch (error) {
+    if (isUnknownChainError(error)) return null;
+    throw error;
+  }
+}
+
 export async function switchDogeosSdkAccountToChain(account, chainInfo, { globalObject } = {}) {
   if (typeof account?.switchChain !== "function") {
     throw new Error("DogeOS SDK wallet account cannot switch EVM chains.");
@@ -43,15 +52,19 @@ export async function switchDogeosSdkAccountToChain(account, chainInfo, { global
   throw new Error(dogeosSdkSwitchFailureMessage(chainInfo));
 }
 
-export async function openDogeosSdkWalletModal({ openModal, chainInfo, globalObject } = {}) {
+// SDK-first connect path. The DogeOS Connect Kit modal (openModal) is the single
+// chooser for ALL wallets — MyDoge, MetaMask, Rainbow, WalletConnect — and lists
+// them itself from config.connectors. We call openModal() directly with no
+// "try injected MyDoge first" shortcut and no per-wallet preference branching.
+// The injected EIP-6963 path is used ONLY as a true fallback: when openModal is
+// unavailable (SDK not mounted / no clientId) or it throws an unknown-chain
+// error. A null return means the SDK modal handled the connection.
+export async function openDogeosSdkWalletModal({ openModal, chainInfo, globalObject, walletPreference = "" } = {}) {
   if (typeof openModal !== "function") {
+    // SDK modal not available — fall back to the injected provider directly.
+    const injectedConnection = await tryInjectedDogeosConnection(globalObject, walletPreference);
+    if (injectedConnection) return injectedConnection;
     throw new Error("DogeOS SDK wallet modal is unavailable.");
-  }
-
-  try {
-    await switchInjectedProviderToDogeOS(globalObject);
-  } catch (error) {
-    if (!isUnknownChainError(error)) throw error;
   }
 
   try {
@@ -59,10 +72,7 @@ export async function openDogeosSdkWalletModal({ openModal, chainInfo, globalObj
   } catch (error) {
     if (!isUnknownChainError(error)) throw error;
 
-    const injectedConnection = await connectInjectedProviderToDogeOS(globalObject).catch((connectError) => {
-      if (isUnknownChainError(connectError)) return null;
-      throw connectError;
-    });
+    const injectedConnection = await tryInjectedDogeosConnection(globalObject, walletPreference);
     if (injectedConnection) return injectedConnection;
 
     throw new Error(dogeosSdkSwitchFailureMessage(chainInfo));

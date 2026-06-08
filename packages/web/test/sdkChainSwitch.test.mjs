@@ -12,10 +12,12 @@ const dogeosChain = {
   rpcUrls: { default: { http: ["https://rpc.testnet.dogeos.com/"] } },
 };
 
-function createProvider({ chainId = "0x1" } = {}) {
+function createProvider({
+  accounts = ["0x1111111111111111111111111111111111111111"],
+  chainId = "0x1",
+} = {}) {
   const calls = [];
   let chainKnown = false;
-  const accounts = ["0x1111111111111111111111111111111111111111"];
 
   return {
     calls,
@@ -112,17 +114,102 @@ test("SDK wallet modal falls back to a direct injected DogeOS connection on unsu
   assert.equal(result.chainId, "0x5fdaf3");
   assert.equal(result.chainType, "evm");
   assert.equal(result.provider, provider);
+  // SDK-first: the redundant pre-switch before openModal() was removed, so the
+  // injected fallback now requests accounts first, then performs the add/switch.
   assert.deepEqual(
     provider.calls.map((call) => call.method),
     [
+      "eth_requestAccounts",
       "eth_chainId",
       "wallet_switchEthereumChain",
       "wallet_addEthereumChain",
       "eth_chainId",
-      "eth_requestAccounts",
       "eth_chainId",
     ],
   );
+});
+
+test("SDK wallet modal is the primary connect path — openModal() handles MyDoge, the injected provider is untouched", async () => {
+  const mydoge = createProvider({
+    accounts: ["0xdddddddddddddddddddddddddddddddddddddddd"],
+    chainId: "0x5fdaf3",
+  });
+  mydoge.info = {
+    name: "MyDoge Link",
+    rdns: "com.mydoge.link",
+  };
+  let modalOpenCalls = 0;
+
+  const result = await openDogeosSdkWalletModal({
+    chainInfo: dogeosChain,
+    globalObject: { ethereum: { providers: [mydoge] } },
+    openModal: async () => {
+      modalOpenCalls += 1;
+      return "sdk-modal";
+    },
+  });
+
+  // SDK-first: the Connect Kit modal lists MyDoge itself, so openModal() is the
+  // chooser. No "try injected MyDoge first" shortcut: the injected provider is
+  // never called and the SDK modal's own result is returned verbatim.
+  assert.equal(result, "sdk-modal");
+  assert.equal(modalOpenCalls, 1);
+  assert.equal(mydoge.calls.length, 0);
+});
+
+test("SDK wallet modal uses the injected provider only when openModal is unavailable (no clientId)", async () => {
+  const mydoge = createProvider({
+    accounts: ["0xdddddddddddddddddddddddddddddddddddddddd"],
+    chainId: "0x5fdaf3",
+  });
+  mydoge.info = {
+    name: "MyDoge Link",
+    rdns: "com.mydoge.link",
+  };
+
+  const result = await openDogeosSdkWalletModal({
+    chainInfo: dogeosChain,
+    globalObject: { ethereum: { providers: [mydoge] } },
+    // openModal omitted → SDK not mounted → true injected fallback.
+    walletPreference: "mydoge",
+  });
+
+  assert.equal(result.address, "0xdddddddddddddddddddddddddddddddddddddddd");
+  assert.equal(result.provider, mydoge);
+});
+
+test("SDK wallet modal falls back to the requested MyDoge injected provider on unsupported-chain errors", async () => {
+  const metamask = createProvider({
+    accounts: ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    chainId: "0x5fdaf3",
+  });
+  metamask.isMetaMask = true;
+  const mydoge = createProvider({
+    accounts: ["0xdddddddddddddddddddddddddddddddddddddddd"],
+    chainId: "0x5fdaf3",
+  });
+  mydoge.info = {
+    name: "MyDoge Link",
+    rdns: "com.mydoge.link",
+  };
+
+  const result = await openDogeosSdkWalletModal({
+    chainInfo: dogeosChain,
+    globalObject: { ethereum: { providers: [metamask, mydoge] } },
+    openModal: async () => {
+      throw new Error("Chain Id not supported");
+    },
+    walletPreference: "mydoge",
+  });
+
+  assert.equal(result.address, "0xdddddddddddddddddddddddddddddddddddddddd");
+  assert.equal(result.chainId, "0x5fdaf3");
+  assert.equal(result.provider, mydoge);
+  assert.deepEqual(
+    mydoge.calls.map((call) => call.method),
+    ["eth_requestAccounts", "eth_chainId"],
+  );
+  assert.equal(metamask.calls.length, 0);
 });
 
 test("SDK wallet modal maps unsupported-chain errors to an actionable DogeOS message when no injected fallback is available", async () => {

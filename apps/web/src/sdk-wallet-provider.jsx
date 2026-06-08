@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getChains,
+  getConnectors,
   WalletConnectProvider,
   useAccount,
   useConnectors,
@@ -18,7 +19,12 @@ import {
   isUnknownChainError,
   switchInjectedProviderToDogeOS,
 } from "./injected-wallet.js";
-import { DOGEOS_CHIKYU_TESTNET, dogeConfig, mergeDogeosChains } from "./sdkConfig.js";
+import {
+  DOGEOS_CHIKYU_TESTNET,
+  dogeConfig,
+  mergeDogeosChains,
+  mergeDogeosConnectors,
+} from "./sdkConfig.js";
 
 const SDK_WALLET_EVENT = "dogeos:sdk-wallet-updated";
 const SDK_WALLET_READY_EVENT = "dogeos:sdk-wallet-ready";
@@ -52,32 +58,53 @@ function walletErrorMessage(error) {
   return error?.shortMessage ?? error?.message ?? String(error);
 }
 
+function isEvmAddress(value) {
+  return /^0x[0-9a-f]{40}$/i.test(String(value ?? ""));
+}
+
 function DogeOSSdkWalletBridge() {
   const wallet = useWalletConnect();
   const account = useAccount();
   const { connectors, currentProvider: connectorCurrentProvider } = useConnectors();
   const [injectedFallback, setInjectedFallback] = useState(null);
   const connectorEvmProvider = connectors ? connectors.evm?.provider : null;
-  const activeAddress = injectedFallback?.address ?? account.address ?? "";
+  const accountLooksEvm = !account.chainType || account.chainType === "evm" || isEvmAddress(account.address);
+  const sdkEvmProvider = accountLooksEvm
+    ? account.currentProvider ?? connectorCurrentProvider ?? connectorEvmProvider
+    : connectorEvmProvider;
+  const sdkEvmAddress = accountLooksEvm && isEvmAddress(account.address) ? account.address : "";
+  const activeAddress = injectedFallback?.address ?? sdkEvmAddress;
   const activeChainId = injectedFallback?.chainId ?? account.chainId ?? "";
-  const activeChainType = injectedFallback?.chainType ?? account.chainType ?? "";
-  const activeProvider =
-    injectedFallback?.provider ?? account.currentProvider ?? connectorCurrentProvider ?? connectorEvmProvider ?? null;
+  const activeChainType = injectedFallback?.chainType ?? (sdkEvmProvider ? "evm" : account.chainType ?? "");
+  const activeProvider = injectedFallback?.provider ?? sdkEvmProvider ?? null;
   const walletSource = injectedFallback ? "injected" : "dogeos-sdk";
+  const walletLabel = injectedFallback?.walletLabel ?? account.currentWallet?.info?.name ?? "MyDoge Link";
   const isConnected = Boolean(injectedFallback?.address) || wallet.isConnected;
   const isConnecting = injectedFallback ? false : wallet.isConnecting;
   const walletError = injectedFallback ? "" : wallet.error ? walletErrorMessage(wallet.error) : "";
   const switchToDogeOS = useCallback(async () => {
     if (injectedFallback?.provider) {
-      const switched = await switchInjectedProviderToDogeOS();
+      const switched = await switchInjectedProviderToDogeOS(window, {
+        provider: injectedFallback.provider,
+        walletPreference: injectedFallback.walletPreference,
+      });
       if (!switched) return false;
-      const refreshed = await connectInjectedProviderToDogeOS().catch(() => null);
+      const refreshed = await connectInjectedProviderToDogeOS(window, {
+        provider: injectedFallback.provider,
+        walletPreference: injectedFallback.walletPreference,
+      }).catch(() => null);
       if (refreshed) setInjectedFallback(refreshed);
       return true;
     }
 
     return switchDogeosSdkAccountToChain({ switchChain: account.switchChain }, DOGEOS_CHIKYU_TESTNET);
   }, [account.switchChain, injectedFallback]);
+  // SDK-first: this component only mounts when a clientId is provisioned, so the
+  // DogeOS Connect Kit modal is the single chooser for ALL wallets (MyDoge,
+  // MetaMask, Rainbow, WalletConnect). We always call wallet.openModal() and let
+  // the modal present the wallet list — no per-wallet injected shortcuts here.
+  // openDogeosSdkWalletModal only drops to the injected path if openModal is
+  // unavailable or throws an unknown-chain error.
   const openDogeosWalletModal = useCallback(async () => {
     const result = await openDogeosSdkWalletModal({
       chainInfo: DOGEOS_CHIKYU_TESTNET,
@@ -118,6 +145,7 @@ function DogeOSSdkWalletBridge() {
       hasProvider: Boolean(activeProvider),
       isConnected,
       isConnecting,
+      walletLabel,
       walletSource,
     });
 
@@ -137,52 +165,56 @@ function DogeOSSdkWalletBridge() {
     switchToDogeOS,
     wallet.disconnect,
     walletError,
+    walletLabel,
     walletSource,
   ]);
 
   useEffect(() => {
     if (injectedFallback) return undefined;
-    if (!wallet.isConnected || !account.address) return undefined;
-    if (account.chainType && account.chainType !== "evm") return undefined;
-    if (chainIdMatchesDogeos(account.chainId)) return undefined;
+    if (!wallet.isConnected) return undefined;
+    if (!account.address && !connectorEvmProvider && !activeProvider) return undefined;
+    if (activeChainType === "evm" && chainIdMatchesDogeos(account.chainId)) return undefined;
 
     let cancelled = false;
     publishWalletState({
-      address: account.address ?? "",
+      address: activeAddress,
       chainId: account.chainId ?? "",
-      chainType: account.chainType ?? "",
+      chainType: activeChainType || "evm",
       error: "",
-      hasProvider: Boolean(activeProvider),
+      hasProvider: Boolean(activeProvider || connectorEvmProvider),
       isConnected: wallet.isConnected,
       isConnecting: true,
       walletSource: "dogeos-sdk",
+      walletLabel,
     });
 
     switchToDogeOS()
       .then(() => {
         if (cancelled) return;
         publishWalletState({
-          address: account.address ?? "",
+          address: activeAddress,
           chainId: DOGEOS_CHIKYU_TESTNET.id,
-          chainType: account.chainType ?? "evm",
+          chainType: "evm",
           error: "",
-          hasProvider: Boolean(activeProvider),
+          hasProvider: Boolean(activeProvider || connectorEvmProvider),
           isConnected: wallet.isConnected,
           isConnecting: false,
           walletSource: "dogeos-sdk",
+          walletLabel,
         });
       })
       .catch((error) => {
         if (cancelled) return;
         publishWalletState({
-          address: account.address ?? "",
+          address: activeAddress,
           chainId: account.chainId ?? "",
-          chainType: account.chainType ?? "",
+          chainType: activeChainType,
           error: walletErrorMessage(error),
-          hasProvider: Boolean(activeProvider),
+          hasProvider: Boolean(activeProvider || connectorEvmProvider),
           isConnected: wallet.isConnected,
           isConnecting: false,
           walletSource: "dogeos-sdk",
+          walletLabel,
         });
       });
 
@@ -194,10 +226,14 @@ function DogeOSSdkWalletBridge() {
     account.chainId,
     account.chainType,
     account.currentProvider,
+    activeAddress,
+    activeChainType,
     activeProvider,
+    connectorEvmProvider,
     injectedFallback,
     switchToDogeOS,
     wallet.isConnected,
+    walletLabel,
   ]);
 
   useEffect(() => {
@@ -233,7 +269,17 @@ function DogeOSSdkWalletBridge() {
 
 export default function DogeOSSdkWalletProvider() {
   const [chains, setChains] = useState(() => dogeConfig.chains);
-  const config = useMemo(() => ({ ...dogeConfig, chains: chains ?? dogeConfig.chains }), [chains]);
+  // Connectors MUST be sourced from getConnectors() (see sdkConfig.js); until
+  // resolved we pass dogeConfig.connectors (undefined) so the SDK loads its own.
+  const [connectors, setConnectors] = useState(() => dogeConfig.connectors);
+  const config = useMemo(
+    () => ({
+      ...dogeConfig,
+      chains: chains ?? dogeConfig.chains,
+      connectors: connectors ?? dogeConfig.connectors,
+    }),
+    [chains, connectors],
+  );
 
   useEffect(() => {
     let active = true;
@@ -244,6 +290,17 @@ export default function DogeOSSdkWalletProvider() {
       })
       .catch(() => {
         if (active) setChains(dogeConfig.chains);
+      });
+
+    // Without connectors the Connect Kit modal renders no wallets, so populate
+    // config.connectors from getConnectors(). On failure we leave it undefined
+    // and let the SDK fall back to whatever connectors it bundles itself.
+    getConnectors()
+      .then((sdkConnectors) => {
+        if (active) setConnectors(mergeDogeosConnectors(sdkConnectors));
+      })
+      .catch(() => {
+        if (active) setConnectors(dogeConfig.connectors);
       });
 
     return () => {

@@ -7,24 +7,230 @@ const DOGEOS_CHAIN_PARAMS = Object.freeze({
   rpcUrls: ["https://rpc.testnet.dogeos.com"],
   blockExplorerUrls: ["https://blockscout.testnet.dogeos.com"],
 });
+const EIP6963_ANNOUNCE_EVENT = "eip6963:announceProvider";
+const EIP6963_REQUEST_EVENT = "eip6963:requestProvider";
+const EIP6963_DISCOVERY_TIMEOUT_MS = 300;
+const eip6963ProviderCache = new WeakMap();
 
 function defaultWindow() {
   return typeof window === "undefined" ? undefined : window;
 }
 
-function injectedProvider(globalObject = defaultWindow()) {
-  const ethereum = globalObject?.ethereum;
-  if (!ethereum) return null;
+function walletPreferenceLabel(walletPreference) {
+  if (walletPreference === "metamask") return "MetaMask";
+  if (walletPreference === "rainbow") return "Rainbow Wallet";
+  if (walletPreference === "mydoge") return "MyDoge Link";
+  return "Injected wallet";
+}
 
-  if (Array.isArray(ethereum.providers) && ethereum.providers.length > 0) {
+function providerRdns(provider, info) {
+  return String(info?.rdns ?? provider?.info?.rdns ?? provider?.rdns ?? "").toLowerCase();
+}
+
+function providerName(provider, info) {
+  return String(info?.name ?? provider?.info?.name ?? provider?.name ?? "").toLowerCase();
+}
+
+function providerLooksLikeRainbow(provider, info) {
+  const rdns = providerRdns(provider, info);
+  const name = providerName(provider, info);
+  return Boolean(provider?.isRainbow) || rdns.includes("rainbow") || name.includes("rainbow");
+}
+
+function providerStronglyMatchesPreference(provider, walletPreference, info) {
+  if (!provider?.request) return false;
+  const rdns = providerRdns(provider, info);
+  const name = providerName(provider, info);
+  if (walletPreference === "metamask") {
+    return !providerLooksLikeRainbow(provider, info) && (rdns.includes("metamask") || name.includes("metamask"));
+  }
+  if (walletPreference === "rainbow") {
+    return providerLooksLikeRainbow(provider, info);
+  }
+  if (walletPreference === "mydoge") {
     return (
-      ethereum.providers.find((provider) => provider.isMetaMask) ??
-      ethereum.providers.find((provider) => provider.request) ??
-      ethereum.providers[0]
+      rdns.includes("mydoge") ||
+      rdns.includes("dogelink") ||
+      rdns.includes("dogeos") ||
+      name.includes("mydoge") ||
+      name.includes("doge link") ||
+      name.includes("dogelink") ||
+      name.includes("dogeos")
+    );
+  }
+  return true;
+}
+
+function providerMatchesPreference(provider, walletPreference, info, { strongOnly = false } = {}) {
+  if (!provider?.request) return false;
+  if (strongOnly) return providerStronglyMatchesPreference(provider, walletPreference, info);
+  const rdns = providerRdns(provider, info);
+  const name = providerName(provider, info);
+  if (walletPreference === "metamask") {
+    if (providerLooksLikeRainbow(provider, info)) return false;
+    if (rdns) return rdns.includes("metamask");
+    if (name.includes("metamask")) return true;
+    return Boolean(provider.isMetaMask) && !provider.isRainbow;
+  }
+  if (walletPreference === "rainbow") {
+    return providerLooksLikeRainbow(provider, info);
+  }
+  if (walletPreference === "mydoge") {
+    return (
+      rdns.includes("mydoge") ||
+      rdns.includes("dogelink") ||
+      rdns.includes("dogeos") ||
+      name.includes("mydoge") ||
+      name.includes("doge link") ||
+      name.includes("dogelink") ||
+      name.includes("dogeos")
+    );
+  }
+  return true;
+}
+
+function eip6963Entries(globalObject) {
+  if (!globalObject || typeof globalObject !== "object") return [];
+  return eip6963ProviderCache.get(globalObject) ?? [];
+}
+
+function rememberEip6963Provider(globalObject, detail) {
+  if (!globalObject || typeof globalObject !== "object" || !detail?.provider?.request) return;
+
+  const entries = eip6963ProviderCache.get(globalObject) ?? [];
+  const key = detail.info?.uuid ?? detail.info?.rdns ?? detail.info?.name ?? "";
+  const existingIndex = entries.findIndex((entry) =>
+    entry.provider === detail.provider ||
+    (key && (entry.info?.uuid === key || entry.info?.rdns === key || entry.info?.name === key))
+  );
+  const entry = { info: detail.info ?? {}, provider: detail.provider };
+  if (existingIndex >= 0) entries[existingIndex] = entry;
+  else entries.push(entry);
+  eip6963ProviderCache.set(globalObject, entries);
+}
+
+function injectedProviderEntries(globalObject = defaultWindow()) {
+  const ethereum = globalObject?.ethereum;
+  const entries = [];
+
+  if (ethereum) {
+    if (Array.isArray(ethereum.providers) && ethereum.providers.length > 0) {
+      entries.push(...ethereum.providers.map((provider) => ({ provider, info: provider.info ?? {} })));
+    } else if (ethereum.request) {
+      entries.push({ provider: ethereum, info: ethereum.info ?? {} });
+    }
+  }
+
+  for (const entry of eip6963Entries(globalObject)) {
+    const existingIndex = entries.findIndex((candidate) => candidate.provider === entry.provider);
+    if (existingIndex >= 0) {
+      entries[existingIndex] = {
+        ...entries[existingIndex],
+        info: { ...entries[existingIndex].info, ...entry.info },
+      };
+    } else {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+function requestProviderEntries(globalObject = defaultWindow()) {
+  return injectedProviderEntries(globalObject).filter((entry) => entry.provider?.request);
+}
+
+function providerFromEntries(entries, walletPreference = "", { strongOnly = false } = {}) {
+  if (walletPreference) {
+    return (
+      entries.find((entry) =>
+        providerMatchesPreference(entry.provider, walletPreference, entry.info, { strongOnly })
+      )?.provider ?? null
     );
   }
 
-  return ethereum.request ? ethereum : null;
+  return (
+    entries.find((entry) => providerMatchesPreference(entry.provider, "metamask", entry.info, { strongOnly }))?.provider ??
+    entries.find((entry) => providerMatchesPreference(entry.provider, "rainbow", entry.info, { strongOnly }))?.provider ??
+    entries.find((entry) => providerMatchesPreference(entry.provider, "mydoge", entry.info, { strongOnly }))?.provider ??
+    entries.find((entry) => entry.provider?.request)?.provider ??
+    null
+  );
+}
+
+function injectedProvider(globalObject = defaultWindow(), walletPreference = "", options = {}) {
+  return providerFromEntries(injectedProviderEntries(globalObject), walletPreference, options);
+}
+
+function createEip6963RequestEvent(globalObject) {
+  if (typeof globalObject?.Event === "function") {
+    return new globalObject.Event(EIP6963_REQUEST_EVENT);
+  }
+  if (typeof Event === "function") {
+    return new Event(EIP6963_REQUEST_EVENT);
+  }
+  return { type: EIP6963_REQUEST_EVENT };
+}
+
+async function requestEip6963Provider(
+  globalObject = defaultWindow(),
+  walletPreference = "",
+  { skipInitialCache = false, strongOnly = false } = {},
+) {
+  if (!globalObject?.addEventListener || !globalObject?.dispatchEvent) return null;
+
+  const cached = skipInitialCache ? null : injectedProvider(globalObject, walletPreference, { strongOnly });
+  if (cached) return cached;
+
+  return new Promise((resolve) => {
+    let done = false;
+    let timeoutId;
+
+    function finish(provider = injectedProvider(globalObject, walletPreference, { strongOnly })) {
+      if (done) return;
+      done = true;
+      if (timeoutId) {
+        if (globalObject.clearTimeout) globalObject.clearTimeout(timeoutId);
+        else clearTimeout(timeoutId);
+      }
+      globalObject.removeEventListener?.(EIP6963_ANNOUNCE_EVENT, handleAnnouncement);
+      resolve(provider ?? null);
+    }
+
+    function handleAnnouncement(event) {
+      rememberEip6963Provider(globalObject, event?.detail);
+      const provider = injectedProvider(globalObject, walletPreference, { strongOnly });
+      if (provider) finish(provider);
+    }
+
+    globalObject.addEventListener(EIP6963_ANNOUNCE_EVENT, handleAnnouncement);
+    timeoutId = (globalObject.setTimeout ?? setTimeout)(() => finish(), EIP6963_DISCOVERY_TIMEOUT_MS);
+    globalObject.dispatchEvent(createEip6963RequestEvent(globalObject));
+  });
+}
+
+async function resolveInjectedProvider(globalObject = defaultWindow(), walletPreference = "") {
+  if (!walletPreference) {
+    return injectedProvider(globalObject, walletPreference) ?? requestEip6963Provider(globalObject, walletPreference);
+  }
+
+  const immediateStrongProvider = injectedProvider(globalObject, walletPreference, { strongOnly: true });
+  if (immediateStrongProvider) return immediateStrongProvider;
+
+  const announcedStrongProvider = await requestEip6963Provider(globalObject, walletPreference, {
+    skipInitialCache: true,
+    strongOnly: true,
+  });
+  if (announcedStrongProvider) return announcedStrongProvider;
+
+  const announcedProviderCount = eip6963Entries(globalObject).filter((entry) => entry.provider?.request).length;
+  const looseProvider = injectedProvider(globalObject, walletPreference);
+  if (announcedProviderCount > 0 && looseProvider) {
+    const looseEntry = injectedProviderEntries(globalObject).find((entry) => entry.provider === looseProvider);
+    if (!providerStronglyMatchesPreference(looseProvider, walletPreference, looseEntry?.info)) return null;
+  }
+
+  return looseProvider;
 }
 
 function firstErrorCode(error) {
@@ -83,14 +289,60 @@ export function createInjectedWalletBridge({
   let address = "";
   let chainId = "";
   let isConnecting = false;
+  let selectedWalletPreference = "";
+  let walletLabel = "Injected wallet";
 
   const noWalletMessage =
     "No wallet provider is available. Configure DOGEOS_CLIENT_ID on the web server, VITE_DOGEOS_CLIENT_ID for Vite builds, or install/unlock an EVM wallet to connect through the injected fallback.";
+  const missingMyDogeMessage =
+    missingClientIdMessage || "MyDoge Link requires a configured DogeOS SDK client ID.";
 
-  function currentProvider() {
-    provider = injectedProvider(globalObject);
+  function providerUnavailableMessage(walletPreference) {
+    if (walletPreference === "mydoge") {
+      return [
+        "MyDoge Link needs a DogeOS SDK client ID or an injected MyDoge Link provider.",
+        "Set DOGEOS_CLIENT_ID or VITE_DOGEOS_CLIENT_ID for the SDK modal.",
+        missingMyDogeMessage,
+        "The installed extension did not announce a MyDoge EVM provider on this page.",
+      ].join(" ");
+    }
+    if (walletPreference === "metamask") {
+      return "MetaMask provider is not available. Install or unlock MetaMask, then connect again.";
+    }
+    if (walletPreference === "rainbow") {
+      return "Rainbow Wallet provider is not available. Install or unlock Rainbow Wallet, then connect again.";
+    }
+    return noWalletMessage;
+  }
+
+  function currentProvider(walletPreference = selectedWalletPreference) {
+    const currentEntry = injectedProviderEntries(globalObject).find((entry) => entry.provider === provider);
+    if (
+      provider?.request &&
+      (!walletPreference ||
+        providerStronglyMatchesPreference(provider, walletPreference, currentEntry?.info) ||
+        (eip6963Entries(globalObject).length === 0 &&
+          providerMatchesPreference(provider, walletPreference, currentEntry?.info)))
+    ) {
+      attachProviderEvents(provider);
+      return provider;
+    }
+
+    const strongProvider = injectedProvider(globalObject, walletPreference, { strongOnly: Boolean(walletPreference) });
+    const looseProvider = strongProvider ?? injectedProvider(globalObject, walletPreference);
+    if (walletPreference && eip6963Entries(globalObject).length > 0 && looseProvider && !strongProvider) {
+      provider = null;
+      detachProviderEvents();
+      return provider;
+    }
+
+    provider = looseProvider;
     attachProviderEvents(provider);
     return provider;
+  }
+
+  function canAutoSelectProvider() {
+    return Boolean(selectedWalletPreference) || requestProviderEntries(globalObject).length <= 1;
   }
 
   function publish(overrides = {}) {
@@ -103,11 +355,21 @@ export function createInjectedWalletBridge({
       isConnected: Boolean(address),
       isConnecting,
       walletSource: "injected",
+      walletPreference: selectedWalletPreference,
+      walletLabel,
       ...overrides,
     });
   }
 
   async function refreshState() {
+    if (!canAutoSelectProvider()) {
+      provider = null;
+      address = "";
+      chainId = "";
+      publish({ hasProvider: requestProviderEntries(globalObject).length > 0 });
+      return;
+    }
+
     const activeProvider = currentProvider();
     if (!activeProvider?.request) {
       address = "";
@@ -156,22 +418,31 @@ export function createInjectedWalletBridge({
     }
   }
 
-  async function switchToDogeOS() {
-    const activeProvider = currentProvider();
+  async function switchToDogeOS({ walletPreference = selectedWalletPreference } = {}) {
+    const activeProvider = currentProvider(walletPreference);
     if (!activeProvider?.request) return false;
 
-    const switched = await switchInjectedProviderToDogeOS(globalObject, { currentChainId: chainId });
+    const switched = await switchInjectedProviderToDogeOS(globalObject, {
+      currentChainId: chainId,
+      provider: activeProvider,
+      walletPreference,
+    });
     chainId = switched ? DOGEOS_CHAIN_ID_HEX : await readChainId(activeProvider);
     publish();
     return switched && chainIdMatchesDogeOS(chainId);
   }
 
   const bridge = {
-    async openModal() {
-      const activeProvider = currentProvider();
+    async openModal({ walletPreference = "" } = {}) {
+      selectedWalletPreference = walletPreference;
+      walletLabel = walletPreferenceLabel(walletPreference);
+      const activeProvider = await resolveInjectedProvider(globalObject, walletPreference);
+      provider = activeProvider;
+      attachProviderEvents(provider);
       if (!activeProvider?.request) {
-        publish({ error: noWalletMessage, hasProvider: false });
-        throw new Error(noWalletMessage);
+        const message = providerUnavailableMessage(walletPreference);
+        publish({ error: message, hasProvider: false });
+        throw new Error(message);
       }
 
       isConnecting = true;
@@ -180,7 +451,7 @@ export function createInjectedWalletBridge({
         address = firstAccount(await activeProvider.request({ method: "eth_requestAccounts" }));
         chainId = await readChainId(activeProvider);
         if (!chainIdMatchesDogeOS(chainId)) {
-          const switched = await switchToDogeOS();
+          const switched = await switchToDogeOS({ walletPreference });
           if (!switched) {
             throw new Error("Switch wallet to DogeOS Chikyu Testnet before connecting.");
           }
@@ -197,16 +468,21 @@ export function createInjectedWalletBridge({
     async disconnect() {
       address = "";
       isConnecting = false;
+      selectedWalletPreference = "";
+      walletLabel = "Injected wallet";
       publish();
     },
     switchToDogeOS,
     getAddress: () => address,
     getChainId: () => chainId,
     getChainType: () => "evm",
-    getProvider: () => currentProvider(),
+    getProvider: () => {
+      if (!provider) currentProvider();
+      return provider;
+    },
     isConnected: () => Boolean(address),
     initialize() {
-      currentProvider();
+      if (canAutoSelectProvider()) currentProvider();
       publishWalletReady?.();
       void refreshState();
     },
@@ -218,8 +494,11 @@ export function createInjectedWalletBridge({
   return bridge;
 }
 
-export async function switchInjectedProviderToDogeOS(globalObject = defaultWindow(), { currentChainId } = {}) {
-  const activeProvider = injectedProvider(globalObject);
+export async function switchInjectedProviderToDogeOS(
+  globalObject = defaultWindow(),
+  { currentChainId, provider, walletPreference = "" } = {},
+) {
+  const activeProvider = provider?.request ? provider : await resolveInjectedProvider(globalObject, walletPreference);
   if (!activeProvider?.request) return false;
 
   const startingChainId = currentChainId ?? (await readChainId(activeProvider).catch(() => ""));
@@ -261,15 +540,22 @@ export async function switchInjectedProviderToDogeOS(globalObject = defaultWindo
   return chainIdMatchesDogeOS(finalChainId);
 }
 
-export async function connectInjectedProviderToDogeOS(globalObject = defaultWindow()) {
-  const activeProvider = injectedProvider(globalObject);
+export async function connectInjectedProviderToDogeOS(
+  globalObject = defaultWindow(),
+  { provider, walletPreference = "" } = {},
+) {
+  const activeProvider = provider?.request ? provider : await resolveInjectedProvider(globalObject, walletPreference);
   if (!activeProvider?.request) return null;
 
   const accounts = await activeProvider.request({ method: "eth_requestAccounts" });
   let chainId = await readChainId(activeProvider);
 
   if (!chainIdMatchesDogeOS(chainId)) {
-    const switched = await switchInjectedProviderToDogeOS(globalObject, { currentChainId: chainId });
+    const switched = await switchInjectedProviderToDogeOS(globalObject, {
+      currentChainId: chainId,
+      provider: activeProvider,
+      walletPreference,
+    });
     if (!switched) return null;
     chainId = await readChainId(activeProvider).catch(() => DOGEOS_CHAIN_ID_HEX);
   }
@@ -284,5 +570,7 @@ export async function connectInjectedProviderToDogeOS(globalObject = defaultWind
     chainId,
     chainType: "evm",
     provider: activeProvider,
+    walletPreference,
+    walletLabel: walletPreferenceLabel(walletPreference),
   };
 }

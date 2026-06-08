@@ -42,6 +42,14 @@ export function mergeDogeosChains(chains = {}) {
   };
 }
 
+// The Connect Kit modal populates its wallet list (MyDoge, MetaMask, Rainbow,
+// WalletConnect, ...) from `config.connectors`, which MUST come from the SDK's
+// async `getConnectors()` helper — it cannot be hand-authored. Without it the
+// modal renders empty, so we thread the resolved list into the live config.
+export function mergeDogeosConnectors(connectors) {
+  return Array.isArray(connectors) && connectors.length > 0 ? connectors : undefined;
+}
+
 export const dogeConfig = {
   clientId: runtimeConfig.dogeosClientId || import.meta.env.VITE_DOGEOS_CLIENT_ID || "",
   walletConnectProjectId:
@@ -51,6 +59,10 @@ export const dogeConfig = {
     evm: [DOGEOS_CHIKYU_TESTNET],
     dogecoin: [DOGECOIN_MAINNET],
   }),
+  // Populated at runtime from getConnectors() in DogeOSSdkWalletProvider; left
+  // undefined here so the SDK falls back to its own bundled connectors until the
+  // async list resolves.
+  connectors: undefined,
   metadata: {
     name: "DogeOS Aggregator",
     description: "Fast DogeOS v2 and v3 DEX aggregator",
