@@ -241,15 +241,23 @@ export async function waitForTransactionReceipt(
 }
 
 /* ---------- quote binding ---------- */
+// Default tx deadline if the caller doesn't supply one (5 minutes).
+const DEFAULT_DEADLINE_SECONDS = 300;
+
 // Bind the live best route to the connected wallet for execution. The backend
 // re-quotes inside /approval + /swap, but we still send recipient/deadline/slip.
-export function bindExecutionQuote(bestRoute, sender, slippageBps) {
+// `deadlineSeconds` comes from the user's trade-defaults setting (tx deadline).
+export function bindExecutionQuote(bestRoute, sender, slippageBps, deadlineSeconds) {
+  const ttl =
+    Number.isFinite(deadlineSeconds) && deadlineSeconds > 0
+      ? Math.floor(deadlineSeconds)
+      : DEFAULT_DEADLINE_SECONDS;
   return {
     ...bestRoute,
     slippageBps: String(slippageBps ?? bestRoute.slippageBps ?? "50"),
     recipient: sender,
     sender,
-    deadline: Math.floor(Date.now() / 1000) + 300,
+    deadline: Math.floor(Date.now() / 1000) + ttl,
   };
 }
 
@@ -288,14 +296,15 @@ export async function executeSwap({
   sellToken,
   sender,
   slippageBps,
+  deadlineSeconds,
   report = () => {},
   signal,
 } = {}) {
   if (!bestRoute) throw new Error("No executable route to swap.");
   if (!sender) throw new Error("Connect a wallet before swapping.");
 
-  // Bind the live quote to this wallet.
-  let quote = bindExecutionQuote(bestRoute, sender, slippageBps);
+  // Bind the live quote to this wallet (recipient/deadline/slippage).
+  let quote = bindExecutionQuote(bestRoute, sender, slippageBps, deadlineSeconds);
 
   // 1) Approval — only for ERC-20 sell tokens. Native DOGE-in skips it.
   if (!isNativeSell(sellToken)) {
@@ -357,6 +366,9 @@ export function logSwapActivity(entry) {
       ...(Array.isArray(list) ? list : []),
     ].slice(0, HISTORY_CAP);
     window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+    // Notify same-tab listeners (Activity view) — the `storage` event only
+    // fires in OTHER tabs, so the active tab needs an explicit signal.
+    window.dispatchEvent(new Event("doge:history-updated"));
   } catch {
     /* localStorage unavailable / quota — non-fatal */
   }

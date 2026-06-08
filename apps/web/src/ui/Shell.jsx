@@ -7,7 +7,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ThemeCtx, makeTheme } from "./theme.js";
 import { Label, useIsMobile, haptic, truncateAddress } from "./primitives.jsx";
 import { useWallet } from "./useWallet.js";
+import { useSettings } from "./useSettings.js";
 import SwapView from "./SwapView.jsx";
+import TokensView from "./TokensView.jsx";
+import ActivityView from "./ActivityView.jsx";
+import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
 import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
 
@@ -82,51 +86,36 @@ function TabIcon({ name, active }) {
   );
 }
 
-/* placeholder for the four views — later tasks replace these */
-function PlaceholderView({ view, theme }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        minHeight: 320,
-        textAlign: "center",
-      }}
-    >
-      <span style={{ width: 14, height: 14, background: theme.accent, borderRadius: 4 }} />
-      <span
-        style={{
-          fontFamily: "'Space Grotesk',sans-serif",
-          fontWeight: 700,
-          fontSize: 22,
-          textTransform: "capitalize",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {view}
-      </span>
-      <Label color={theme.mute}>coming soon</Label>
-    </div>
-  );
-}
-
 export default function Shell() {
-  // Theme state — user-selectable light/dark + accent (settings view wires later).
-  const [dark, setDark] = useState(false);
-  const [accent, setAccent] = useState("#ff4d2e");
-  const theme = useMemo(() => makeTheme(dark, accent), [dark, accent]);
+  // Theme is driven by persisted settings (Settings view → appearance card).
+  const settings = useSettings();
+  const theme = useMemo(() => makeTheme(settings.dark, settings.accent), [settings.dark, settings.accent]);
 
   const [view, setView] = useState("swap");
   const mobile = useIsMobile();
   const wallet = useWallet();
 
-  // Overlay slots (stubbed for now; later tasks mount real overlays here).
-  const [picker, setPicker] = useState(null); // 'pay' | 'get' | null
-  const [showConnect, setShowConnect] = useState(false);
+  // A token preset requested from Tokens/Activity → jump to swap. SwapView reads
+  // `swapPreset` (the buy/"get" token) and clears it once consumed.
+  const [swapPreset, setSwapPreset] = useState(null);
+  const goSwapWith = (token) => {
+    setSwapPreset(token ?? null);
+    setView("swap");
+    haptic(6);
+  };
+
+  // Docked-chart toggle (the SwapView header chart button flips this; SwapView
+  // renders the chart panel/popout since it owns the live pay/get pair). When the
+  // chart is docked on a wide desktop viewport while on the swap view, the device
+  // frame widens to make room (matches the design's side-by-side layout).
   const [chartPop, setChartPop] = useState(false);
+  const [vw, setVw] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => {
+    const f = () => setVw(window.innerWidth);
+    window.addEventListener("resize", f);
+    return () => window.removeEventListener("resize", f);
+  }, []);
+  const sideBySide = chartPop && vw >= 1000 && view === "swap";
 
   // Live chain status for the footer (chain id / latest block).
   const [chainStatus, setChainStatus] = useState(null);
@@ -191,14 +180,20 @@ export default function Shell() {
     </button>
   );
 
-  // Render the active view — swap is the real SwapView; others stay placeholders
-  // until their later tasks land.
-  const renderView = () =>
-    view === "swap" ? (
-      <SwapView chartOn={chartPop} onToggleChart={() => setChartPop((v) => !v)} />
-    ) : (
-      <PlaceholderView view={view} theme={theme} />
+  // Render the active view.
+  const renderView = () => {
+    if (view === "tokens") return <TokensView onTrade={goSwapWith} />;
+    if (view === "activity") return <ActivityView onTrade={() => goSwapWith(null)} />;
+    if (view === "settings") return <SettingsView />;
+    return (
+      <SwapView
+        chartOn={chartPop}
+        onToggleChart={() => setChartPop((v) => !v)}
+        preset={swapPreset}
+        onPresetConsumed={() => setSwapPreset(null)}
+      />
     );
+  };
 
   const content = (
     <div key={view} className="anim-rise" style={{ padding: mobile ? "16px 14px 0" : "clamp(14px,2vw,22px)" }}>
@@ -206,18 +201,10 @@ export default function Shell() {
     </div>
   );
 
-  // Overlay slots. The SwapFlow execution modal renders inside SwapView (it owns
-  // the live quote/route/balances); the swapFlow flag here mirrors its open state
-  // (set via onReview) for shell-level coordination. The ToastHost lives here so
-  // confirmed-swap toasts render above the whole shell.
-  const overlays = (
-    <>
-      {picker && null}
-      {showConnect && null}
-      {chartPop && null}
-      <ToastHost />
-    </>
-  );
+  // Overlay slots. The SwapFlow execution modal + chart panel/popout render
+  // inside SwapView (it owns the live quote/route/balances/pair). The ToastHost
+  // lives here so confirmed-swap toasts render above the whole shell.
+  const overlays = <ToastHost />;
 
   // ===== MOBILE: edge-to-edge, sticky frosted header, fixed bottom tab bar =====
   if (mobile) {
@@ -507,7 +494,7 @@ export default function Shell() {
         <div
           style={{
             width: "100%",
-            maxWidth: 820,
+            maxWidth: sideBySide ? 1180 : 820,
             background: theme.shell,
             borderRadius: 26,
             padding: "clamp(8px,1.4vw,15px)",

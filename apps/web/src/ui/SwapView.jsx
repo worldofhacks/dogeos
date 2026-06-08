@@ -23,8 +23,10 @@ import { Label, TokenIcon, Skeleton, fmt, compact, haptic, useIsMobile } from ".
 import Slider from "./Slider.jsx";
 import TokenPicker from "./TokenPicker.jsx";
 import SwapFlow from "./SwapFlow.jsx";
+import { ChartPanel, ChartPopout } from "./ChartView.jsx";
 import { showToast } from "./Toast.jsx";
 import { useWallet } from "./useWallet.js";
+import { useSettings } from "./useSettings.js";
 import { useQuote } from "./useQuote.js";
 import { useTokenBalances } from "./useTokenBalances.js";
 import { getTokens, getSources, DOGEOS_CHAIN_ID } from "../lib/api.js";
@@ -44,17 +46,26 @@ import {
   quoteTtlSeconds,
 } from "../lib/quote.js";
 
-const SLIPPAGE_DEFAULT = 0.5; // percent (50 bps)
-
 // Decimal places that scale with magnitude (mirrors the design's fmt usage).
 function dpFor(n) {
   return n > 0 && n < 1 ? 4 : 2;
 }
 
-export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
+export default function SwapView({
+  onReview,
+  chartOn = false,
+  onToggleChart,
+  preset = null,
+  onPresetConsumed,
+}) {
   const th = useTheme();
   const mobile = useIsMobile();
+  // `narrow` (< 1000px) gates docking the chart beside the swap — below this the
+  // chart button opens the slide-up popout instead. Matches the Shell's frame
+  // widening threshold so the docked panel always has room.
+  const narrow = useIsMobile(999);
   const wallet = useWallet();
+  const settings = useSettings();
 
   // ---- token catalog + venue display names (real) ----
   const [tokens, setTokens] = useState([]);
@@ -97,12 +108,36 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
   const pay = useMemo(() => tokens.find((t) => t.symbol === paySym) ?? null, [tokens, paySym]);
   const get = useMemo(() => tokens.find((t) => t.symbol === getSym) ?? null, [tokens, getSym]);
 
+  // Apply a token preset requested from the Tokens view (the ⇅ "trade" button) —
+  // it becomes the "pay" (sell) side, matching the design. If it collides with
+  // the current "get" side, move the old pay there. Consumed once.
+  useEffect(() => {
+    if (!preset?.symbol) return;
+    setPaySym((prevPay) => {
+      if (preset.symbol === getSym) {
+        setGetSym(prevPay);
+      }
+      return preset.symbol;
+    });
+    onPresetConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
+
   // ---- amount + slippage controls ----
   const [payAmt, setPayAmt] = useState("");
-  const [slippage, setSlippage] = useState(SLIPPAGE_DEFAULT); // percent
+  // Default slippage comes from the persisted settings (Settings → trade
+  // defaults); the in-swap slider below still overrides it per-trade. We seed
+  // once and let the user diverge; if they haven't touched it we keep it in
+  // sync with the default.
+  const [slippage, setSlippage] = useState(settings.slippage);
+  const [slippageTouched, setSlippageTouched] = useState(false);
+  useEffect(() => {
+    if (!slippageTouched) setSlippage(settings.slippage);
+  }, [settings.slippage, slippageTouched]);
   const [spin, setSpin] = useState(0);
   const [routeOpen, setRouteOpen] = useState(false);
   const [showFlow, setShowFlow] = useState(false); // swap execution overlay
+  const [chartPopout, setChartPopout] = useState(false); // fullscreen chart overlay
 
   const slippageBps = Math.round(slippage * 100);
 
@@ -239,28 +274,42 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
     </div>
   );
 
+  // Docked chart only when toggled on AND there's room to sit beside the swap
+  // (wide viewport, matches the Shell frame widening at >=1000px). On narrower
+  // viewports the chart button opens the slide-up popout instead.
+  const chartDocked = chartOn && !narrow;
+
   return (
     <>
       <div
         style={{
-          width: "100%",
-          maxWidth: mobile ? "100%" : 460,
-          margin: mobile ? 0 : "0 auto",
-          background: th.screen,
-          borderRadius: 16,
-          border: `1px solid ${th.hair}`,
           display: "flex",
-          flexDirection: "column",
-          boxShadow: mobile
-            ? th.dark
-              ? "0 12px 36px rgba(0,0,0,0.45)"
-              : "0 12px 30px rgba(60,55,40,0.16)"
-            : th.dark
-              ? "none"
-              : "inset 0 1px 0 #fff",
-          overflow: "hidden",
+          gap: 16,
+          alignItems: "stretch",
+          justifyContent: "center",
+          flexWrap: "wrap",
         }}
       >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: mobile ? "100%" : 460,
+            flex: chartDocked ? "0 0 460px" : "0 1 460px",
+            background: th.screen,
+            borderRadius: 16,
+            border: `1px solid ${th.hair}`,
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: mobile
+              ? th.dark
+                ? "0 12px 36px rgba(0,0,0,0.45)"
+                : "0 12px 30px rgba(60,55,40,0.16)"
+              : th.dark
+                ? "none"
+                : "inset 0 1px 0 #fff",
+            overflow: "hidden",
+          }}
+        >
         {/* header */}
         <div
           style={{
@@ -275,30 +324,39 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
             <span style={{ width: 15, height: 15, background: th.accent, borderRadius: 3 }} />
             <span style={{ fontWeight: 700, fontSize: 15 }}>swap</span>
           </div>
-          {/* chart toggle present but a no-op placeholder for now */}
-          <button
-            className="tap"
-            onClick={() => onToggleChart?.()}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              padding: "6px 11px",
-              borderRadius: 8,
-              border: `1px solid ${chartOn ? th.accent : th.hair}`,
-              background: chartOn ? th.accent : th.panelHi,
-              color: chartOn ? th.onAccent : th.inkSoft,
-              cursor: "pointer",
-              fontFamily: "'DM Mono',monospace",
-              fontSize: 11,
-              letterSpacing: "0.05em",
-            }}
-          >
-            <span
-              style={{ width: 7, height: 7, borderRadius: 1, background: chartOn ? th.onAccent : th.mute }}
-            />
-            chart
-          </button>
+          {/* chart toggle — wide desktop docks a panel beside the swap; narrow
+              viewports open the slide-up popout (no room to dock). */}
+          {(() => {
+            const chartActive = narrow ? chartPopout : chartOn;
+            return (
+              <button
+                className="tap"
+                onClick={() => {
+                  if (narrow) setChartPopout(true);
+                  else onToggleChart?.();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "6px 11px",
+                  borderRadius: 8,
+                  border: `1px solid ${chartActive ? th.accent : th.hair}`,
+                  background: chartActive ? th.accent : th.panelHi,
+                  color: chartActive ? th.onAccent : th.inkSoft,
+                  cursor: "pointer",
+                  fontFamily: "'DM Mono',monospace",
+                  fontSize: 11,
+                  letterSpacing: "0.05em",
+                }}
+              >
+                <span
+                  style={{ width: 7, height: 7, borderRadius: 1, background: chartActive ? th.onAccent : th.mute }}
+                />
+                chart
+              </button>
+            );
+          })()}
         </div>
 
         {/* 01 you pay — input + token pair */}
@@ -544,7 +602,10 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
                 { value: 25, label: "25%" },
                 { value: 50, label: "MAX" },
               ]}
-              onChange={setSlippage}
+              onChange={(v) => {
+                setSlippageTouched(true);
+                setSlippage(v);
+              }}
             />
           </div>
           {slippage > 5 &&
@@ -796,7 +857,23 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
             </div>
           )}
         </div>
+        </div>
+
+        {/* docked chart (desktop only) — chrome only, honest empty canvas */}
+        {chartDocked && (
+          <div style={{ flex: "1 1 360px", minWidth: 320, display: "flex" }}>
+            <ChartPanel
+              pay={pay}
+              get={get}
+              onClose={() => onToggleChart?.()}
+              onPop={() => setChartPopout(true)}
+            />
+          </div>
+        )}
       </div>
+
+      {/* fullscreen chart popout (desktop dialog · mobile slide-up sheet) */}
+      {chartPopout && <ChartPopout pay={pay} get={get} onClose={() => setChartPopout(false)} />}
 
       {picker && (
         <TokenPicker
@@ -821,6 +898,7 @@ export default function SwapView({ onReview, chartOn = false, onToggleChart }) {
           bestRoute={best}
           quote={quote}
           slippageBps={slippageBps}
+          deadlineSeconds={settings.deadline * 60}
           sender={wallet.address}
           onRefresh={refresh}
           isScanning={scanning}

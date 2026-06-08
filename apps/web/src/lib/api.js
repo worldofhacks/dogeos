@@ -3,6 +3,13 @@
 
 export const DOGEOS_CHAIN_ID = 6_281_971;
 
+// Canonical DogeOS testnet links (per docs.dogeos.com + testnet config). Used by
+// the Activity (Blockscout links) and Settings (explorer/faucet) views. The
+// chain-status payload also carries live copies of these.
+export const DOGEOS_BLOCKSCOUT_URL = "https://blockscout.testnet.dogeos.com";
+export const DOGEOS_FAUCET_URL = "https://faucet.testnet.dogeos.com";
+export const DOGEOS_DOCS_URL = "https://docs.dogeos.com";
+
 export async function fetchJson(path, options = {}) {
   const response = await fetch(path, {
     headers: {
@@ -42,6 +49,14 @@ export function getSources() {
 
 export function getVenues() {
   return fetchJson("/venues");
+}
+
+export function getVerification() {
+  return fetchJson("/verification");
+}
+
+export function getIntelligence() {
+  return fetchJson("/intelligence");
 }
 
 export function getActivity(address, limit) {

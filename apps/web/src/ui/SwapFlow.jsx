@@ -227,6 +227,7 @@ export default function SwapFlow({
   bestRoute,
   quote,
   slippageBps,
+  deadlineSeconds,
   sender,
   onRefresh,
   isScanning,
@@ -294,6 +295,7 @@ export default function SwapFlow({
       buyToken: get,
       sender,
       slippageBps,
+      deadlineSeconds,
       payAmt,
       recv: outNum,
       venue,
@@ -532,6 +534,9 @@ export default function SwapFlow({
                     "min received",
                     `${fmt(minRecvNum, dpFor(minRecvNum))} ${get?.symbol ?? ""}`,
                   ],
+                  ...(deadlineSeconds
+                    ? [["deadline", `${Math.round(deadlineSeconds / 60)}m`]]
+                    : []),
                   ["settles on", "Dogecoin · instant"],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>

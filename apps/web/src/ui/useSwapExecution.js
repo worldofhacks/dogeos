@@ -34,7 +34,7 @@ export function useSwapExecution() {
   // Run the full review→approval→swap→receipt path. `recv` is the estimated
   // received amount (JS number) used for the success screen + activity log.
   const run = useCallback(
-    async ({ bestRoute, sellToken, buyToken, sender, slippageBps, payAmt, recv, venue }) => {
+    async ({ bestRoute, sellToken, buyToken, sender, slippageBps, deadlineSeconds, payAmt, recv, venue }) => {
       if (runningRef.current) return;
       runningRef.current = true;
 
@@ -49,6 +49,7 @@ export function useSwapExecution() {
           sellToken,
           sender,
           slippageBps,
+          deadlineSeconds,
           signal: controller.signal,
           report: ({ phase, hash }) => {
             setState((prev) => {
