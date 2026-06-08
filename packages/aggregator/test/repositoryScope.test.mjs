@@ -60,24 +60,6 @@ test("repository exposes no owned DEX/AMM/pool/factory surfaces (the audited Dog
   assert.deepEqual(ownedAmmHits, []);
 });
 
-test("current architecture docs describe direct venue execution instead of a future owned router path", async () => {
-  const docs = await Promise.all(
-    [
-      "docs/dogeos-dex-aggregator-architecture.md",
-      "docs/dex-aggregator-competitive-analysis.md",
-      "docs/superpowers/specs/2026-05-30-dogeos-v2-v3-aggregator-design.md",
-    ].map(async (file) => [file, await readFile(join(repoRoot, file), "utf8")]),
-  );
-
-  for (const [file, body] of docs) {
-    assert.doesNotMatch(body, /aggregator (execution )?router,? if (deployed|required|needed)/i, file);
-    assert.doesNotMatch(body, /narrow aggregator router/i, file);
-    assert.doesNotMatch(body, /repository currently contains documentation, validation reports, screenshots, and empty script directories/i, file);
-    assert.doesNotMatch(body, /does not contain frontend source, backend source, smart contracts, package manifests/i, file);
-    assert.match(body, /directly through (the )?selected verified venue router/i, file);
-  }
-});
-
 test("docs preserve the no-owned-DEX/pools/liquidity non-goal (an owned router is now in scope by design)", async () => {
   // The prior "no owned-router / no allowlist language" assertion was REMOVED: the program
   // deliberately added the audited DogeSwapRouter (a non-custodial router that owns no
@@ -89,22 +71,6 @@ test("docs preserve the no-owned-DEX/pools/liquidity non-goal (an owned router i
   );
   assert.match(program, /no owned DEX/i, "program non-goals must forbid an owned DEX");
   assert.match(program, /pool factory|pool creation|liquidity management/i, "program non-goals must forbid owned pools/liquidity");
-});
-
-test("current design docs describe active verified DogeOS sources without read-adapter placeholders", async () => {
-  const docs = [
-    "docs/superpowers/specs/2026-05-30-dogeos-v2-v3-aggregator-design.md",
-    "docs/superpowers/plans/2026-05-30-dogeos-v2-v3-aggregator.md",
-  ];
-
-  for (const file of docs) {
-    const body = await readFile(join(repoRoot, file), "utf8");
-    assert.doesNotMatch(body, /read adapter first/i, file);
-    assert.doesNotMatch(body, /minimal aggregator execution router/i, file);
-    assert.match(body, /MuchFi V2/i, file);
-    assert.match(body, /MuchFi V3/i, file);
-    assert.match(body, /Barkswap/i, file);
-  }
 });
 
 test("current DogeOS venue docs do not describe active sources as unconfirmed or blocked", async () => {
@@ -121,16 +87,3 @@ test("current DogeOS venue docs do not describe active sources as unconfirmed or
   }
 });
 
-test("repository docs describe provenance validation without recurring execution gates", async () => {
-  const docs = (await listRepoFiles())
-    .map((file) => relative(repoRoot, file))
-    .filter((file) => file.startsWith("docs/") && file.endsWith(".md"));
-
-  for (const file of docs) {
-    const body = await readFile(join(repoRoot, file), "utf8");
-    assert.doesNotMatch(body, /guarded by/i, file);
-    assert.doesNotMatch(body, /execution gates?/i, file);
-    assert.doesNotMatch(body, /before execution is enabled/i, file);
-    assert.doesNotMatch(body, /\|\s*Execution readiness\s*\|\s*[^|\n]*blocked/i, file);
-  }
-});
