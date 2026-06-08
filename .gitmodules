@@ -1,3 +1,0 @@
-[submodule "apps/web/src/public/advanced_charting_library"]
-	path = apps/web/src/public/advanced_charting_library
-	url = git@github.com:worldofhacks/advanced_charting_library.git

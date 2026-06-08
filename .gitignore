@@ -1,6 +1,8 @@
 .tmp/
 node_modules/
 apps/web/dist/
+# Vendored TradingView Advanced Charts library (~26MB, licensed; restore via scripts/fetch-charting-library.sh)
+apps/web/src/public/advanced_charting_library/
 .playwright-mcp/
 dogeos-*.png
 .env
