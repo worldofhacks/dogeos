@@ -1,0 +1,104 @@
+/* global.css — DogeSwap motion foundation + base
+   Ported from the design's DOGE-OS DEX.html <style> block + brand.css tokens.
+   Entrance animations are TRANSFORM-ONLY so content is never left invisible if a
+   frame stalls; full prefers-reduced-motion support; tabular numbers via DM Mono. */
+
+:root {
+  /* motion: easings + durations */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fast: 0.14s;
+  --t-med: 0.26s;
+  --t-slow: 0.42s;
+
+  /* type */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: #e7e5dd;
+  color: #1c1c1c;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#root { min-height: 100vh; }
+
+/* labels / eyebrows / mono numerals */
+.te-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.te-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+input::placeholder { color: #b3b0a4; }
+button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+::selection { background: rgba(255, 77, 46, 0.22); }
+
+/* tactile press for anything tagged .tap — crisp, hardware-like */
+.tap {
+  transition:
+    transform var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-soft),
+    border-color var(--t-fast) var(--ease-soft);
+}
+.tap:active { transform: scale(0.965); }
+
+.lift {
+  transition:
+    transform var(--t-med) var(--ease-out),
+    box-shadow var(--t-med) var(--ease-out),
+    border-color var(--t-med) var(--ease-soft);
+}
+@media (hover: hover) {
+  .lift:hover { transform: translateY(-1px); }
+}
+
+/* keyframes */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.shimmer { background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+@keyframes riseIn { from { transform: translateY(10px); } to { transform: translateY(0); } }
+@keyframes scaleIn { from { transform: translateY(8px) scale(0.97); } to { transform: translateY(0) scale(1); } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes popIn { 0% { transform: scale(0.5); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+
+/* entrance animations are transform-only so content is NEVER left invisible if a frame stalls */
+.anim-rise { animation: riseIn var(--t-med) var(--ease-out); }
+.anim-scale { animation: scaleIn var(--t-med) var(--ease-out); }
+.anim-sheet { animation: sheetUp var(--t-slow) var(--ease-out); }
+.anim-pop { animation: popIn 0.5s var(--ease-spring); }
+
+/* scrollbars */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: rgba(120, 118, 107, 0.35); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(120, 118, 107, 0.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, .anim-fade, .anim-rise, .anim-scale, .anim-sheet, .anim-pop {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .tap:active { transform: none; }
+}
