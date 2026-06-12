@@ -8,8 +8,14 @@ import {
 import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
 import { OFFICIAL_DOGEOS_TOKENS } from "../../config/src/tokens.mjs";
 
+// CORS stays wildcard by default — there are no cookies/sessions and every
+// output is an unsigned transaction the user must sign in their own wallet.
+// Set CORS_ALLOW_ORIGIN to the frontend origin before mainnet so third-party
+// pages cannot script the quote/swap builders (and add browser-driven load).
+const CORS_ALLOW_ORIGIN = process.env.CORS_ALLOW_ORIGIN || "*";
 const JSON_HEADERS = {
-  "access-control-allow-origin": "*",
+  "access-control-allow-origin": CORS_ALLOW_ORIGIN,
+  ...(CORS_ALLOW_ORIGIN === "*" ? {} : { vary: "origin" }),
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "content-type",
   "content-type": "application/json; charset=utf-8",
@@ -38,6 +44,15 @@ function errorResponse(status, code, message) {
     },
     { status },
   );
+}
+
+// Upstream infrastructure failures (RPC, Blockscout) can embed internal hosts
+// and URLs in error messages. Log the detail server-side; return a generic
+// message to clients. Request-validation and build errors (4xx) keep their
+// messages — the UI maps them to actionable copy.
+function unavailableResponse(code, error) {
+  console.error(`[api] ${code}:`, error);
+  return errorResponse(503, code, "Upstream dependency is unavailable. Try again shortly.");
 }
 
 function isHexAddress(value) {
@@ -289,6 +304,46 @@ function quoteWithSwapExecutionFields(refreshedQuote, originalQuote) {
   };
 }
 
+// The pre-build refresh exists to revalidate freshness and liquidity — never
+// to weaken the execution bounds the user accepted. The on-chain floor (or
+// input cap) must stay at least as protective as the bound the client
+// displayed at confirmation time; if the market moved past the user's
+// tolerance, fail closed with an explicit re-quote error instead of silently
+// executing at a worse price.
+function clampRefreshedSwapQuote(refreshed, original) {
+  if (original.quoteMode === "exactOutput") {
+    const acceptedMaxAmountIn = original.maxAmountIn;
+    if (refreshed.amountIn > acceptedMaxAmountIn) {
+      throw new Error(
+        `Price moved: the refreshed ${original.sourceId} route now needs ${refreshed.amountIn} in, above the accepted maximum of ${acceptedMaxAmountIn}. Refresh the quote and try again.`,
+      );
+    }
+    if (refreshed.maxAmountIn > acceptedMaxAmountIn) {
+      return {
+        ...refreshed,
+        maxAmountIn: acceptedMaxAmountIn,
+        maximumInput: acceptedMaxAmountIn,
+      };
+    }
+    return refreshed;
+  }
+
+  const acceptedMinAmountOut = original.minAmountOut;
+  if (refreshed.amountOut < acceptedMinAmountOut) {
+    throw new Error(
+      `Price moved: the refreshed ${original.sourceId} route now returns ${refreshed.amountOut} out, below the accepted minimum of ${acceptedMinAmountOut}. Refresh the quote and try again.`,
+    );
+  }
+  if (refreshed.minAmountOut < acceptedMinAmountOut) {
+    return {
+      ...refreshed,
+      minAmountOut: acceptedMinAmountOut,
+      minimumOutput: acceptedMinAmountOut,
+    };
+  }
+  return refreshed;
+}
+
 async function refreshSwapQuote({
   quote,
   quoteCandidateProvider,
@@ -331,7 +386,7 @@ async function refreshSwapQuote({
     throw new Error(`Live quote refresh did not return an active route for ${quote.sourceId}.`);
   }
 
-  return quoteWithSwapExecutionFields(response.best, quote);
+  return clampRefreshedSwapQuote(quoteWithSwapExecutionFields(response.best, quote), quote);
 }
 
 function venueVerificationKey({ sourceId, role, address }) {
@@ -466,7 +521,7 @@ export function createAggregatorApiHandler({
           data: await chainStatusProvider(),
         });
       } catch (error) {
-        return errorResponse(503, "chain-status-unavailable", error.message);
+        return unavailableResponse("chain-status-unavailable", error);
       }
     }
 
@@ -479,7 +534,7 @@ export function createAggregatorApiHandler({
           data: mergeVenueVerification(listVenueContracts(), verificationSnapshot),
         });
       } catch (error) {
-        return errorResponse(503, "venues-unavailable", error.message);
+        return unavailableResponse("venues-unavailable", error);
       }
     }
 
@@ -497,7 +552,7 @@ export function createAggregatorApiHandler({
           }),
         });
       } catch (error) {
-        return errorResponse(503, "intelligence-unavailable", error.message);
+        return unavailableResponse("intelligence-unavailable", error);
       }
     }
 
@@ -508,7 +563,7 @@ export function createAggregatorApiHandler({
           data: await verificationSnapshotProvider(),
         });
       } catch (error) {
-        return errorResponse(503, "verification-unavailable", error.message);
+        return unavailableResponse("verification-unavailable", error);
       }
     }
 
@@ -540,7 +595,7 @@ export function createAggregatorApiHandler({
           nextPageParams: activity?.nextPageParams ?? activity?.next_page_params ?? null,
         });
       } catch (error) {
-        return errorResponse(503, "activity-unavailable", error.message);
+        return unavailableResponse("activity-unavailable", error);
       }
     }
 

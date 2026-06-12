@@ -65,6 +65,11 @@ const SOURCES = [
     factory: "0x7864071B532894216e3C045a74814EafEB92ae20",
     router: "0xC653e745FC613a03D156DACB924AE8e9148B18dc",
     quoter: null,
+    // Venue swap fee. Cross-checked against the router's own getAmountsOut on
+    // 2026-06-12 (scripts/verify-quoter-shapes.mjs): MuchFi V2 charges 20 bps,
+    // not the canonical Uniswap 30. Re-run that script if quotes start
+    // reverting on minAmountOut or systematically under-delivering.
+    feeBps: 20n,
     abiProvenance: ADAPTER_ABI_PROVENANCE,
     pools: [
       {

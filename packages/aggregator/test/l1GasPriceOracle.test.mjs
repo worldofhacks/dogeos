@@ -34,6 +34,37 @@ test("estimatedSwapPayloadForFee uses calldata-size-aware protocol payloads", ()
   assert.equal(estimatedSwapPayloadForFee({ protocolType: "unknown" }), "0x");
 });
 
+test("createDogeosDataFinalityFeeProvider bounds retained cache entries", async () => {
+  let calls = 0;
+  const client = {
+    async call() {
+      calls += 1;
+      return `0x${word(1_000n)}`;
+    },
+  };
+  const feeProvider = createDogeosDataFinalityFeeProvider({
+    client,
+    nowMs: () => 1_000,
+    cacheTtlMs: 60_000,
+    maxCacheEntries: 4,
+    payloadProvider: ({ payload }) => payload,
+  });
+
+  // The swap path keys this cache by unique per-swap calldata; 100 distinct
+  // payloads must not retain 100 entries.
+  for (let i = 0; i < 100; i += 1) {
+    await feeProvider({ payload: `0x${i.toString(16).padStart(4, "0")}` });
+  }
+  assert.equal(calls, 100);
+
+  // The most recent payload is still cached…
+  await feeProvider({ payload: "0x0063" });
+  assert.equal(calls, 100);
+  // …while evicted early payloads re-read the oracle.
+  await feeProvider({ payload: "0x0000" });
+  assert.equal(calls, 101);
+});
+
 test("createDogeosDataFinalityFeeProvider reads and caches DogeOS oracle fees by payload", async () => {
   const calls = [];
   const client = {

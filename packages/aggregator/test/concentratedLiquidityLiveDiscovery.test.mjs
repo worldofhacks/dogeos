@@ -320,10 +320,15 @@ test("live concentrated-liquidity provider calls Barkswap Algebra exact-output q
       [`${barkswapPool.toLowerCase()}:0xe76c01e4`, encodedWords([currentSqrtPriceX96, 0n, 500n, 193n, 30n, 1n])],
       [`${barkswapPool.toLowerCase()}:0x1a686502`, encodedWords([286_127_046_181_362_770_693n])],
       [
+        // Live-verified word order (scripts/verify-quoter-shapes.mjs,
+        // 2026-06-12): Algebra QuoterV2 returns (amountOut, amountIn,
+        // sqrtPriceX96After, ticksCrossed, gasEstimate, fee) for BOTH
+        // directions — exact-output word 0 echoes the requested amountOut and
+        // the actual input amount is word 1.
         `${barkswapQuoter.toLowerCase()}:0x62086e24${addressWord(usdc)}${addressWord(wdoge)}${addressWord("0x0000000000000000000000000000000000000000")}${word(amountOut)}${word(0n)}`,
         encodedWords([
-          quotedAmountIn,
           amountOut,
+          quotedAmountIn,
           71_114_155_847_875_054_584_458_117_318n,
           0n,
           130_547n,
@@ -360,4 +365,38 @@ test("live concentrated-liquidity provider calls Barkswap Algebra exact-output q
   assert.equal(output.quotedAmountIn, quotedAmountIn);
   assert.equal(output.feeBps, 5n);
   assert.equal(output.gasUnits, 130_547n);
+});
+
+test("live concentrated-liquidity provider surfaces venue-wide pool failures", async () => {
+  // No quoter response is configured, so every pool quote for the venue
+  // fails. The provider must propagate the error (so the diagnostics pipeline
+  // records a sourceError) instead of returning a silent "no quote" null.
+  const client = fakeClient(new Map());
+
+  const provider = createLiveConcentratedLiquidityQuoterOutputProvider({ client });
+
+  await assert.rejects(
+    provider({
+      source: {
+        sourceId: "barkswap-algebra",
+        protocolType: "algebra",
+        quoter: barkswapQuoter,
+        quoterAbiProvenance: "onchain-bytecode",
+        quoterPoolDeployer: "0x0000000000000000000000000000000000000000",
+        pools: [
+          {
+            address: barkswapPool,
+            token0: usdc,
+            token1: wdoge,
+          },
+        ],
+      },
+      sellToken: usdc,
+      buyToken: wdoge,
+      quoteMode: "exactInput",
+      amountIn: 1_000_000_000_000_000_000n,
+      blockNumber: 5_200_000n,
+    }),
+    /missing response/,
+  );
 });

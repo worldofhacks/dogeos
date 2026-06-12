@@ -324,8 +324,8 @@ test("createLiveAggregatorApiHandler uses default V2 pool discovery as executabl
   assert.equal(response.status, 200);
   assert.equal(body.status, "ok");
   assert.equal(body.best.sourceId, "muchfi-v2");
-  assert.equal(body.best.amountOut, "1992013");
-  assert.equal(body.best.score.netOutput, "1712013");
+  assert.equal(body.best.amountOut, "1994009"); // 20 bps venue fee (live-verified)
+  assert.equal(body.best.score.netOutput, "1714009");
   assert.equal(body.best.score.totalFeeWei, "280000");
   assert.equal(rpc.calls[0].method, "eth_chainId");
   assert.equal(
@@ -360,10 +360,10 @@ test("createLiveAggregatorApiHandler uses default V2 exact-output discovery", as
   assert.equal(body.status, "ok");
   assert.equal(body.best.sourceId, "muchfi-v2");
   assert.equal(body.best.quoteMode, "exactOutput");
-  assert.equal(body.best.amountIn, "1000000");
+  assert.equal(body.best.amountIn, "998998"); // 20 bps venue fee (live-verified)
   assert.equal(body.best.amountOut, "1992013");
-  assert.equal(body.best.maxAmountIn, "1005000");
-  assert.equal(body.best.score.totalInput, "1280000");
+  assert.equal(body.best.maxAmountIn, "1003992");
+  assert.equal(body.best.score.totalInput, "1278998");
   assert.equal(rpc.calls[0].method, "eth_chainId");
   assert.equal(rpc.calls.some((call) => call.method === "eth_gasPrice"), true);
 });

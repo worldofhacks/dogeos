@@ -66,6 +66,18 @@ function addressUrl(address) {
   return `${DOGEOS_BLOCKSCOUT_URL}/address/${address}`;
 }
 
+// Module scope (not redefined per map iteration) so React keeps the row DOM
+// stable across re-renders instead of remounting every entry.
+function ActivityRow({ href, style, children }) {
+  return href ? (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={style}>
+      {children}
+    </a>
+  ) : (
+    <div style={style}>{children}</div>
+  );
+}
+
 export default function ActivityView({ onTrade }) {
   const th = useTheme();
   const wallet = useWallet();
@@ -282,14 +294,7 @@ export default function ActivityView({ onTrade }) {
             color: th.ink,
           };
           // Row is a Blockscout link when we have a tx hash, else a plain div.
-          const Row = ({ children }) =>
-            e.hash ? (
-              <a href={txUrl(e.hash)} target="_blank" rel="noopener noreferrer" style={rowStyle}>
-                {children}
-              </a>
-            ) : (
-              <div style={rowStyle}>{children}</div>
-            );
+          const rowHref = e.hash ? txUrl(e.hash) : null;
 
           const statusBlock = (
             <div
@@ -315,7 +320,7 @@ export default function ActivityView({ onTrade }) {
             const pay = tokBySym(e.paySym);
             const get = tokBySym(e.getSym);
             return (
-              <Row key={e.key}>
+              <ActivityRow key={e.key} href={rowHref} style={rowStyle}>
                 <div style={{ position: "relative", width: 46, height: 30, flexShrink: 0 }}>
                   <span style={{ position: "absolute", left: 0, top: 2 }}>
                     <TokenIcon token={pay} size={26} />
@@ -348,13 +353,13 @@ export default function ActivityView({ onTrade }) {
                   </span>
                 </div>
                 {statusBlock}
-              </Row>
+              </ActivityRow>
             );
           }
 
           // on-chain (Blockscout) row — honest: method + status + time, link out.
           return (
-            <Row key={e.key}>
+            <ActivityRow key={e.key} href={rowHref} style={rowStyle}>
               <div
                 style={{
                   width: 30,
@@ -390,7 +395,7 @@ export default function ActivityView({ onTrade }) {
                 </span>
               </div>
               {statusBlock}
-            </Row>
+            </ActivityRow>
           );
         })}
       </div>

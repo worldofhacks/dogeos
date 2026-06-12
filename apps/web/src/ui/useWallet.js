@@ -101,6 +101,52 @@ const EMPTY = {
   error: "",
 };
 
+function stateFromDetail(detail = {}) {
+  return {
+    address: detail.address ?? "",
+    chainId: detail.chainId ?? "",
+    walletLabel: detail.walletLabel ?? "",
+    walletSource: detail.walletSource ?? "",
+    isConnecting: Boolean(detail.isConnecting),
+    error: detail.error ?? "",
+  };
+}
+
+// The bridges publish state as events but never replay them, so a hook
+// instance mounted AFTER a publish (Shell remounts views with key={view})
+// would start disconnected while the wallet is connected. Remember the last
+// published state at module scope — shared by every instance — and fall back
+// to the bridge's synchronous getters for anything published before this
+// module loaded.
+let lastBridgeState = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener(SDK_WALLET_EVENT, (event) => {
+    lastBridgeState = stateFromDetail(event.detail ?? {});
+  });
+}
+
+function bridgeSnapshot() {
+  const wallet = sdkWallet();
+  if (!wallet) return null;
+  try {
+    const address = wallet.getAddress?.() ?? "";
+    if (!address) return null;
+    return {
+      ...EMPTY,
+      address,
+      chainId: wallet.getChainId?.() ?? "",
+      walletSource: wallet.walletSource ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function knownWalletState() {
+  return lastBridgeState ?? bridgeSnapshot();
+}
+
 // True when the bridge is the injected EIP-6963 fallback (no clientId). The
 // bridge tags itself via `walletSource`; we also accept the last published state
 // as a fallback signal in case the property read races the event.
@@ -115,7 +161,9 @@ async function connectInjected(wallet, preference) {
 }
 
 export function useWallet() {
-  const [state, setState] = useState(EMPTY);
+  // Seed from the last known bridge state so a remount (tab switch) keeps the
+  // live connection instead of resetting to disconnected.
+  const [state, setState] = useState(() => knownWalletState() ?? EMPTY);
   // Minimal chooser state for injected-only mode with multiple wallets. The
   // Shell renders <WalletChooser> from this; selecting an option resolves it.
   const [chooser, setChooser] = useState(null); // { wallets: [...] } | null
@@ -123,19 +171,16 @@ export function useWallet() {
   // Subscribe to bridge updates + warm the lazy loader on mount.
   useEffect(() => {
     function onUpdate(event) {
-      const detail = event.detail ?? {};
-      setState({
-        address: detail.address ?? "",
-        chainId: detail.chainId ?? "",
-        walletLabel: detail.walletLabel ?? "",
-        walletSource: detail.walletSource ?? "",
-        isConnecting: Boolean(detail.isConnecting),
-        error: detail.error ?? "",
-      });
+      setState(stateFromDetail(event.detail ?? {}));
     }
 
     window.addEventListener(SDK_WALLET_EVENT, onUpdate);
     preloadSdkWallet();
+
+    // Re-sync anything published between the initial-state seed and this
+    // subscription (the module-level listener above saw it; we may not have).
+    const known = knownWalletState();
+    if (known) setState(known);
 
     return () => window.removeEventListener(SDK_WALLET_EVENT, onUpdate);
   }, []);
@@ -170,7 +215,15 @@ export function useWallet() {
         showToast("DogeOS SDK wallet is still loading. Try again in a moment.", "err");
         return;
       }
-      if (state.address || wallet.isConnected?.()) return;
+      if (state.address) return;
+      if (wallet.isConnected?.()) {
+        // The bridge is already connected but this hook instance missed the
+        // event (fresh mount). Resync local state instead of silently doing
+        // nothing — a dead connect button with no feedback is unrecoverable.
+        const known = knownWalletState();
+        if (known?.address) setState(known);
+        return;
+      }
 
       // SDK mode (clientId set): the Connect Kit modal is the chooser. No
       // per-wallet preference — openModal() presents the full wallet list.
@@ -232,6 +285,10 @@ export function useWallet() {
     const wallet = sdkWallet();
     if (!wallet?.disconnect) return;
     await wallet.disconnect();
+    // The bridge publishes the disconnect (updating the module-level cache),
+    // but clear it defensively so a remount can never resurrect a stale
+    // connected state.
+    lastBridgeState = null;
     setState((s) => ({ ...EMPTY, walletSource: s.walletSource }));
   }, []);
 

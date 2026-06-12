@@ -167,6 +167,32 @@ function ModalHead({ title, onClose, dismissible }) {
   );
 }
 
+// Module scope (not inside SwapFlow's render body): an inline definition gets
+// a new function identity per render, remounting the summary subtree on every
+// state tick and defeating its transitions.
+function Big({ deco, sym, amount, label, th }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <TokenIcon token={deco} size={40} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <div
+          className="te-num"
+          style={{
+            fontFamily: "'DM Mono',monospace",
+            fontSize: 22,
+            fontWeight: 500,
+            color: th.ink,
+            lineHeight: 1.1,
+          }}
+        >
+          {amount} <span style={{ fontSize: 15 }}>{sym}</span>
+        </div>
+        <Label style={{ display: "block" }}>{label}</Label>
+      </div>
+    </div>
+  );
+}
+
 function ctaStyle(th) {
   return {
     width: "100%",
@@ -326,27 +352,6 @@ export default function SwapFlow({
   const payDeco = pay ? decorateToken(pay) : null;
   const getDeco = get ? decorateToken(get) : null;
 
-  const Big = ({ deco, sym, amount, label }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <TokenIcon token={deco} size={40} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <div
-          className="te-num"
-          style={{
-            fontFamily: "'DM Mono',monospace",
-            fontSize: 22,
-            fontWeight: 500,
-            color: th.ink,
-            lineHeight: 1.1,
-          }}
-        >
-          {amount} <span style={{ fontSize: 15 }}>{sym}</span>
-        </div>
-        <Label style={{ display: "block" }}>{label}</Label>
-      </div>
-    </div>
-  );
-
   // pending sub-step copy: approval vs broadcast.
   const pendingLabel = (() => {
     if (exec.status === "approving") {
@@ -431,8 +436,10 @@ export default function SwapFlow({
                 </div>
                 <div style={{ textAlign: "center" }}>
                   <div style={{ fontWeight: 700, fontSize: 17 }}>much swap. very done.</div>
+                  {/* exec.recv is the pre-trade estimate — the fill can differ
+                      within slippage, so keep the (est.) qualifier here too. */}
                   <Label style={{ marginTop: 5 }}>
-                    received {fmt(exec.recv, dpFor(exec.recv))} {get?.symbol ?? ""}
+                    received ~{fmt(exec.recv, dpFor(exec.recv))} {get?.symbol ?? ""} (est.)
                   </Label>
                 </div>
               </div>
@@ -500,6 +507,7 @@ export default function SwapFlow({
               /* ----- REVIEW + PENDING share the pay→get summary ----- */
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Big
+                  th={th}
                   deco={payDeco}
                   sym={pay?.symbol ?? ""}
                   amount={fmt(Number.parseFloat(payAmt) || 0, 2)}
@@ -507,6 +515,7 @@ export default function SwapFlow({
                 />
                 <div style={{ color: th.mute, fontSize: 18, paddingLeft: 13 }}>↓</div>
                 <Big
+                  th={th}
                   deco={getDeco}
                   sym={get?.symbol ?? ""}
                   amount={isScanning ? "…" : fmt(outNum, dpFor(outNum))}

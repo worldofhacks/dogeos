@@ -52,6 +52,65 @@ function dpFor(n) {
   return n > 0 && n < 1 ? 4 : 2;
 }
 
+/* ---------- subcomponents ----------
+   Module scope on purpose: defined inside SwapView's render body these get a
+   fresh function identity every render, so React unmounts/remounts their
+   subtree on each keystroke and each 1s countdown tick — the amount input
+   inside <Section> loses focus/caret per character. */
+function Chip({ token, onPick, th }) {
+  const deco = token ? decorateToken(token) : null;
+  return (
+    <button
+      className="tap lift"
+      onClick={onPick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px 8px 8px",
+        borderRadius: 999,
+        border: `1px solid ${th.hair}`,
+        background: th.panelHi,
+        fontFamily: "'Space Grotesk',sans-serif",
+        fontSize: 15,
+        cursor: "pointer",
+        color: th.ink,
+        flex: "1 1 0",
+        justifyContent: "flex-start",
+        boxShadow: th.dark ? "none" : "0 1px 2px rgba(0,0,0,0.05)",
+      }}
+    >
+      {deco ? <TokenIcon token={deco} size={24} /> : <span style={{ width: 24 }} />}
+      <span style={{ fontWeight: 600 }}>{token?.symbol ?? "select"}</span>
+      <span style={{ color: th.mute, fontSize: 11, marginLeft: "auto" }}>▾</span>
+    </button>
+  );
+}
+
+function Section({ no, title, right, children, th, mobile }) {
+  return (
+    <div style={{ padding: mobile ? "11px 18px" : "15px 20px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: mobile ? 8 : 11,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="te-label te-num" style={{ color: th.accent }}>
+            {no}
+          </span>
+          <Label>{title}</Label>
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function SwapView({
   onReview,
   chartOn = false,
@@ -163,7 +222,7 @@ export default function SwapView({
   }, [pay, balances, wallet.address]);
 
   // ---- live quote (real, debounced/polled/seq-guarded) ----
-  const { quote, isScanning, isReady, secondsLeft, refresh } = useQuote({
+  const { quote, status, isScanning, isReady, secondsLeft, refresh } = useQuote({
     chainId: DOGEOS_CHAIN_ID,
     sellToken: pay,
     buyToken: get,
@@ -192,8 +251,12 @@ export default function SwapView({
   const bestName = bestMeta?.name ?? best?.displayName ?? best?.sourceId ?? "scanning";
   const bestType = bestMeta?.type ?? best?.protocolType ?? best?.routeType ?? "";
 
-  // The aggregator-scan header shows live "scanning" until a ready quote lands.
-  const scanning = isScanning || (amt > 0 && !isReady);
+  // The aggregator-scan header shows live "scanning" until a ready quote
+  // lands. A failed quote (API/RPC down) must surface as a failure — not an
+  // eternal scanning shimmer with a live-looking CTA. The hook keeps polling
+  // every 10s, so a transient outage self-heals.
+  const quoteFailed = status === "error" && amt > 0;
+  const scanning = !quoteFailed && (isScanning || (amt > 0 && !isReady));
   const hasResult = isReady && Boolean(best);
 
   // ---- token selection ----
@@ -221,59 +284,6 @@ export default function SwapView({
 
   const onConnect = () => wallet.connect();
   const reviewable = connected && amt > 0 && !overBal && hasResult;
-
-  /* ---------- subcomponents ---------- */
-  const Chip = ({ token, side }) => {
-    const deco = token ? decorateToken(token) : null;
-    return (
-      <button
-        className="tap lift"
-        onClick={() => setPicker(side)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px 8px 8px",
-          borderRadius: 999,
-          border: `1px solid ${th.hair}`,
-          background: th.panelHi,
-          fontFamily: "'Space Grotesk',sans-serif",
-          fontSize: 15,
-          cursor: "pointer",
-          color: th.ink,
-          flex: "1 1 0",
-          justifyContent: "flex-start",
-          boxShadow: th.dark ? "none" : "0 1px 2px rgba(0,0,0,0.05)",
-        }}
-      >
-        {deco ? <TokenIcon token={deco} size={24} /> : <span style={{ width: 24 }} />}
-        <span style={{ fontWeight: 600 }}>{token?.symbol ?? "select"}</span>
-        <span style={{ color: th.mute, fontSize: 11, marginLeft: "auto" }}>▾</span>
-      </button>
-    );
-  };
-
-  const Section = ({ no, title, right, children }) => (
-    <div style={{ padding: mobile ? "11px 18px" : "15px 20px" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: mobile ? 8 : 11,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="te-label te-num" style={{ color: th.accent }}>
-            {no}
-          </span>
-          <Label>{title}</Label>
-        </div>
-        {right}
-      </div>
-      {children}
-    </div>
-  );
 
   // Docked chart only when toggled on AND there's room to sit beside the swap
   // (wide viewport, matches the Shell frame widening at >=1000px). On narrower
@@ -364,6 +374,8 @@ export default function SwapView({
         <Section
           no="01"
           title="you pay"
+          th={th}
+          mobile={mobile}
           right={
             <Label color={overBal ? th.chartDown : th.mute}>
               bal {compact(payBalNum)} ·{" "}
@@ -399,7 +411,7 @@ export default function SwapView({
 
           {/* token pair selector with flip */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-            <Chip token={pay} side="pay" />
+            <Chip token={pay} onPick={() => setPicker("pay")} th={th} />
             <button
               className="tap"
               onClick={flip}
@@ -423,7 +435,7 @@ export default function SwapView({
             >
               ⇄
             </button>
-            <Chip token={get} side="get" />
+            <Chip token={get} onPick={() => setPicker("get")} th={th} />
           </div>
         </Section>
 
@@ -510,7 +522,9 @@ export default function SwapView({
                   padding: 0,
                 }}
               >
-                {scanning ? (
+                {quoteFailed ? (
+                  <Label color={th.chartDown}>quotes unavailable — tap to retry</Label>
+                ) : scanning ? (
                   <>
                     <span
                       style={{
@@ -565,20 +579,23 @@ export default function SwapView({
                   : undefined
                 : onConnect
             }
-            disabled={connected && (amt <= 0 || overBal)}
+            disabled={connected && (amt <= 0 || overBal || quoteFailed)}
             style={{
               width: "100%",
               padding: "14px 0",
               border: "none",
               borderRadius: 12,
-              background: !connected ? th.accent : amt > 0 && !overBal ? th.accent : th.hair,
-              color: !connected ? th.onAccent : amt > 0 && !overBal ? th.onAccent : th.mute,
+              background: !connected ? th.accent : amt > 0 && !overBal && !quoteFailed ? th.accent : th.hair,
+              color: !connected ? th.onAccent : amt > 0 && !overBal && !quoteFailed ? th.onAccent : th.mute,
               fontFamily: "'Space Grotesk',sans-serif",
               fontWeight: 700,
               fontSize: 15.5,
               letterSpacing: "0.02em",
-              cursor: !connected || (amt > 0 && !overBal) ? "pointer" : "not-allowed",
-              boxShadow: (!connected || (amt > 0 && !overBal)) && !th.dark ? "0 2px 0 rgba(0,0,0,0.18)" : "none",
+              cursor: !connected || (amt > 0 && !overBal && !quoteFailed) ? "pointer" : "not-allowed",
+              boxShadow:
+                (!connected || (amt > 0 && !overBal && !quoteFailed)) && !th.dark
+                  ? "0 2px 0 rgba(0,0,0,0.18)"
+                  : "none",
               textTransform: "uppercase",
               lineHeight: 1.1,
             }}
@@ -592,7 +609,9 @@ export default function SwapView({
                   ? "insufficient balance"
                   : amt <= 0
                     ? "enter an amount"
-                    : "review swap"}
+                    : quoteFailed
+                      ? "quotes unavailable"
+                      : "review swap"}
             </span>
           </button>
         </div>
@@ -758,15 +777,17 @@ export default function SwapView({
             <div style={{ overflow: "hidden", minHeight: 0 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "4px 0 6px" }}>
                 <Label style={{ padding: "0 2px 6px" }}>
-                  {scanning
-                    ? "scanning venues…"
-                    : hasResult
-                      ? `scanned ${venueCount || rows.length} venues${
-                          rows.length > 1 ? ` · +${saveVsNext.toFixed(2)}% vs next best` : ""
-                        }`
-                      : amt > 0
-                        ? "no executable route"
-                        : "awaiting amount"}
+                  {quoteFailed
+                    ? "quotes unavailable — retrying…"
+                    : scanning
+                      ? "scanning venues…"
+                      : hasResult
+                        ? `scanned ${venueCount || rows.length} venues${
+                            rows.length > 1 ? ` · +${saveVsNext.toFixed(2)}% vs next best` : ""
+                          }`
+                        : amt > 0
+                          ? "no executable route"
+                          : "awaiting amount"}
                 </Label>
                 {(scanning ? rows.length ? rows : SKELETON_ROWS : rows).map((v, i) => {
                   const meta = v.sourceId ? sourceNames[v.sourceId] : null;

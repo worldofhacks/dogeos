@@ -158,16 +158,22 @@ export function createLiveAggregatorApiHandler({
 } = {}) {
   const client = createJsonRpcClient({ rpcUrl, fetchFn });
   const verifyChain = createChainVerifier(client, DOGEOS_CHAIN.id);
+  // Oracle failures fall back to a 0 data/finality fee (so quoting stays up),
+  // but never silently: a zeroed fee skews route scoring and verification.
+  const warnDataFinalityFeeError = (error) =>
+    console.warn(`[aggregator] data/finality fee oracle read failed, using 0 fallback: ${errorMessage(error)}`);
   const resolvedDataFinalityFeeWei =
     dataFinalityFeeWei ??
     createDogeosDataFinalityFeeProvider({
       client,
+      onProviderError: warnDataFinalityFeeError,
     });
   const resolvedSwapDataFinalityFeeWei =
     swapDataFinalityFeeWei ??
     createDogeosDataFinalityFeeProvider({
       client,
       payloadProvider: ({ transaction }) => transaction.data,
+      onProviderError: warnDataFinalityFeeError,
     });
   const quoteBlockNumberProvider = createRequestBlockNumberProvider(client);
   const v2QuoteCandidateProvider = createLiveV2QuoteCandidateProvider({

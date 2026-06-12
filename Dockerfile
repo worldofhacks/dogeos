@@ -24,6 +24,10 @@ ENV HOST=0.0.0.0 \
     NODE_ENV=production
 EXPOSE 8080
 
+# The server does no runtime filesystem writes and 8080 is unprivileged, so
+# the internet-facing process gets the base image's non-root user.
+USER node
+
 # Serve the built app + proxy the DogeOS API. Pass DOGEOS_CLIENT_ID / WALLETCONNECT_PROJECT_ID
 # at `docker run -e ...` (read at runtime via /runtime-config.js — no rebuild needed).
 CMD ["node", "packages/web/src/server.mjs"]

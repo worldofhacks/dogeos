@@ -213,12 +213,17 @@ async function quotePool({
     const quotedFeeTier = decodeWord(result, 5, "Algebra quoter result");
     const feeTier = quotedFeeTier > 0n ? quotedFeeTier : poolState.dynamicFeeTier;
 
+    // Algebra QuoterV2 returns (amountOut, amountIn, sqrtPriceX96After,
+    // initializedTicksCrossed, gasEstimate, fee) for BOTH directions — verified
+    // against the deployed Barkswap quoter on 2026-06-12
+    // (scripts/verify-quoter-shapes.mjs): exact-output word 0 echoes the
+    // requested amountOut; the actual input amount is word 1.
     return {
       poolAddress: pool.address,
       token0: poolState.token0,
       token1: poolState.token1,
       ...(quoteMode === "exactOutput"
-        ? { quotedAmountIn: decodeWord(result, 0, "Algebra quoter result") }
+        ? { quotedAmountIn: decodeWord(result, 1, "Algebra quoter result") }
         : { quotedAmountOut: decodeWord(result, 0, "Algebra quoter result") }),
       feeBps: feeTierToBps(feeTier),
       sqrtPriceX96: poolState.sqrtPriceX96,
@@ -254,6 +259,7 @@ export function createLiveConcentratedLiquidityQuoterOutputProvider({
     if (pools.length === 0) return null;
 
     const blockTag = blockTagFor(blockNumber);
+    const failures = [];
     const outputs = await Promise.all(
       pools.map((pool) =>
         quotePool({
@@ -266,12 +272,23 @@ export function createLiveConcentratedLiquidityQuoterOutputProvider({
           amountIn,
           amountOut,
           blockTag,
-        }).catch(() => null),
+        }).catch((error) => {
+          failures.push(error);
+          return null;
+        }),
       ),
     );
+    const usable = outputs.filter(Boolean);
 
-    return outputs
-      .filter(Boolean)
+    // Per-pool failures are tolerable while another pool still quotes, but a
+    // venue whose every pool failed (decode error, reverted quoter, RPC fault)
+    // must surface as a sourceError — not report healthy telemetry with zero
+    // quotes.
+    if (usable.length === 0 && failures.length > 0) {
+      throw failures[0];
+    }
+
+    return usable
       .sort((left, right) => {
         if (quoteMode === "exactOutput") {
           if (left.quotedAmountIn < right.quotedAmountIn) return -1;

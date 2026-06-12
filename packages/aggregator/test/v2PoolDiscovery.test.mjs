@@ -133,7 +133,7 @@ test("createLiveV2QuoteCandidateProvider turns readable pools into active quote 
   assert.equal(quotes[0].status, "active");
   assert.equal(quotes[0].router, getSource("muchfi-v2").router);
   assert.equal(quotes[0].poolAddress, muchfiV2UsdcWdogePool);
-  assert.equal(quotes[0].amountOut, 1_992_013n);
+  assert.equal(quotes[0].amountOut, 1_994_009n); // 20 bps venue fee (live-verified)
   assert.equal(quotes[0].gasUnits, 125_000n);
   assert.equal(quotes[0].dataFinalityFeeWei, 7_500n);
   assert.equal(quotes[0].blockNumber, 5_200_000n);
@@ -259,11 +259,11 @@ test("createLiveV2QuoteCandidateProvider quotes exact-output pools", async () =>
   assert.equal(quotes[0].quoteMode, "exactOutput");
   assert.equal(quotes[0].sourceId, "muchfi-v2");
   assert.equal(quotes[0].router, getSource("muchfi-v2").router);
-  assert.equal(quotes[0].amountIn, 1_000_000n);
+  assert.equal(quotes[0].amountIn, 998_998n); // 20 bps venue fee (live-verified)
   assert.equal(quotes[0].amountOut, 1_992_013n);
-  assert.equal(quotes[0].dataFinalityFeeWei, 10_000n);
+  assert.equal(quotes[0].dataFinalityFeeWei, 9_989n);
   assert.equal(seenInputs.length, 1);
-  assert.equal(seenInputs[0].amountIn, 1_000_000n);
+  assert.equal(seenInputs[0].amountIn, 998_998n);
   assert.equal(seenInputs[0].amountOut, 1_992_013n);
 });
 

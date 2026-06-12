@@ -239,6 +239,19 @@ export const BARKSWAP_ALGEBRA_ROUTER_ABI = Object.freeze([
   },
 ]);
 
+// Output shape verified against the deployed quoter's raw returndata on
+// 2026-06-12 (scripts/verify-quoter-shapes.mjs): Algebra QuoterV2 returns the
+// full 6-word tuple for BOTH directions (exact-output word 0 echoes the
+// requested amountOut; the actual input amount is word 1).
+export const BARKSWAP_ALGEBRA_QUOTER_OUTPUTS = Object.freeze([
+  { name: "amountOut", type: "uint256" },
+  { name: "amountIn", type: "uint256" },
+  { name: "sqrtPriceX96After", type: "uint160" },
+  { name: "initializedTicksCrossed", type: "uint32" },
+  { name: "gasEstimate", type: "uint256" },
+  { name: "fee", type: "uint16" },
+]);
+
 export const BARKSWAP_ALGEBRA_QUOTER_ABI = Object.freeze([
   {
     type: "function",
@@ -257,10 +270,7 @@ export const BARKSWAP_ALGEBRA_QUOTER_ABI = Object.freeze([
         ],
       },
     ],
-    outputs: [
-      { name: "amountOut", type: "uint256" },
-      { name: "fee", type: "uint16" },
-    ],
+    outputs: [...BARKSWAP_ALGEBRA_QUOTER_OUTPUTS],
   },
   {
     type: "function",
@@ -279,9 +289,6 @@ export const BARKSWAP_ALGEBRA_QUOTER_ABI = Object.freeze([
         ],
       },
     ],
-    outputs: [
-      { name: "amountIn", type: "uint256" },
-      { name: "fee", type: "uint16" },
-    ],
+    outputs: [...BARKSWAP_ALGEBRA_QUOTER_OUTPUTS],
   },
 ]);

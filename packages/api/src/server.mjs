@@ -3,6 +3,15 @@ import { pathToFileURL } from "node:url";
 
 import { createAggregatorApiHandler } from "./handler.mjs";
 import { createLiveAggregatorApiHandler } from "./live.mjs";
+import {
+  HttpRequestError,
+  applyServerTimeouts,
+  clientKeyFromMessage,
+  createRateLimiter,
+  readIncomingBody,
+  securityHeaders,
+  writeJsonError,
+} from "./httpHardening.mjs";
 
 function hasBody(method) {
   return !["GET", "HEAD"].includes(method ?? "GET");
@@ -22,15 +31,6 @@ function headersFromIncomingMessage(message) {
   return headers;
 }
 
-function readIncomingBody(message) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    message.on("data", (chunk) => chunks.push(chunk));
-    message.on("end", () => resolve(Buffer.concat(chunks)));
-    message.on("error", reject);
-  });
-}
-
 async function requestFromIncomingMessage(message) {
   const origin = `http://${message.headers.host ?? "127.0.0.1"}`;
   const url = new URL(message.url ?? "/", origin);
@@ -44,29 +44,38 @@ async function requestFromIncomingMessage(message) {
 }
 
 async function writeFetchResponse(serverResponse, fetchResponse) {
-  serverResponse.writeHead(fetchResponse.status, Object.fromEntries(fetchResponse.headers));
+  serverResponse.writeHead(fetchResponse.status, {
+    ...securityHeaders(),
+    ...Object.fromEntries(fetchResponse.headers),
+  });
   const body = Buffer.from(await fetchResponse.arrayBuffer());
   serverResponse.end(body);
 }
 
-export function createNodeRequestListener({ handle = createAggregatorApiHandler() } = {}) {
+export function createNodeRequestListener({
+  handle = createAggregatorApiHandler(),
+  rateLimiter = createRateLimiter(),
+} = {}) {
   return async function nodeRequestListener(request, response) {
     try {
+      if (!rateLimiter(clientKeyFromMessage(request))) {
+        writeJsonError(response, 429, "rate-limited", "Too many requests. Retry shortly.");
+        return;
+      }
+
       const fetchRequest = await requestFromIncomingMessage(request);
       const fetchResponse = await handle(fetchRequest);
       await writeFetchResponse(response, fetchResponse);
     } catch (error) {
-      const body = JSON.stringify({
-        error: {
-          code: "api-server-error",
-          message: error.message,
-        },
-      });
+      if (error instanceof HttpRequestError) {
+        writeJsonError(response, error.status, error.code, error.message);
+        return;
+      }
 
-      response.writeHead(500, {
-        "content-type": "application/json; charset=utf-8",
-      });
-      response.end(body);
+      // Raw error messages can leak internal infrastructure details; log the
+      // detail here, answer generically.
+      console.error("[api-server]", error);
+      writeJsonError(response, 500, "api-server-error", "Internal server error.");
     }
   };
 }
@@ -92,7 +101,7 @@ export function startAggregatorApiServer({
       outputWeiPerFeeWei,
       calldataBuilder,
     });
-  const server = createServer(createNodeRequestListener({ handle: resolvedHandle }));
+  const server = applyServerTimeouts(createServer(createNodeRequestListener({ handle: resolvedHandle })));
 
   return new Promise((resolve, reject) => {
     server.once("error", reject);

@@ -938,24 +938,22 @@ test("POST /approval derives exact-output approval bounds from the quote before 
   });
 });
 
-test("POST /approval can refresh exact-output quotes before allowance planning", async () => {
-  let plannerInput;
-  let quoteProviderInput;
-  const handle = createAggregatorApiHandler({
+function exactOutputRefreshHandle({ refreshedAmountIn, onPlan, onQuoteInput }) {
+  return createAggregatorApiHandler({
     nowMs: () => now,
     refreshSwapQuoteBeforeBuild: true,
     gasPriceWei: () => 1n,
     inputWeiPerFeeWei: () => 0n,
     outputWeiPerFeeWei: () => 0n,
     quoteCandidateProvider: async (input) => {
-      quoteProviderInput = input;
+      onQuoteInput?.(input);
       return [
         candidate({
           quoteMode: "exactOutput",
           sourceId: "muchfi-v3",
           protocolType: "v3",
           router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
-          amountIn: 1_200_000n,
+          amountIn: refreshedAmountIn,
           amountOut: input.amountOut,
           quoteTimestampMs: now,
           ttlMs: 5_000,
@@ -963,42 +961,77 @@ test("POST /approval can refresh exact-output quotes before allowance planning",
       ];
     },
     approvalPlanner: async (input) => {
-      plannerInput = input;
+      onPlan?.(input);
       return { approvalRequired: true, allowance: 0n };
     },
   });
+}
 
-  const response = await handle(
-    jsonRequest("/approval", {
-      owner: "0x2222222222222222222222222222222222222222",
-      quote: {
-        quoteMode: "exactOutput",
-        sourceId: "muchfi-v3",
-        protocolType: "v3",
-        status: "active",
-        chainId: DOGEOS_CHAIN.id,
-        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
-        sellToken: usdc.address,
-        buyToken: wdoge.address,
-        amountIn: "1000000",
-        amountOut: "900000",
-        maxAmountIn: "1010000",
-        slippageBps: "100",
-        recipient: "0x1111111111111111111111111111111111111111",
-        deadline: 1_780_000_300,
-        quoteTimestampMs: now,
-        ttlMs: 10_000,
-      },
-    }),
-  );
+function exactOutputApprovalRequest() {
+  return jsonRequest("/approval", {
+    owner: "0x2222222222222222222222222222222222222222",
+    quote: {
+      quoteMode: "exactOutput",
+      sourceId: "muchfi-v3",
+      protocolType: "v3",
+      status: "active",
+      chainId: DOGEOS_CHAIN.id,
+      router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      amountOut: "900000",
+      maxAmountIn: "1010000",
+      slippageBps: "100",
+      recipient: "0x1111111111111111111111111111111111111111",
+      deadline: 1_780_000_300,
+      quoteTimestampMs: now,
+      ttlMs: 10_000,
+    },
+  });
+}
+
+test("POST /approval refresh clamps the rebuilt maxAmountIn to the accepted maximum", async () => {
+  let plannerInput;
+  let quoteProviderInput;
+  // Refreshed route still fits inside the user's accepted maxAmountIn
+  // (1,010,000), but its own slippage buffer would rebase the bound above it
+  // (1,005,000 * 1.01 = 1,015,050). The user-accepted bound must win.
+  const handle = exactOutputRefreshHandle({
+    refreshedAmountIn: 1_005_000n,
+    onPlan: (input) => {
+      plannerInput = input;
+    },
+    onQuoteInput: (input) => {
+      quoteProviderInput = input;
+    },
+  });
+
+  const response = await handle(exactOutputApprovalRequest());
   const body = await response.json();
 
   assert.equal(response.status, 200);
   assert.equal(quoteProviderInput.quoteMode, "exactOutput");
   assert.equal(quoteProviderInput.amountOut, 900_000n);
   assert.deepEqual(quoteProviderInput.includeSources, ["muchfi-v3"]);
-  assert.equal(plannerInput.amount, 1_212_000n);
-  assert.equal(body.quote.maxAmountIn, "1212000");
+  assert.equal(plannerInput.amount, 1_010_000n);
+  assert.equal(body.quote.maxAmountIn, "1010000");
+  assert.equal(body.quote.amountIn, "1005000");
+});
+
+test("POST /approval fails closed when the refreshed route exceeds the accepted maximum input", async () => {
+  // The fresh route needs 1,200,000 in — beyond the user's accepted
+  // 1,010,000. Rebasing the bound would silently charge ~19% more than the
+  // user confirmed, so the API must demand a re-quote instead.
+  const handle = exactOutputRefreshHandle({ refreshedAmountIn: 1_200_000n });
+
+  const response = await handle(exactOutputApprovalRequest());
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.error.code, "approval-not-buildable");
+  assert.match(body.error.message, /Price moved/);
+  assert.match(body.error.message, /1010000/);
 });
 
 test("POST /approval and /swap coalesce identical in-flight refreshed quote work", async () => {
@@ -1309,6 +1342,99 @@ test("POST /swap can refresh the selected source quote before calldata building"
   assert.equal(body.quote.amountOut, "1200000");
   assert.equal(body.quote.minAmountOut, "1188000");
   assert.equal(body.transaction.routeBinding.minAmountOut, "1188000");
+});
+
+function exactInputRefreshHandle({ refreshedAmountOut, onBuild }) {
+  return createAggregatorApiHandler({
+    nowMs: () => now,
+    refreshSwapQuoteBeforeBuild: true,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    quoteCandidateProvider: async (input) => [
+      candidate({
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        amountIn: input.amountIn,
+        amountOut: refreshedAmountOut,
+        quoteTimestampMs: now,
+        ttlMs: 5_000,
+      }),
+    ],
+    calldataBuilder: (quote) => {
+      onBuild?.(quote);
+      return "0x38ed1739";
+    },
+    swapVerifier: async () => ({
+      status: "simulated",
+      estimatedGas: 100_000n,
+      gasLimit: 120_000n,
+      gasBufferBps: 12_000n,
+      blockTag: "latest",
+    }),
+  });
+}
+
+function exactInputSwapRequest() {
+  return jsonRequest("/swap", {
+    sender: "0x2222222222222222222222222222222222222222",
+    quote: {
+      sourceId: "muchfi-v3",
+      protocolType: "v3",
+      status: "active",
+      chainId: DOGEOS_CHAIN.id,
+      router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      amountOut: "1050000",
+      minAmountOut: "1000000",
+      slippageBps: "100",
+      recipient: "0x1111111111111111111111111111111111111111",
+      deadline: 1_780_000_300,
+      quoteTimestampMs: now,
+      ttlMs: 10_000,
+    },
+  });
+}
+
+test("POST /swap refresh clamps the on-chain floor to the accepted minAmountOut", async () => {
+  let builderInput;
+  // Price dipped within the user's tolerance: the refreshed route still beats
+  // the accepted minimum (1,005,000 >= 1,000,000) but its recomputed floor
+  // (1,005,000 * 0.99 = 994,950) would drop below what the UI displayed as
+  // "min received". The user-accepted floor must stay on-chain.
+  const handle = exactInputRefreshHandle({
+    refreshedAmountOut: 1_005_000n,
+    onBuild: (quote) => {
+      builderInput = quote;
+    },
+  });
+
+  const response = await handle(exactInputSwapRequest());
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(builderInput.amountOut, 1_005_000n);
+  assert.equal(builderInput.minAmountOut, 1_000_000n);
+  assert.equal(body.quote.amountOut, "1005000");
+  assert.equal(body.quote.minAmountOut, "1000000");
+  assert.equal(body.transaction.routeBinding.minAmountOut, "1000000");
+});
+
+test("POST /swap fails closed when the refreshed route drops below the accepted minAmountOut", async () => {
+  // The fresh route returns less than the minimum the user accepted — the
+  // classic stale-quote loss. The API must demand a re-quote, never silently
+  // rebase the floor downward.
+  const handle = exactInputRefreshHandle({ refreshedAmountOut: 990_000n });
+
+  const response = await handle(exactInputSwapRequest());
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.error.code, "swap-not-buildable");
+  assert.match(body.error.message, /Price moved/);
+  assert.match(body.error.message, /1000000/);
 });
 
 test("POST /swap refuses insufficient balances after simulation", async () => {

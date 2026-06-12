@@ -240,6 +240,9 @@ export function createLiveV2QuoteCandidateProvider({
 
             if (!pool) return [];
 
+            // Per-venue fee wins over the provider-wide default: V2 forks
+            // commonly diverge from 30 bps (MuchFi V2 is 20 bps on-chain).
+            const sourceFeeBps = source.feeBps ?? feeBps;
             const normalizedSellToken = normalizeAddress(sellToken, "sellToken");
             const normalizedBuyToken = normalizeAddress(buyToken, "buyToken");
             const preview =
@@ -257,7 +260,7 @@ export function createLiveV2QuoteCandidateProvider({
                     sellToken: normalizedSellToken,
                     buyToken: normalizedBuyToken,
                     amountOut,
-                    feeBps,
+                    feeBps: sourceFeeBps,
                     gasUnits,
                     dataFinalityFeeWei: 0n,
                     blockNumber,
@@ -293,7 +296,7 @@ export function createLiveV2QuoteCandidateProvider({
                     sellToken: normalizedSellToken,
                     buyToken: normalizedBuyToken,
                     amountOut,
-                    feeBps,
+                    feeBps: sourceFeeBps,
                     gasUnits,
                     dataFinalityFeeWei: routeDataFinalityFeeWei,
                     blockNumber,
@@ -313,7 +316,7 @@ export function createLiveV2QuoteCandidateProvider({
                     sellToken: normalizedSellToken,
                     buyToken: normalizedBuyToken,
                     amountIn,
-                    feeBps,
+                    feeBps: sourceFeeBps,
                     gasUnits,
                     dataFinalityFeeWei: routeDataFinalityFeeWei,
                     blockNumber,

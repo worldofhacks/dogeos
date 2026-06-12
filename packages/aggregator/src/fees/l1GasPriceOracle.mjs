@@ -54,6 +54,7 @@ export function createDogeosDataFinalityFeeProvider({
   payloadProvider = estimatedSwapPayloadForFee,
   blockTag = "latest",
   cacheTtlMs = 15_000,
+  maxCacheEntries = 256,
   nowMs = () => Date.now(),
   fallbackFeeWei = 0n,
   onProviderError,
@@ -76,6 +77,7 @@ export function createDogeosDataFinalityFeeProvider({
     if (cached && now - cached.cachedAtMs <= cacheTtlMs) {
       return cached.feeWei;
     }
+    if (cached) cache.delete(cacheKey);
 
     try {
       const result = await client.call(
@@ -86,6 +88,13 @@ export function createDogeosDataFinalityFeeProvider({
         blockTag,
       );
       const feeWei = decodeUint256Result(result);
+      // The swap path keys this cache by full router calldata, which is unique
+      // per swap (amounts + deadline are encoded) — without a cap the map of
+      // the long-running server grows on every POST /swap. Evict in insertion
+      // order once full.
+      while (cache.size >= maxCacheEntries) {
+        cache.delete(cache.keys().next().value);
+      }
       cache.set(cacheKey, { feeWei, cachedAtMs: now });
       return feeWei;
     } catch (error) {
