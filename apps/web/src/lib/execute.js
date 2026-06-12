@@ -183,6 +183,51 @@ export async function ensureWalletReadyForDogeos(
   return provider;
 }
 
+/* ---------- bounded wallet interaction ---------- */
+// Some wallets (notably Rainbow on chains it doesn't support) leave a
+// request promise pending FOREVER instead of rejecting — without a bound the
+// pending modal spins until the tab dies. Every wallet prompt is therefore
+// raced against a timeout and the flow's abort signal (the modal's cancel).
+const WALLET_RESPONSE_TIMEOUT_MS = 120_000;
+
+export const SWAP_CANCELLED_MESSAGE =
+  "Swap cancelled. If you already confirmed in your wallet, that transaction may still complete on-chain.";
+
+function awaitWalletResponse(promise, { signal, timeoutMs = WALLET_RESPONSE_TIMEOUT_MS, label = "The wallet" } = {}) {
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener?.("abort", onAbort);
+    };
+    function onAbort() {
+      cleanup();
+      reject(new Error(SWAP_CANCELLED_MESSAGE));
+    }
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`${label} did not respond. Check your wallet extension and try again.`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 /* ---------- send + receipt (ported from app.js) ---------- */
 export async function sendWalletTransaction(transaction, sender, options = {}) {
   const provider = await ensureWalletReadyForDogeos(sender, options);
@@ -199,10 +244,13 @@ export async function sendWalletTransaction(transaction, sender, options = {}) {
   }
 
   try {
-    return await provider.request({
-      method: "eth_sendTransaction",
-      params: [request],
-    });
+    return await awaitWalletResponse(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [request],
+      }),
+      { signal: options.signal, label: "The wallet" },
+    );
   } catch (error) {
     throw new Error(transactionErrorMessage(error));
   }
@@ -297,10 +345,13 @@ async function obtainPermit2Authorization({ permit, sender, sellToken, report, s
 
   try {
     report({ phase: "permit-sign", symbol: sellToken?.symbol });
-    const signature = await provider.request({
-      method: "eth_signTypedData_v4",
-      params: [sender, JSON.stringify(permit.typedData)],
-    });
+    const signature = await awaitWalletResponse(
+      provider.request({
+        method: "eth_signTypedData_v4",
+        params: [sender, JSON.stringify(permit.typedData)],
+      }),
+      { signal, label: "The wallet" },
+    );
     const message = permit.typedData.message;
     return {
       permitSingle: {
@@ -326,6 +377,7 @@ async function obtainPermit2Authorization({ permit, sender, sellToken, report, s
     const hash = await sendWalletTransaction(permit.fallbackTransaction, sender, {
       providerMessage: "Switching wallet to DogeOS Chikyū for approval",
       missingProviderMessage: "Connect an EVM wallet before approving.",
+      signal,
     });
     report({ phase: "approve-pending", symbol: sellToken?.symbol, hash });
     await waitForTransactionReceipt(hash, { label: "Approval", signal });
@@ -378,6 +430,7 @@ export async function executeSwap({
         const approvalHash = await sendWalletTransaction(approvalTransaction, sender, {
           providerMessage: "Switching wallet to DogeOS Chikyū for approval",
           missingProviderMessage: "Connect an EVM wallet before approving.",
+          signal,
         });
         report({ phase: "approve-pending", symbol: sellToken?.symbol, hash: approvalHash });
         await waitForTransactionReceipt(approvalHash, { label: "Approval", signal });
@@ -400,6 +453,7 @@ export async function executeSwap({
   }
 
   // 2) Swap — FRESH router calldata from /swap (backend re-quotes).
+  if (signal?.aborted) throw new Error(SWAP_CANCELLED_MESSAGE);
   report({ phase: "swap-build" });
   const swap = await postSwap({ quote, sender });
   const transaction = swap.transaction;
@@ -407,7 +461,7 @@ export async function executeSwap({
   const executionQuote = mergeExecutionQuote(quote, swap.quote);
 
   report({ phase: "swap-sign" });
-  const txHash = await sendWalletTransaction(transaction, sender);
+  const txHash = await sendWalletTransaction(transaction, sender, { signal });
   report({ phase: "swap-pending", hash: txHash });
 
   // 3) Receipt — poll until included / reverted / timeout.

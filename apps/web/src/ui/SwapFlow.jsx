@@ -606,17 +606,38 @@ export default function SwapFlow({
 
             {/* ----- PENDING spinner + sub-step copy ----- */}
             {stage === "pending" && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  justifyContent: "center",
-                  padding: "8px 0",
-                }}
-              >
-                <Spinner th={th} />
-                <Label>{pendingLabel}</Label>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    justifyContent: "center",
+                    padding: "8px 0",
+                  }}
+                >
+                  <Spinner th={th} />
+                  <Label>{pendingLabel}</Label>
+                </div>
+                {/* Escape hatch: a wallet that never answers (dismissed popup,
+                    unsupported chain) would otherwise spin here forever. */}
+                <button
+                  className="tap"
+                  onClick={() => exec.cancel?.()}
+                  style={{
+                    border: `1px solid ${th.hair}`,
+                    background: "transparent",
+                    color: th.mute,
+                    borderRadius: 8,
+                    padding: "7px 16px",
+                    cursor: "pointer",
+                    fontFamily: "'DM Mono',monospace",
+                    fontSize: 11,
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  cancel
+                </button>
               </div>
             )}
 

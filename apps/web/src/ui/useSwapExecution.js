@@ -31,6 +31,13 @@ export function useSwapExecution() {
     runningRef.current = false;
   }, []);
 
+  // Stop waiting on the wallet/receipt. The in-flight run rejects with a
+  // friendly "Swap cancelled" error (a transaction the user ALREADY confirmed
+  // in their wallet may still land on-chain — the error copy says so).
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   // Run the full review→approval→swap→receipt path. `recv` is the estimated
   // received amount (JS number) used for the success screen + activity log.
   const run = useCallback(
@@ -108,5 +115,6 @@ export function useSwapExecution() {
     isPending: state.status === "approving" || state.status === "swapping",
     run,
     reset,
+    cancel,
   };
 }
