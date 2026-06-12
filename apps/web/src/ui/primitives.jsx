@@ -16,11 +16,22 @@ export function fmtUsd(n) {
   return "$" + n.toPrecision(2);
 }
 
-// compact balance: 1.2M / 4.3k / 920
+// Truncate (never round up) to `dp` decimals and trim trailing zeros, so a
+// 0.9998 balance can never display as "1" (and "max" never overstates).
+function floorFixed(n, dp) {
+  const s = n.toFixed(9); // guard digits so the truncation below is exact
+  const trimmed = s.slice(0, s.indexOf(".") + 1 + dp).replace(/\.?0+$/, "");
+  return trimmed || "0";
+}
+
+// compact balance: 1.23M / 4.3k / 920.46 / 0.9998
 export function compact(n) {
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
-  return fmt(n, 0);
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n >= 1e6) return floorFixed(n / 1e6, 2) + "M";
+  if (n >= 1e3) return floorFixed(n / 1e3, 1) + "k";
+  if (n >= 1) return floorFixed(n, 2);
+  if (n < 0.0001) return "<0.0001";
+  return floorFixed(n, 4);
 }
 
 // 0x1234…cdef address truncation

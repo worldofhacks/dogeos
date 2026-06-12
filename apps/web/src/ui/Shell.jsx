@@ -141,6 +141,9 @@ export default function Shell() {
         cursor: "pointer",
         fontFamily: "'DM Mono',monospace",
         fontSize: 12.5,
+        // Never wraps: the squeezed mobile header otherwise breaks the
+        // address across two lines.
+        whiteSpace: "nowrap",
       }}
     >
       <span
@@ -148,10 +151,11 @@ export default function Shell() {
           width: 18,
           height: 18,
           borderRadius: "50%",
+          flexShrink: 0,
           background: chipWrongChain ? theme.chartDown : theme.gold,
         }}
       />
-      {chipWrongChain ? "wrong network" : truncateAddress(wallet.address)}
+      {chipWrongChain ? "wrong network" : truncateAddress(wallet.address, mobile ? 4 : 6, 4)}
     </button>
   ) : (
     <button
