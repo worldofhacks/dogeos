@@ -220,9 +220,14 @@ export function useWallet() {
         // The bridge is already connected but this hook instance missed the
         // event (fresh mount). Resync local state instead of silently doing
         // nothing — a dead connect button with no feedback is unrecoverable.
-        const known = knownWalletState();
-        if (known?.address) setState(known);
-        return;
+        // Prefer the live getters (ground truth) over the cached publish.
+        const known = bridgeSnapshot() ?? knownWalletState();
+        if (known?.address) {
+          setState(known);
+          return;
+        }
+        // The bridge claims connected but yields no address — fall through to
+        // the normal connect flow rather than silently doing nothing.
       }
 
       // SDK mode (clientId set): the Connect Kit modal is the chooser. No
@@ -281,6 +286,20 @@ export function useWallet() {
 
   const cancelChooser = useCallback(() => setChooser(null), []);
 
+  // Ask the wallet to switch to DogeOS Chikyu. Resolves false when the wallet
+  // refuses (user rejection / unsupported), so callers can surface a toast.
+  // The bridge republishes chainId after a successful switch, which resyncs
+  // every hook instance.
+  const switchChain = useCallback(async () => {
+    const wallet = sdkWallet();
+    if (!wallet?.switchToDogeOS) return false;
+    try {
+      return (await wallet.switchToDogeOS()) !== false;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const disconnect = useCallback(async () => {
     const wallet = sdkWallet();
     if (!wallet?.disconnect) return;
@@ -301,6 +320,7 @@ export function useWallet() {
     error: state.error,
     connect,
     disconnect,
+    switchChain,
     // Injected-only wallet chooser (null unless multiple injected wallets exist
     // and no clientId is set). The Shell renders <WalletChooser> from these.
     chooser,

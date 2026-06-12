@@ -15,6 +15,7 @@ import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
 import WalletChooser from "./WalletChooser.jsx";
 import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
+import { chainIdMatchesDogeos } from "../lib/execute.js";
 
 const NAV_ITEMS = [
   ["swap", "01"],
@@ -137,18 +138,23 @@ export default function Shell() {
   const chainId = chainStatus?.chainId ?? chainStatus?.expectedChainId ?? DOGEOS_CHAIN_ID;
 
   // connect chip: disconnected = accent "connect"; connected = pill + gold dot +
-  // truncated address (click disconnects).
+  // truncated address (click disconnects). A red dot + "wrong network" flags
+  // the connected-but-not-on-DogeOS state, which otherwise looks healthy here
+  // while every swap fails at signing time.
+  const chipWrongChain =
+    wallet.isConnected && Boolean(wallet.chainId) && !chainIdMatchesDogeos(wallet.chainId);
   const connectChip = wallet.isConnected ? (
     <button
       className="tap"
       onClick={() => wallet.disconnect()}
+      title={chipWrongChain ? "Wallet is not on DogeOS Chikyu - click to disconnect" : "Click to disconnect"}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
         padding: "7px 12px",
         borderRadius: 999,
-        border: `1px solid ${theme.hair}`,
+        border: `1px solid ${chipWrongChain ? theme.chartDown : theme.hair}`,
         background: theme.panelHi,
         color: theme.ink,
         cursor: "pointer",
@@ -156,8 +162,15 @@ export default function Shell() {
         fontSize: 12.5,
       }}
     >
-      <span style={{ width: 18, height: 18, borderRadius: "50%", background: theme.gold }} />
-      {truncateAddress(wallet.address)}
+      <span
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          background: chipWrongChain ? theme.chartDown : theme.gold,
+        }}
+      />
+      {chipWrongChain ? "wrong network" : truncateAddress(wallet.address)}
     </button>
   ) : (
     <button

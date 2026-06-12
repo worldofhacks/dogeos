@@ -31,6 +31,7 @@ import { useSettings } from "./useSettings.js";
 import { useQuote } from "./useQuote.js";
 import { useTokenBalances } from "./useTokenBalances.js";
 import { getTokens, getSources, DOGEOS_CHAIN_ID } from "../lib/api.js";
+import { chainIdMatchesDogeos } from "../lib/execute.js";
 import { decorateToken } from "../lib/tokens.js";
 import { sanitizeAmountInput, unitsToNumber, walletBalanceKey } from "../lib/units.js";
 import {
@@ -233,6 +234,11 @@ export default function SwapView({
   const amt = Number.parseFloat(payAmt) || 0;
   const overBal = wallet.address ? amt > payBalNum : false;
   const connected = wallet.isConnected;
+  // Connected on the wrong network is the worst "looks fine, can't swap"
+  // state: the wallet connects (eth_requestAccounts succeeds) even when the
+  // user rejects the DogeOS chain switch. Surface it on the CTA instead of
+  // letting the swap fail later at signing time.
+  const wrongChain = connected && Boolean(wallet.chainId) && !chainIdMatchesDogeos(wallet.chainId);
 
   // Ranked venue list from best + alternatives (winner first).
   const rows = useMemo(() => venueRows(quote), [quote]);
@@ -283,7 +289,11 @@ export default function SwapView({
   const pctOfBal = payBalNum > 0 ? Math.max(0, Math.min(100, Math.round((amt / payBalNum) * 100))) : 0;
 
   const onConnect = () => wallet.connect();
-  const reviewable = connected && amt > 0 && !overBal && hasResult;
+  const onSwitchChain = async () => {
+    const switched = await wallet.switchChain();
+    if (!switched) showToast("Switch your wallet to DogeOS Chikyu Testnet to swap.", "err");
+  };
+  const reviewable = connected && !wrongChain && amt > 0 && !overBal && hasResult;
 
   // Docked chart only when toggled on AND there's room to sit beside the swap
   // (wide viewport, matches the Shell frame widening at >=1000px). On narrower
@@ -566,54 +576,61 @@ export default function SwapView({
             ) : null}
           </div>
 
-          <button
-            className="tap"
-            onClick={
-              connected
-                ? reviewable
-                  ? () => {
-                      haptic(12);
-                      onReview?.();
-                      setShowFlow(true);
-                    }
-                  : undefined
-                : onConnect
-            }
-            disabled={connected && (amt <= 0 || overBal || quoteFailed)}
-            style={{
-              width: "100%",
-              padding: "14px 0",
-              border: "none",
-              borderRadius: 12,
-              background: !connected ? th.accent : amt > 0 && !overBal && !quoteFailed ? th.accent : th.hair,
-              color: !connected ? th.onAccent : amt > 0 && !overBal && !quoteFailed ? th.onAccent : th.mute,
-              fontFamily: "'Space Grotesk',sans-serif",
-              fontWeight: 700,
-              fontSize: 15.5,
-              letterSpacing: "0.02em",
-              cursor: !connected || (amt > 0 && !overBal && !quoteFailed) ? "pointer" : "not-allowed",
-              boxShadow:
-                (!connected || (amt > 0 && !overBal && !quoteFailed)) && !th.dark
-                  ? "0 2px 0 rgba(0,0,0,0.18)"
-                  : "none",
-              textTransform: "uppercase",
-              lineHeight: 1.1,
-            }}
-          >
-            {/* CTA label only — the "you receive" readout above now shows the
-                output amount (no redundant "≈ {out} {sym}" sublabel here). */}
-            <span style={{ whiteSpace: "nowrap" }}>
-              {!connected
-                ? "connect wallet"
-                : overBal
-                  ? "insufficient balance"
-                  : amt <= 0
-                    ? "enter an amount"
-                    : quoteFailed
-                      ? "quotes unavailable"
-                      : "review swap"}
-            </span>
-          </button>
+          {(() => {
+            // CTA is actionable when it connects, switches network, or reviews.
+            const actionable = !connected || wrongChain || (amt > 0 && !overBal && !quoteFailed);
+            return (
+              <button
+                className="tap"
+                onClick={
+                  !connected
+                    ? onConnect
+                    : wrongChain
+                      ? onSwitchChain
+                      : reviewable
+                        ? () => {
+                            haptic(12);
+                            onReview?.();
+                            setShowFlow(true);
+                          }
+                        : undefined
+                }
+                disabled={connected && !wrongChain && (amt <= 0 || overBal || quoteFailed)}
+                style={{
+                  width: "100%",
+                  padding: "14px 0",
+                  border: "none",
+                  borderRadius: 12,
+                  background: actionable ? th.accent : th.hair,
+                  color: actionable ? th.onAccent : th.mute,
+                  fontFamily: "'Space Grotesk',sans-serif",
+                  fontWeight: 700,
+                  fontSize: 15.5,
+                  letterSpacing: "0.02em",
+                  cursor: actionable ? "pointer" : "not-allowed",
+                  boxShadow: actionable && !th.dark ? "0 2px 0 rgba(0,0,0,0.18)" : "none",
+                  textTransform: "uppercase",
+                  lineHeight: 1.1,
+                }}
+              >
+                {/* CTA label only — the "you receive" readout above now shows the
+                    output amount (no redundant "≈ {out} {sym}" sublabel here). */}
+                <span style={{ whiteSpace: "nowrap" }}>
+                  {!connected
+                    ? "connect wallet"
+                    : wrongChain
+                      ? "switch to DogeOS network"
+                      : overBal
+                        ? "insufficient balance"
+                        : amt <= 0
+                          ? "enter an amount"
+                          : quoteFailed
+                            ? "quotes unavailable"
+                            : "review swap"}
+                </span>
+              </button>
+            );
+          })()}
         </div>
 
         {/* amount + slippage sliders */}
