@@ -275,15 +275,9 @@ export default function SwapView({
   const bestMeta = best ? sourceNames[best.sourceId] : null;
   const bestName = bestMeta?.name ?? best?.displayName ?? best?.sourceId ?? "scanning";
   const bestIsSplit = best?.routeType === "split" && Array.isArray(best.legs) && best.legs.length > 0;
-  // Route label for the review screen: names the venues inside a split, and
-  // flags router settlement when every swap executes through it.
-  const routeLabel = !best
-    ? bestName
-    : bestIsSplit
-      ? `${bestName}: ${splitLegsSummary(best.legs, sourceNames)}`
-      : routerMode === "all"
-        ? `${bestName} · via DogeSwapRouter`
-        : bestName;
+  // Route label for the review screen: a split names its venues; a single
+  // venue keeps just its name (the settlement row covers the router detail).
+  const routeLabel = bestIsSplit ? splitLegsSummary(best.legs, sourceNames) : bestName;
   const bestType = bestMeta?.type ?? best?.protocolType ?? best?.routeType ?? "";
 
   // The aggregator-scan header shows live "scanning" until a ready quote
@@ -925,12 +919,12 @@ export default function SwapView({
           />
           {/* Atomic split route: show the per-venue input distribution. */}
           {hasResult && bestIsSplit ? (
-            <DetailRow k="split" compact={mobile} v={`${splitLegsSummary(best.legs, sourceNames)} · atomic`} />
+            <DetailRow k="split" compact={mobile} v={splitLegsSummary(best.legs, sourceNames)} />
           ) : null}
-          {/* Settlement guarantee — every routed swap enforces min-out on the
-              measured output delta and refunds leftovers (DogeSwapRouter). */}
+          {/* Settlement guarantee — routed swaps enforce min-out on the
+              measured output delta and refund leftovers (DogeSwapRouter). */}
           {hasResult && (bestIsSplit || routerMode === "all") ? (
-            <DetailRow k="settlement" compact={mobile} v="DogeSwapRouter · atomic · enforced min-out" />
+            <DetailRow k="settlement" compact={mobile} v="atomic · min-out enforced" />
           ) : null}
           {/* Honesty: price impact omitted — backend computes no mid-price. */}
           <DetailRow k="price impact" compact={mobile} v="—" />

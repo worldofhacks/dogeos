@@ -595,3 +595,51 @@ test("injected wallet bridge explains MyDoge needs SDK config or an injected pro
   );
   assert.match(states.at(-1).error, /Set DOGEOS_CLIENT_ID or VITE_DOGEOS_CLIENT_ID/);
 });
+
+test("initialize() discovers EIP-6963 wallets so the chooser lists every brand once", () => {
+  // Rainbow owns window.ethereum AND impersonates MetaMask there; the real
+  // MetaMask only announces via EIP-6963. Before the persistent announce
+  // listener, the chooser saw a single (Rainbow) wallet and forced it.
+  const rainbowWindowProvider = createProvider();
+  rainbowWindowProvider.isRainbow = true;
+  rainbowWindowProvider.isMetaMask = true;
+  const rainbowAnnounced = createProvider();
+  rainbowAnnounced.isRainbow = true;
+  const metamask = createProvider();
+  metamask.isMetaMask = true;
+
+  const globalObject = createEip6963Window([
+    { info: { rdns: "me.rainbow", name: "Rainbow" }, provider: rainbowAnnounced },
+    { info: { rdns: "io.metamask", name: "MetaMask" }, provider: metamask },
+  ]);
+  globalObject.ethereum = rainbowWindowProvider;
+
+  const bridge = createInjectedWalletBridge({ globalObject });
+  bridge.initialize();
+
+  const wallets = bridge.listInjectedWallets();
+  assert.deepEqual(wallets.map((wallet) => wallet.preference).sort(), ["metamask", "rainbow"]);
+  assert.equal(wallets.find((wallet) => wallet.preference === "metamask").rdns, "io.metamask");
+});
+
+test("wallet choice persists to storage and clears on disconnect", async () => {
+  const metamask = createProvider({ chainId: "0x5fdaf3" });
+  metamask.isMetaMask = true;
+  const store = new Map();
+  const globalObject = createEip6963Window([
+    { info: { rdns: "io.metamask", name: "MetaMask" }, provider: metamask },
+  ]);
+  globalObject.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+
+  const bridge = createInjectedWalletBridge({ globalObject });
+  bridge.initialize();
+  await bridge.openModal({ walletPreference: "metamask" });
+  assert.equal(store.get("doge.walletPreference"), "metamask");
+
+  await bridge.disconnect();
+  assert.equal(store.has("doge.walletPreference"), false);
+});

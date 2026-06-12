@@ -299,8 +299,30 @@ export function createInjectedWalletBridge({
   let address = "";
   let chainId = "";
   let isConnecting = false;
-  let selectedWalletPreference = "";
-  let walletLabel = "Injected wallet";
+
+  // Remember the user's wallet choice across reloads so the extension that
+  // happens to own window.ethereum (typically Rainbow) can never hijack a
+  // user who explicitly picked MetaMask/MyDoge.
+  const WALLET_PREFERENCE_STORAGE_KEY = "doge.walletPreference";
+  function readStoredWalletPreference() {
+    try {
+      return globalObject?.localStorage?.getItem(WALLET_PREFERENCE_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  }
+  function storeWalletPreference(preference) {
+    try {
+      if (preference) globalObject?.localStorage?.setItem(WALLET_PREFERENCE_STORAGE_KEY, preference);
+      else globalObject?.localStorage?.removeItem(WALLET_PREFERENCE_STORAGE_KEY);
+    } catch {
+      /* storage unavailable — preference just won't survive reloads */
+    }
+  }
+  let selectedWalletPreference = readStoredWalletPreference();
+  let walletLabel = selectedWalletPreference
+    ? walletPreferenceLabel(selectedWalletPreference)
+    : "Injected wallet";
 
   const noWalletMessage =
     "No wallet provider is available. Configure DOGEOS_CLIENT_ID on the web server, VITE_DOGEOS_CLIENT_ID for Vite builds, or install/unlock an EVM wallet to connect through the injected fallback.";
@@ -428,6 +450,24 @@ export function createInjectedWalletBridge({
     }
   }
 
+  // EIP-6963 wallets announce themselves at page load and on request — but
+  // only if someone is listening. Without a persistent listener the provider
+  // cache stayed empty, listInjectedWallets() saw only window.ethereum
+  // (whichever extension grabbed it), the multi-wallet chooser never
+  // appeared, and users were forced into that wallet.
+  function handleEip6963Announce(event) {
+    rememberEip6963Provider(globalObject, event?.detail);
+    // A late announcement can unblock auto-reconnect for a stored preference
+    // (e.g. MetaMask announces just after initialize() already ran).
+    if (!provider && !isConnecting && canAutoSelectProvider()) void refreshState();
+  }
+
+  function startEip6963Discovery() {
+    if (!globalObject?.addEventListener || !globalObject?.dispatchEvent) return;
+    globalObject.addEventListener(EIP6963_ANNOUNCE_EVENT, handleEip6963Announce);
+    globalObject.dispatchEvent(createEip6963RequestEvent(globalObject));
+  }
+
   async function switchToDogeOS({ walletPreference = selectedWalletPreference } = {}) {
     const activeProvider = currentProvider(walletPreference);
     if (!activeProvider?.request) return false;
@@ -470,6 +510,17 @@ export function createInjectedWalletBridge({
             throw new Error("Switch wallet to DogeOS Chikyu Testnet before connecting.");
           }
         }
+        // Persist the user's choice so reloads reconnect THIS wallet. When
+        // connect ran without an explicit preference, classify the provider
+        // that actually answered so the choice still sticks.
+        if (!selectedWalletPreference) {
+          const activeEntry = injectedProviderEntries(globalObject).find(
+            (entry) => entry.provider === activeProvider,
+          );
+          selectedWalletPreference = classifyProviderPreference(activeProvider, activeEntry?.info);
+          if (selectedWalletPreference) walletLabel = walletPreferenceLabel(selectedWalletPreference);
+        }
+        storeWalletPreference(selectedWalletPreference);
         isConnecting = false;
         publish();
         return address;
@@ -484,6 +535,7 @@ export function createInjectedWalletBridge({
       isConnecting = false;
       selectedWalletPreference = "";
       walletLabel = "Injected wallet";
+      storeWalletPreference("");
       publish();
     },
     switchToDogeOS,
@@ -492,12 +544,24 @@ export function createInjectedWalletBridge({
     // preference key + display label. The UI uses this to decide between a
     // direct MyDoge connect and a minimal chooser when several wallets exist.
     listInjectedWallets() {
-      const seen = new Set();
+      const seenProviders = new Set();
+      const seenBrands = new Set();
       const wallets = [];
-      for (const entry of requestProviderEntries(globalObject)) {
-        if (seen.has(entry.provider)) continue;
-        seen.add(entry.provider);
+      // EIP-6963 entries (authoritative rdns/name) first, so the info-less
+      // window.ethereum duplicate of the SAME wallet dedupes away instead of
+      // listing the wallet twice (Rainbow injects both).
+      const entries = [...requestProviderEntries(globalObject)].sort(
+        (left, right) =>
+          Number(Boolean(providerRdns(right.provider, right.info))) -
+          Number(Boolean(providerRdns(left.provider, left.info))),
+      );
+      for (const entry of entries) {
+        if (seenProviders.has(entry.provider)) continue;
+        seenProviders.add(entry.provider);
         const preference = classifyProviderPreference(entry.provider, entry.info);
+        const brandKey = preference || providerRdns(entry.provider, entry.info);
+        if (brandKey && seenBrands.has(brandKey)) continue;
+        if (brandKey) seenBrands.add(brandKey);
         wallets.push({
           preference,
           label: entry.info?.name || walletPreferenceLabel(preference),
@@ -515,11 +579,15 @@ export function createInjectedWalletBridge({
     },
     isConnected: () => Boolean(address),
     initialize() {
+      // Listen + ask for EIP-6963 announcements BEFORE any provider
+      // selection, so every installed wallet is known to the chooser.
+      startEip6963Discovery();
       if (canAutoSelectProvider()) currentProvider();
       publishWalletReady?.();
       void refreshState();
     },
     destroy() {
+      globalObject?.removeEventListener?.(EIP6963_ANNOUNCE_EVENT, handleEip6963Announce);
       detachProviderEvents();
     },
   };
