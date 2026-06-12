@@ -340,17 +340,17 @@ test("createLiveV2QuoteCandidateProvider prunes source filters before discovery 
   assert.equal(client.calls.length, 0);
 });
 
-test("createLiveV2QuoteCandidateProvider prunes unsupported pinned pairs before block and factory reads", async () => {
-  let blockNumberReads = 0;
+test("createLiveV2QuoteCandidateProvider discovers non-pinned pairs via the factory and yields nothing when no pool exists", async () => {
+  const ZERO_ADDRESS_WORD = `0x${"0".repeat(64)}`;
   const client = {
     calls: [],
     async getBlockNumber() {
-      blockNumberReads += 1;
       return 5_200_000n;
     },
     async call({ to, data }, blockTag) {
       this.calls.push({ to, data, blockTag });
-      throw new Error("unsupported pair should not read the V2 factory");
+      // factory.getPair for a pair with no pool returns the zero address.
+      return ZERO_ADDRESS_WORD;
     },
   };
   const quoteProvider = createLiveV2QuoteCandidateProvider({
@@ -365,9 +365,13 @@ test("createLiveV2QuoteCandidateProvider prunes unsupported pinned pairs before 
     amountIn: 1_000_000n,
   });
 
+  // No pool -> no quote, but discovery WAS attempted (factory.getPair read).
   assert.deepEqual(quotes, []);
-  assert.equal(blockNumberReads, 0);
-  assert.deepEqual(client.calls, []);
+  assert.equal(
+    client.calls.some((call) => call.data.startsWith("0xe6a43905")),
+    true,
+    "expected a factory.getPair discovery read",
+  );
 });
 
 test("createLiveV2QuoteCandidateProvider keeps healthy source quotes when another source fails", async () => {

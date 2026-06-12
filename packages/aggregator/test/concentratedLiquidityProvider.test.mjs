@@ -330,20 +330,18 @@ test("concentrated-liquidity provider prunes source filters before quoter reads"
   assert.equal(blockNumberReads, 1);
 });
 
-test("concentrated-liquidity provider prunes unsupported pinned pairs before block and quoter reads", async () => {
-  let blockNumberReads = 0;
+test("concentrated-liquidity provider attempts discovery for non-pinned pairs and yields nothing when no pool exists", async () => {
   const seenSources = [];
   const provider = createVerifiedConcentratedLiquidityQuoteCandidateProvider({
     chainId: DOGEOS_CHAIN.id,
     sources: [getSource("muchfi-v3"), getSource("barkswap-algebra")],
     nowMs: () => now,
-    blockNumberProvider: async () => {
-      blockNumberReads += 1;
-      return 5_200_000n;
-    },
+    blockNumberProvider: async () => 5_200_000n,
+    // The live quoter output provider performs on-chain factory discovery;
+    // here it simulates "no pool discovered" by returning null.
     quoterOutputProvider: async ({ source }) => {
       seenSources.push(source.sourceId);
-      throw new Error("unsupported pair should not read CL quoters");
+      return null;
     },
   });
 
@@ -353,7 +351,7 @@ test("concentrated-liquidity provider prunes unsupported pinned pairs before blo
     amountIn: 1_000_000n,
   });
 
+  // No pool -> no quotes, but discovery WAS attempted for the factory venues.
   assert.deepEqual(quotes, []);
-  assert.equal(blockNumberReads, 0);
-  assert.deepEqual(seenSources, []);
+  assert.deepEqual(seenSources.sort(), ["barkswap-algebra", "muchfi-v3"]);
 });

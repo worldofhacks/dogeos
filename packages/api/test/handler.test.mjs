@@ -1606,3 +1606,32 @@ test("POST /swap normalizes exact-output quote bounds before calldata building",
   assert.equal(builderInput.amountOut, 900_000n);
   assert.equal(builderInput.maxAmountIn, 1_050_000n);
 });
+
+test("GET /token returns metadata + discovered pools for a routable token", async () => {
+  const handle = createAggregatorApiHandler({
+    tokenScanProvider: async ({ address }) => ({
+      token: { address: address.toLowerCase(), symbol: "FOO", name: "Foo", decimals: 18 },
+      pools: [{ sourceId: "muchfi-v3", protocolType: "v3", poolAddress: "0xpool", feeTier: 500, pairedWith: { symbol: "WDOGE", address: wdoge.address.toLowerCase() } }],
+      routable: true,
+      pairedWith: ["WDOGE"],
+    }),
+  });
+  const res = await handle(new Request("http://x/token?address=0x1111111111111111111111111111111111111111"));
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.token.symbol, "FOO");
+  assert.equal(body.routable, true);
+  assert.equal(body.pools.length, 1);
+});
+
+test("GET /token rejects invalid addresses and surfaces discovery failures", async () => {
+  const handle = createAggregatorApiHandler({
+    tokenScanProvider: async () => { throw new Error("Address does not expose a valid ERC-20 decimals()."); },
+  });
+  const bad = await handle(new Request("http://x/token?address=0x123"));
+  assert.equal(bad.status, 400);
+  const notToken = await handle(new Request("http://x/token?address=0x1111111111111111111111111111111111111111"));
+  const body = await notToken.json();
+  assert.equal(notToken.status, 422);
+  assert.equal(body.error.code, "token-not-discoverable");
+});

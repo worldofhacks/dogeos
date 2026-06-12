@@ -17,7 +17,7 @@ export function sourceSupportsTokenPair(source, { sellToken, buyToken } = {}) {
   const buy = normalizedAddress(buyToken);
   if (!sell || !buy) return true;
 
-  return pools.some((pool) => {
+  const pinnedMatch = pools.some((pool) => {
     const token0 = normalizedAddress(pool.token0);
     const token1 = normalizedAddress(pool.token1);
     return (
@@ -25,6 +25,13 @@ export function sourceSupportsTokenPair(source, { sellToken, buyToken } = {}) {
       (token0 === buy && token1 === sell)
     );
   });
+  if (pinnedMatch) return true;
+
+  // A venue with a factory can discover pools on-chain for ANY pair (pasted /
+  // non-official tokens). Let it through — live discovery decides whether a
+  // pool actually exists. Venues without a factory stay limited to pinned
+  // pairs.
+  return Boolean(source?.factory);
 }
 
 export function filterSourcesByTokenPair(sources, input) {

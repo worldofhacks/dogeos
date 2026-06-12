@@ -1,4 +1,5 @@
 import { listSources } from "../sources/registry.mjs";
+import { discoverConcentratedPools } from "./poolScan.mjs";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -255,10 +256,22 @@ export function createLiveConcentratedLiquidityQuoterOutputProvider({
     if (!configuredSource?.quoter || configuredSource.quoterAbiProvenance === "none") return null;
     if (!["v3", "algebra"].includes(configuredSource.protocolType)) return null;
 
-    const pools = matchingPools(configuredSource, sellToken, buyToken);
-    if (pools.length === 0) return null;
-
     const blockTag = blockTagFor(blockNumber);
+
+    // Pinned pools first (official pairs, fast). For any other pair — e.g. a
+    // pasted/discovered token — fall back to on-chain factory discovery so the
+    // pair becomes quotable without a registry edit.
+    let pools = matchingPools(configuredSource, sellToken, buyToken);
+    if (pools.length === 0) {
+      pools = await discoverConcentratedPools({
+        client,
+        source: configuredSource,
+        tokenA: sellToken,
+        tokenB: buyToken,
+        blockTag,
+      });
+    }
+    if (pools.length === 0) return null;
     const failures = [];
     const outputs = await Promise.all(
       pools.map((pool) =>

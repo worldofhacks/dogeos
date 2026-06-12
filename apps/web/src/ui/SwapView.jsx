@@ -31,6 +31,7 @@ import { useSettings } from "./useSettings.js";
 import { useQuote } from "./useQuote.js";
 import { useTokenBalances } from "./useTokenBalances.js";
 import { getTokens, getSources, DOGEOS_CHAIN_ID } from "../lib/api.js";
+import { mergeTokens, getCustomTokens, CUSTOM_TOKENS_EVENT } from "../lib/customTokens.js";
 import { chainIdMatchesDogeos } from "../lib/execute.js";
 import { decorateToken } from "../lib/tokens.js";
 import { sanitizeAmountInput, unitsToNumber, walletBalanceKey } from "../lib/units.js";
@@ -156,16 +157,24 @@ export default function SwapView({
     getTokens()
       .then((body) => {
         if (cancelled) return;
-        const list = body.data ?? body ?? [];
+        const official = body.data ?? body ?? [];
+        const list = mergeTokens(official, getCustomTokens());
         setTokens(list);
         // Sensible default pair if the documented ones aren't present.
         const has = (s) => list.some((t) => t.symbol === s);
         if (!has(paySym)) setPaySym(list[0]?.symbol ?? "");
         if (!has(getSym)) setGetSym(list[1]?.symbol ?? list[0]?.symbol ?? "");
+        // Keep the merged list live as the user imports more tokens.
+        const onCustom = () => {
+          if (!cancelled) setTokens(mergeTokens(official, getCustomTokens()));
+        };
+        window.addEventListener(CUSTOM_TOKENS_EVENT, onCustom);
+        cleanupCustom = () => window.removeEventListener(CUSTOM_TOKENS_EVENT, onCustom);
       })
       .catch(() => {
         /* leave empty; CTA + scan show their idle states */
       });
+    let cleanupCustom = () => {};
     getSources()
       .then((body) => {
         if (cancelled) return;
@@ -181,6 +190,7 @@ export default function SwapView({
       .catch(() => {});
     return () => {
       cancelled = true;
+      cleanupCustom();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

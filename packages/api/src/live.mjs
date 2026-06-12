@@ -3,6 +3,8 @@ import {
   createLiveConcentratedLiquidityQuoterOutputProvider,
 } from "../../aggregator/src/discovery/concentratedLiquidityPools.mjs";
 import { createDogeosDataFinalityFeeProvider } from "../../aggregator/src/fees/l1GasPriceOracle.mjs";
+import { createTokenMetadataReader } from "../../aggregator/src/discovery/tokenMetadata.mjs";
+import { scanVenuePools } from "../../aggregator/src/discovery/poolScan.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
 import {
@@ -279,6 +281,8 @@ export function createLiveAggregatorApiHandler({
       blockscoutBaseUrl: verificationBlockscoutBaseUrl,
     });
 
+  const readTokenMetadata = createTokenMetadataReader({ client });
+
   return createAggregatorApiHandler({
     nowMs,
     preQuoteVerifier: verifyChain,
@@ -288,6 +292,32 @@ export function createLiveAggregatorApiHandler({
     gasPriceWei: async () => client.getGasPriceWei(),
     outputWeiPerFeeWei,
     inputWeiPerFeeWei,
+    // Discover a pasted token: read metadata, then scan every venue for live
+    // pools against each official base token. `routable` = at least one live
+    // pool, so the UI can immediately enable trading the token.
+    tokenScanProvider: async ({ address }) => {
+      const token = await readTokenMetadata(address);
+      const baseTokens = OFFICIAL_DOGEOS_TOKENS.filter(
+        (base) => base.address.toLowerCase() !== token.address,
+      );
+      const scans = await Promise.all(
+        baseTokens.map((base) =>
+          scanVenuePools({ client, tokenA: token.address, tokenB: base.address }).then((pools) =>
+            pools.map((pool) => ({
+              ...pool,
+              pairedWith: { symbol: base.symbol, address: base.address.toLowerCase() },
+            })),
+          ),
+        ),
+      );
+      const pools = scans.flat();
+      return {
+        token,
+        pools,
+        routable: pools.length > 0,
+        pairedWith: [...new Set(pools.map((pool) => pool.pairedWith.symbol))],
+      };
+    },
     chainStatusProvider:
       createLiveChainStatusProvider({
         client,

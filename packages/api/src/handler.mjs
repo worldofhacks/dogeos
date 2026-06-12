@@ -465,6 +465,7 @@ export function createAggregatorApiHandler({
   // When unset, splits fall back to the generic optimizer refresh.
   splitQuoteRefresher,
   activityProvider = fetchBlockscoutAddressTransactions,
+  tokenScanProvider,
   chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
     throw new Error("No calldata builder configured.");
@@ -549,6 +550,27 @@ export function createAggregatorApiHandler({
         chainId: DOGEOS_CHAIN.id,
         data: OFFICIAL_DOGEOS_TOKENS,
       });
+    }
+
+    // Discover a pasted/arbitrary token: read its ERC-20 metadata and scan
+    // every venue for live pools against the base tokens. Lets users trade
+    // any token with on-chain liquidity without a registry edit.
+    if (request.method === "GET" && url.pathname === "/token") {
+      const address = url.searchParams.get("address") ?? "";
+      if (!isHexAddress(address)) {
+        return errorResponse(400, "invalid-token-request", "A valid 20-byte token address is required.");
+      }
+      if (!tokenScanProvider) {
+        return errorResponse(503, "token-scan-unavailable", "Token discovery is not configured.");
+      }
+      try {
+        const result = await tokenScanProvider({ address });
+        return jsonResponse({ chainId: DOGEOS_CHAIN.id, ...result });
+      } catch (error) {
+        // Surface the validation reason to the UI (not-a-token / no-decimals);
+        // these are user-actionable, not internal infra leaks.
+        return errorResponse(422, "token-not-discoverable", error.message);
+      }
     }
 
     if (request.method === "GET" && url.pathname === "/chain-status") {

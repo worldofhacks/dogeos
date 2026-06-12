@@ -3,12 +3,16 @@
 // TokenPicker). Honesty: no USD price, no 7d change, no sparkline (no price
 // feed) — we show the user's REAL wallet balance per token instead. Verified
 // badge comes from the documented token provenance.
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { useTheme } from "./theme.js";
 import { Label, TokenIcon, useIsMobile, compact } from "./primitives.jsx";
 import { decorateToken, filterTokens, compactAddress } from "../lib/tokens.js";
 import { unitsToNumber, walletBalanceKey } from "../lib/units.js";
+import { scanToken } from "../lib/api.js";
+import { addCustomToken } from "../lib/customTokens.js";
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 function Modal({ children, onClose, width = 420 }) {
   const th = useTheme();
@@ -222,12 +226,51 @@ function TokenRow({ token, onClick, disabled, balances, owner }) {
   );
 }
 
-export default function TokenPicker({ tokens, excludeSymbol, onPick, onClose, balances = {}, owner = "" }) {
+export default function TokenPicker({ tokens, excludeSymbol, onPick, onImport, onClose, balances = {}, owner = "" }) {
   const th = useTheme();
   const [q, setQ] = useState("");
   const list = filterTokens(tokens, q);
   const quickSyms = ["DOGE", "USDC", "WDOGE", "WETH", "LBTC"];
   const quick = quickSyms.map((s) => tokens.find((t) => t.symbol === s)).filter(Boolean);
+
+  // Paste-to-import: when the query is a contract address not already in the
+  // list, scan it on-chain (metadata + pools across every venue) and offer it.
+  const trimmed = q.trim();
+  const isAddress = ADDRESS_RE.test(trimmed);
+  const known = isAddress
+    ? tokens.some((t) => String(t.address).toLowerCase() === trimmed.toLowerCase())
+    : false;
+  const [scan, setScan] = useState({ status: "idle", token: null, pools: [], error: "" });
+
+  useEffect(() => {
+    if (!isAddress || known) {
+      setScan({ status: "idle", token: null, pools: [], error: "" });
+      return undefined;
+    }
+    let cancelled = false;
+    setScan({ status: "loading", token: null, pools: [], error: "" });
+    scanToken(trimmed)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.routable) {
+          setScan({ status: "error", token: res.token, pools: [], error: "No liquidity pools found on any venue." });
+        } else {
+          setScan({ status: "found", token: res.token, pools: res.pools ?? [], error: "" });
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setScan({ status: "error", token: null, pools: [], error: err?.message || "Not a valid token." });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trimmed, isAddress, known]);
+
+  const importToken = (token, pools) => {
+    addCustomToken(token);
+    onImport?.(token, pools);
+    onPick({ ...token, custom: true });
+  };
 
   return (
     <Modal onClose={onClose}>
@@ -306,7 +349,60 @@ export default function TokenPicker({ tokens, excludeSymbol, onPick, onClose, ba
             owner={owner}
           />
         ))}
-        {list.length === 0 && (
+        {/* Paste-an-address import flow */}
+        {isAddress && !known && (
+          <div style={{ padding: "14px 18px" }}>
+            {scan.status === "loading" && <Label>scanning venues for pools…</Label>}
+            {scan.status === "error" && (
+              <Label color={th.chartDown}>
+                {scan.token ? `${scan.token.symbol}: ` : ""}{scan.error}
+              </Label>
+            )}
+            {scan.status === "found" && (
+              <button
+                className="tap"
+                onClick={() => importToken(scan.token, scan.pools)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 11,
+                  padding: "11px 12px",
+                  borderRadius: 12,
+                  border: `1px solid ${th.accent}`,
+                  background: th.panelHi,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <TokenIcon token={decorateToken(scan.token)} size={30} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: th.ink }}>
+                    {scan.token.symbol}{" "}
+                    <span style={{ color: th.mute, fontWeight: 400, fontSize: 12 }}>{scan.token.name}</span>
+                  </div>
+                  <span className="te-num" style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: th.mute }}>
+                    {compactAddress(scan.token.address)} ·{" "}
+                    {new Set(scan.pools.map((p) => p.sourceId)).size} venue
+                    {new Set(scan.pools.map((p) => p.sourceId)).size === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontFamily: "'Space Grotesk',sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    color: th.accent,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  import
+                </span>
+              </button>
+            )}
+          </div>
+        )}
+        {list.length === 0 && !(isAddress && !known) && (
           <div style={{ padding: 30, textAlign: "center" }}>
             <Label>no tokens match “{q}”</Label>
           </div>

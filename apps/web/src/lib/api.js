@@ -43,6 +43,13 @@ export function getTokens() {
   return fetchJson("/tokens");
 }
 
+// Discover a pasted token: ERC-20 metadata + live pools across every venue.
+// Returns { token, pools, routable, pairedWith }. Throws on a non-token / no
+// pools, with the server's user-actionable message.
+export function scanToken(address) {
+  return fetchJson(`/token?address=${encodeURIComponent(address)}`);
+}
+
 export function getSources() {
   return fetchJson("/sources");
 }
