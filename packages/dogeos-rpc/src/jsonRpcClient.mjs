@@ -198,5 +198,9 @@ export function createJsonRpcClient({ rpcUrl, fetchFn = fetch } = {}) {
         "eth_estimateGas",
       );
     },
+    async getLogs(filter = {}) {
+      const result = await request("eth_getLogs", [filter]);
+      return Array.isArray(result) ? result : [];
+    },
   };
 }
