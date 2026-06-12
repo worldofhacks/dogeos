@@ -22,6 +22,7 @@ export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 export const CONTRACT_BALANCE = (1n << 256n) - 1n;
 
 export const ROUTER_COMMANDS = Object.freeze({
+  PERMIT2_PERMIT: 0x00,
   PERMIT2_TRANSFER_FROM: 0x01,
   V2_SWAP: 0x02,
   V3_SWAP: 0x03,
@@ -74,6 +75,30 @@ function encodeBytesTail(hexBytes) {
 
 export function encodePermit2TransferFromInput({ token, amount }) {
   return `${encodeAddress(token, "token")}${encodeUint(positiveUint(amount, "amount"), "amount")}`;
+}
+
+// abi.encode(IAllowanceTransfer.PermitSingle, bytes signature) for the
+// PERMIT2_PERMIT command — the in-transaction EIP-712 permit that replaces a
+// second on-chain approval. PermitSingle is fully static (6 words):
+// ((token, amount uint160, expiration uint48, nonce uint48), spender,
+// sigDeadline), followed by the dynamic signature.
+// Layout verified against `cast abi-encode`.
+export function encodePermit2PermitInput({ permitSingle, signature }) {
+  const details = permitSingle?.details ?? {};
+  const signatureHex = String(signature ?? "").toLowerCase();
+  if (!/^0x([0-9a-f]{2})+$/.test(signatureHex)) {
+    throw new Error("permit2 signature must be hex bytes.");
+  }
+  return (
+    encodeAddress(details.token, "permit.details.token") +
+    encodeUint(positiveUint(details.amount, "permit.details.amount"), "permit.details.amount") +
+    encodeUint(details.expiration, "permit.details.expiration") +
+    encodeUint(details.nonce ?? 0n, "permit.details.nonce") +
+    encodeAddress(permitSingle.spender, "permit.spender") +
+    encodeUint(permitSingle.sigDeadline, "permit.sigDeadline") +
+    encodeUint(7n * WORD, "signature offset") +
+    encodeBytesTail(signatureHex.slice(2))
+  );
 }
 
 export function encodeV2SwapInput({ amountIn, minOut, path }) {
@@ -219,8 +244,24 @@ export function buildDogeSwapSplitCalldata(source, quote) {
   const sellToken = normalizeAddress(quote.sellToken, "sellToken");
   const buyToken = normalizeAddress(quote.buyToken, "buyToken");
 
-  const commands = [ROUTER_COMMANDS.PERMIT2_TRANSFER_FROM];
-  const inputs = [encodePermit2TransferFromInput({ token: sellToken, amount: totalAmountIn })];
+  const commands = [];
+  const inputs = [];
+
+  // Single-approval flow: the client attaches a signed Permit2 PermitSingle
+  // (gasless eth_signTypedData_v4) so the router grants itself the Permit2
+  // allowance inside THIS transaction — no second on-chain approval needed.
+  if (quote.permit2Permit?.signature) {
+    commands.push(ROUTER_COMMANDS.PERMIT2_PERMIT);
+    inputs.push(
+      encodePermit2PermitInput({
+        permitSingle: quote.permit2Permit.permitSingle,
+        signature: quote.permit2Permit.signature,
+      }),
+    );
+  }
+
+  commands.push(ROUTER_COMMANDS.PERMIT2_TRANSFER_FROM);
+  inputs.push(encodePermit2TransferFromInput({ token: sellToken, amount: totalAmountIn }));
 
   let spent = 0n;
   legs.forEach((leg, index) => {

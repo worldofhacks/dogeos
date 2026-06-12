@@ -149,9 +149,9 @@ Record the four addresses the script logs:
 | Contract | Address | Notes |
 |----------|---------|-------|
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | canonical (deterministic) |
-| TimelockController | `__________` | proposer/executor/admin = ROUTER_SAFE |
-| DogeSwapRouter | `__________` | pending owner = timelock; feeBps=0; capped |
-| DogeSwapRegistry | `__________` | pending owner = ROUTER_SAFE |
+| TimelockController | `0xf3410B762Db55aA3CBAfaa5707899b3d3A7F1773` | proposer/executor/admin = ROUTER_SAFE |
+| DogeSwapRouter | `0xa3158549f38400F355aDf20C92DA1769620Aa35A` | pending owner = timelock; feeBps=0; capped |
+| DogeSwapRegistry | `0xC596081d427E8296e089eDD59a62E73Da3191215` | pending owner = ROUTER_SAFE |
 
 ---
 

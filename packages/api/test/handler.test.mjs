@@ -1423,6 +1423,33 @@ test("POST /swap refresh clamps the on-chain floor to the accepted minAmountOut"
   assert.equal(body.transaction.routeBinding.minAmountOut, "1000000");
 });
 
+test("POST /swap carries the client's signed Permit2 permit through the refresh", async () => {
+  let builderInput;
+  const handle = exactInputRefreshHandle({
+    refreshedAmountOut: 1_060_000n,
+    onBuild: (quote) => {
+      builderInput = quote;
+    },
+  });
+
+  const permit2Permit = {
+    permitSingle: {
+      details: { token: usdc.address, amount: "1000000", expiration: "1790000000", nonce: "0" },
+      spender: "0xa3158549f38400F355aDf20C92DA1769620Aa35A",
+      sigDeadline: "1780002100",
+    },
+    signature: `0x${"ab".repeat(65)}`,
+  };
+  const request = exactInputSwapRequest();
+  const body = JSON.parse(await request.clone().text());
+  body.quote.permit2Permit = permit2Permit;
+
+  const response = await handle(jsonRequest("/swap", body));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(builderInput.permit2Permit, permit2Permit);
+});
+
 test("POST /swap fails closed when the refreshed route drops below the accepted minAmountOut", async () => {
   // The fresh route returns less than the minimum the user accepted — the
   // classic stale-quote loss. The API must demand a re-quote, never silently

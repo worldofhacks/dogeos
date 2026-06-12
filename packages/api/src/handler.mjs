@@ -301,6 +301,9 @@ function quoteWithSwapExecutionFields(refreshedQuote, originalQuote) {
     recipient: originalQuote.recipient,
     deadline: originalQuote.deadline,
     sender: originalQuote.sender,
+    // Execution context the refresh cannot regenerate: the client's signed
+    // Permit2 permit (split routes' single-approval flow).
+    ...(originalQuote.permit2Permit ? { permit2Permit: originalQuote.permit2Permit } : {}),
   };
 }
 

@@ -285,6 +285,55 @@ export function isNativeSell(sellToken) {
   );
 }
 
+/* ---------- Permit2 in-swap authorization (split routes) ---------- */
+// Preferred: sign the backend-provided EIP-712 PermitSingle (gasless) and let
+// the router apply it inside the swap transaction. Fallback for wallets
+// without eth_signTypedData_v4: send the on-chain Permit2.approve instead
+// (the classic second approval). User rejection aborts — it is a consent step.
+async function obtainPermit2Authorization({ permit, sender, sellToken, report, signal }) {
+  const provider = await ensureWalletReadyForDogeos(sender, {
+    missingProviderMessage: "Connect an EVM wallet before approving.",
+  });
+
+  try {
+    report({ phase: "permit-sign", symbol: sellToken?.symbol });
+    const signature = await provider.request({
+      method: "eth_signTypedData_v4",
+      params: [sender, JSON.stringify(permit.typedData)],
+    });
+    const message = permit.typedData.message;
+    return {
+      permitSingle: {
+        details: message.details,
+        spender: message.spender,
+        sigDeadline: message.sigDeadline,
+      },
+      signature,
+    };
+  } catch (error) {
+    const message = String(error?.message ?? "");
+    const unsupported =
+      error?.code === -32601 || /not (supported|found|implemented)|does not exist|unsupported method/i.test(message);
+    if (!unsupported) {
+      // User rejected (or a real failure) — surface it, don't silently degrade.
+      throw new Error(transactionErrorMessage(error));
+    }
+  }
+
+  // Typed-data signing unavailable: classic on-chain Permit2 approval.
+  if (permit.fallbackTransaction) {
+    report({ phase: "approve-sign", symbol: sellToken?.symbol });
+    const hash = await sendWalletTransaction(permit.fallbackTransaction, sender, {
+      providerMessage: "Switching wallet to DogeOS Chikyū for approval",
+      missingProviderMessage: "Connect an EVM wallet before approving.",
+    });
+    report({ phase: "approve-pending", symbol: sellToken?.symbol, hash });
+    await waitForTransactionReceipt(hash, { label: "Approval", signal });
+    report({ phase: "approve-done", symbol: sellToken?.symbol, hash });
+  }
+  return null;
+}
+
 /* ---------- the full lifecycle ---------- */
 // Drives review→approval→swap→receipt. `report` receives lifecycle phase
 // updates so the UI can render the right sub-step. Returns { txHash, receipt }.
@@ -312,9 +361,10 @@ export async function executeSwap({
     const approval = await postApproval({ quote, sender });
     quote = approval.quote ? mergeExecutionQuote(quote, approval.quote) : quote;
 
-    // Split routes pull through Permit2, so the plan may carry TWO sequential
-    // prerequisite transactions (ERC20→Permit2, then Permit2→router); direct
-    // venue routes keep the single classic approve.
+    // Split routes pull through Permit2: at most ONE on-chain approval
+    // (ERC20→Permit2, max, once per token ever) plus a gasless EIP-712
+    // PermitSingle signature executed in-swap. Direct venue routes keep the
+    // single classic exact-amount approve.
     const approvalTransactions =
       Array.isArray(approval.transactions) && approval.transactions.length > 0
         ? approval.transactions
@@ -332,6 +382,19 @@ export async function executeSwap({
         report({ phase: "approve-pending", symbol: sellToken?.symbol, hash: approvalHash });
         await waitForTransactionReceipt(approvalHash, { label: "Approval", signal });
         report({ phase: "approve-done", symbol: sellToken?.symbol, hash: approvalHash });
+      }
+    }
+
+    if (approval.permit?.required) {
+      const permitted = await obtainPermit2Authorization({
+        permit: approval.permit,
+        sender,
+        sellToken,
+        report,
+        signal,
+      });
+      if (permitted) {
+        quote = { ...quote, permit2Permit: permitted };
       }
     }
   }

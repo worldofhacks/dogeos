@@ -357,6 +357,7 @@ export default function SwapFlow({
     if (exec.status === "approving") {
       if (exec.phase === "approve-check") return "checking allowance…";
       if (exec.phase === "approve-sign") return `approve ${pay?.symbol ?? "token"} in your wallet…`;
+      if (exec.phase === "permit-sign") return `sign the ${pay?.symbol ?? "token"} permit in your wallet (gasless)…`;
       return `approving ${pay?.symbol ?? "token"} on DogeOS…`;
     }
     if (exec.phase === "swap-build") return "building swap transaction…";

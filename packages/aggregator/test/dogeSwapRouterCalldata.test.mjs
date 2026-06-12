@@ -7,6 +7,7 @@ import {
   ROUTER_COMMANDS,
   buildDogeSwapSplitCalldata,
   encodeDogeSwapRouterExecute,
+  encodePermit2PermitInput,
   encodePermit2TransferFromInput,
   encodeV2SwapInput,
   encodeV3SwapInput,
@@ -83,6 +84,72 @@ test("buildDogeSwapSplitCalldata pulls the total once and spends the last leg vi
   assert.ok(calldata.includes((60n * 10n ** 18n).toString(16).padStart(64, "0")));
   // …and the last leg spends CONTRACT_BALANCE so no dust is stranded.
   assert.ok(calldata.includes(CONTRACT_BALANCE.toString(16).padStart(64, "0")));
+});
+
+test("encodePermit2PermitInput matches cast abi-encode((PermitSingle),(bytes))", () => {
+  // Ground truth: cast abi-encode 'f(((address,uint160,uint48,uint48),address,uint256),bytes)'
+  //   '((USDC,1e18,1790000000,7),0xa3158549f38400F355aDf20C92DA1769620Aa35A,1780002100)' 0x1b2c3d4e5f
+  const expected =
+    "000000000000000000000000d19d2ffb1c284668b7afe72cddae1baf3bc03925" +
+    "0000000000000000000000000000000000000000000000000de0b6b3a7640000" +
+    "000000000000000000000000000000000000000000000000000000006ab13b80" +
+    "0000000000000000000000000000000000000000000000000000000000000007" +
+    "000000000000000000000000a3158549f38400f355adf20c92da1769620aa35a" +
+    "000000000000000000000000000000000000000000000000000000006a18ad34" +
+    "00000000000000000000000000000000000000000000000000000000000000e0" +
+    "0000000000000000000000000000000000000000000000000000000000000005" +
+    "1b2c3d4e5f000000000000000000000000000000000000000000000000000000";
+
+  const encoded = encodePermit2PermitInput({
+    permitSingle: {
+      details: { token: usdc, amount: 10n ** 18n, expiration: 1_790_000_000n, nonce: 7n },
+      spender: "0xa3158549f38400F355aDf20C92DA1769620Aa35A",
+      sigDeadline: 1_780_002_100n,
+    },
+    signature: "0x1b2c3d4e5f",
+  });
+
+  assert.equal(encoded, expected);
+});
+
+test("buildDogeSwapSplitCalldata prepends PERMIT2_PERMIT when a signed permit is attached", () => {
+  const base = {
+    sourceId: "dogeswap-split",
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn: 10n ** 18n,
+    minAmountOut: 1n,
+    recipient,
+    deadline: 1_780_000_300n,
+    legs: [
+      { protocolType: "v3", amountIn: 6n * 10n ** 17n, feeTier: 500n },
+      { protocolType: "v2", amountIn: 4n * 10n ** 17n },
+    ],
+  };
+  const withoutPermit = buildDogeSwapSplitCalldata({}, base);
+  const withPermit = buildDogeSwapSplitCalldata(
+    {},
+    {
+      ...base,
+      permit2Permit: {
+        permitSingle: {
+          details: { token: usdc, amount: "1000000000000000000", expiration: "1790000000", nonce: "0" },
+          spender: "0xa3158549f38400F355aDf20C92DA1769620Aa35A",
+          sigDeadline: "1780002100",
+        },
+        signature: `0x${"ab".repeat(65)}`,
+      },
+    },
+  );
+
+  // commands bytes live right after the 6-word head + length word
+  const commandsOf = (calldata) => {
+    const words = calldata.slice(10).match(/.{64}/g);
+    const length = Number(BigInt(`0x${words[6]}`));
+    return words[7].slice(0, length * 2);
+  };
+  assert.equal(commandsOf(withoutPermit), "010302"); // pull, v3, v2
+  assert.equal(commandsOf(withPermit), "00010302"); // permit, pull, v3, v2
 });
 
 test("buildDogeSwapSplitCalldata rejects legs that overspend the declared total", () => {

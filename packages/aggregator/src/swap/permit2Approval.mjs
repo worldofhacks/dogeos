@@ -1,17 +1,20 @@
-// permit2Approval.mjs — approval planning for DogeSwapRouter split swaps.
+// permit2Approval.mjs — single-approval planning for DogeSwapRouter split swaps.
 //
-// The router pulls input EXCLUSIVELY through canonical Permit2
-// AllowanceTransfer (it is never approved directly), so a split swap needs up
-// to TWO one-time prerequisite transactions:
-//   1. ERC20.approve(Permit2, amount)                        (token -> Permit2)
-//   2. Permit2.approve(token, router, uint160 amount, uint48 expiration)
-// Signature-based PERMIT2_PERMIT is deliberately not used: the app's wallet
-// bridges have no verified eth_signTypedData_v4 path (see useWallet.js NOTE).
+// The router pulls input EXCLUSIVELY through canonical Permit2 (it is never
+// approved directly). The user experience is ONE on-chain approval per token,
+// ever:
+//   1. ERC20.approve(Permit2, MAX)  — the single approval transaction
+//   2. a gasless EIP-712 PermitSingle signature per allowance window, executed
+//      in-swap via the router's PERMIT2_PERMIT command (no second tx)
 //
-// The plan keeps the repo's exact-amount approval discipline and returns a
-// `transactions` array; `transaction` mirrors the first pending step for
-// backward compatibility with single-step consumers.
+// The MAX approval to canonical Permit2 deviates from the repo's exact-amount
+// discipline deliberately and safely: Permit2 is the immutable, audited
+// allowance manager — actual spend authority is the SIGNED permit, which stays
+// exact-amount, per-spender, and expiring. This is the industry-standard
+// Permit2 model. For wallets that cannot sign typed data, the plan carries an
+// on-chain fallback (Permit2.approve), restoring the old two-transaction flow.
 
+import { DOGEOS_CHAIN } from "../../../config/src/chains.mjs";
 import { PERMIT2_ADDRESS } from "./dogeSwapRouterCalldata.mjs";
 import {
   buildErc20ApproveCalldata,
@@ -23,7 +26,9 @@ export const PERMIT2_APPROVE_SELECTOR = "0x87517c45"; // approve(address,address
 
 const UINT48_MAX = (1n << 48n) - 1n;
 const UINT160_MAX = (1n << 160n) - 1n;
-const DEFAULT_PERMIT2_EXPIRATION_SECONDS = 30n * 24n * 60n * 60n; // 30 days
+const UINT256_MAX = (1n << 256n) - 1n;
+const DEFAULT_PERMIT_EXPIRATION_SECONDS = 30n * 24n * 60n * 60n; // 30 days
+const DEFAULT_SIG_DEADLINE_SECONDS = 30n * 60n; // 30 minutes to sign + land
 
 function normalizeAddress(value, fieldName) {
   const normalized = String(value ?? "").toLowerCase();
@@ -71,12 +76,64 @@ export function buildPermit2ApproveCalldata({ token, spender, amount, expiration
   return `${PERMIT2_APPROVE_SELECTOR}${encodeAddress(token, "token")}${encodeAddress(spender, "spender")}${encodeUint(normalizedAmount, "amount")}${encodeUint(normalizedExpiration, "expiration")}`;
 }
 
+// Full eth_signTypedData_v4 payload for a Permit2 PermitSingle. Permit2's
+// EIP-712 domain is (name, chainId, verifyingContract) — no version field.
+export function buildPermit2TypedData({
+  token,
+  spender,
+  amount,
+  expiration,
+  nonce,
+  sigDeadline,
+  chainId = DOGEOS_CHAIN.id,
+  permit2 = PERMIT2_ADDRESS,
+}) {
+  return {
+    domain: {
+      name: "Permit2",
+      chainId,
+      verifyingContract: normalizeAddress(permit2, "permit2"),
+    },
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      PermitSingle: [
+        { name: "details", type: "PermitDetails" },
+        { name: "spender", type: "address" },
+        { name: "sigDeadline", type: "uint256" },
+      ],
+      PermitDetails: [
+        { name: "token", type: "address" },
+        { name: "amount", type: "uint160" },
+        { name: "expiration", type: "uint48" },
+        { name: "nonce", type: "uint48" },
+      ],
+    },
+    primaryType: "PermitSingle",
+    message: {
+      details: {
+        token: normalizeAddress(token, "token"),
+        amount: BigInt(amount).toString(),
+        expiration: BigInt(expiration).toString(),
+        nonce: BigInt(nonce).toString(),
+      },
+      spender: normalizeAddress(spender, "spender"),
+      sigDeadline: BigInt(sigDeadline).toString(),
+    },
+  };
+}
+
 export function createPermit2ApprovalPlanner({
   client,
   permit2 = PERMIT2_ADDRESS,
   blockTag = "latest",
   nowSeconds = () => Math.floor(Date.now() / 1_000),
-  expirationSeconds = DEFAULT_PERMIT2_EXPIRATION_SECONDS,
+  expirationSeconds = DEFAULT_PERMIT_EXPIRATION_SECONDS,
+  sigDeadlineSeconds = DEFAULT_SIG_DEADLINE_SECONDS,
+  chainId = DOGEOS_CHAIN.id,
 } = {}) {
   if (!client?.call) {
     throw new Error("Permit2 approval planning requires an RPC call client.");
@@ -105,6 +162,7 @@ export function createPermit2ApprovalPlanner({
     const erc20Allowance = decodeWord(erc20AllowanceResult, 0, "ERC-20 allowance result");
     const permit2Amount = decodeWord(permit2AllowanceResult, 0, "Permit2 allowance result");
     const permit2Expiration = decodeWord(permit2AllowanceResult, 1, "Permit2 allowance result");
+    const permit2Nonce = decodeWord(permit2AllowanceResult, 2, "Permit2 allowance result");
 
     const now = BigInt(nowSeconds());
     const transactions = [];
@@ -113,24 +171,16 @@ export function createPermit2ApprovalPlanner({
       transactions.push({
         step: "erc20-approve-permit2",
         to: tokenAddress,
-        data: buildErc20ApproveCalldata({ spender: permit2Address, amount: normalizedAmount }),
+        data: buildErc20ApproveCalldata({ spender: permit2Address, amount: UINT256_MAX }),
         value: 0n,
       });
     }
 
-    if (permit2Amount < normalizedAmount || permit2Expiration <= now) {
-      transactions.push({
-        step: "permit2-approve-router",
-        to: permit2Address,
-        data: buildPermit2ApproveCalldata({
-          token: tokenAddress,
-          spender: routerAddress,
-          amount: normalizedAmount,
-          expiration: now + BigInt(expirationSeconds),
-        }),
-        value: 0n,
-      });
-    }
+    // A signature (or fallback tx) is only needed when the Permit2-internal
+    // allowance can't already cover this swap.
+    const permitRequired = permit2Amount < normalizedAmount || permit2Expiration <= now;
+    const expiration = now + BigInt(expirationSeconds);
+    const sigDeadline = now + BigInt(sigDeadlineSeconds);
 
     return {
       approvalRequired: transactions.length > 0,
@@ -139,7 +189,36 @@ export function createPermit2ApprovalPlanner({
         address: permit2Address,
         amount: permit2Amount,
         expiration: permit2Expiration,
+        nonce: permit2Nonce,
       },
+      permit: permitRequired
+        ? {
+            required: true,
+            typedData: buildPermit2TypedData({
+              token: tokenAddress,
+              spender: routerAddress,
+              amount: normalizedAmount,
+              expiration,
+              nonce: permit2Nonce,
+              sigDeadline,
+              chainId,
+              permit2: permit2Address,
+            }),
+            // For wallets without eth_signTypedData_v4: the classic second
+            // on-chain approval (exact amount, expiring).
+            fallbackTransaction: {
+              step: "permit2-approve-router",
+              to: permit2Address,
+              data: buildPermit2ApproveCalldata({
+                token: tokenAddress,
+                spender: routerAddress,
+                amount: normalizedAmount,
+                expiration,
+              }),
+              value: 0n,
+            },
+          }
+        : { required: false },
       ...(transactions.length > 0
         ? { transactions, transaction: transactions[0] }
         : {}),
