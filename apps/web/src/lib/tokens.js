@@ -51,6 +51,7 @@ export function decorateToken(token) {
     color: tokenColor(token),
     glyph: tokenGlyph(token),
     verified: tokenVerified(token),
+    logo: token.logo ?? token.iconUrl ?? token.icon_url ?? null,
   };
 }
 

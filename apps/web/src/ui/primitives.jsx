@@ -77,6 +77,32 @@ export function Label({ children, color, style }) {
 // circular token glyph chip
 export function TokenIcon({ token, size = 26 }) {
   const t = token || {};
+  const logo = t.logo || t.iconUrl || t.icon_url || null;
+  const [imgOk, setImgOk] = useState(Boolean(logo));
+  // Re-attempt the image when the token's logo changes.
+  useEffect(() => {
+    setImgOk(Boolean(logo));
+  }, [logo]);
+
+  if (logo && imgOk) {
+    return (
+      <img
+        src={logo}
+        alt={t.sym || t.symbol || ""}
+        onError={() => setImgOk(false)}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          objectFit: "cover",
+          flexShrink: 0,
+          background: t.color || "#888",
+          boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.25)",
+        }}
+      />
+    );
+  }
+
   return (
     <span
       style={{

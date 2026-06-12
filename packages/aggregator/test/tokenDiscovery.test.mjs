@@ -203,9 +203,9 @@ test("trending provider drops clone-spam, debt artifacts, and officials; flags t
   assert.equal(symbols.includes("ZEX"), false, "clone spam dropped");
   assert.equal(symbols.includes("variableDebtUSDT"), false, "debt artifact dropped");
   assert.equal(symbols.includes("USDC"), false, "official dropped");
-  assert.equal(symbols.includes("FOO"), true);
-  assert.equal(symbols.includes("BAR"), true);
-  assert.equal(trending.every((t) => t.verified === false), true);
+  assert.equal(symbols.includes("FOO"), true, "tradeable token kept");
+  assert.equal(symbols.includes("BAR"), false, "non-tradeable token excluded");
+  assert.equal(trending.every((t) => t.verified === false && t.tradeable === true), true);
   void fooAddress;
 });
 

@@ -44,6 +44,7 @@ export function addCustomToken(token) {
     decimals: Number(token.decimals ?? 18),
     custom: true,
     provenance: token.provenance ?? "discovered-onchain",
+    ...(token.logo || token.iconUrl ? { iconUrl: token.logo ?? token.iconUrl } : {}),
   };
   const list = read().filter((t) => String(t.address).toLowerCase() !== address);
   list.push(entry);

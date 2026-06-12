@@ -284,6 +284,19 @@ export function createLiveAggregatorApiHandler({
 
   const readTokenMetadata = createTokenMetadataReader({ client });
 
+  // Best-effort token logo from the explorer (null on testnet for most
+  // tokens; populated on mainnet). Never blocks discovery.
+  const fetchTokenIcon = async (tokenAddress) => {
+    try {
+      const res = await fetchFn(`${DOGEOS_CHAIN.blockscoutBaseUrl}/api/v2/tokens/${tokenAddress}`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      return body.icon_url || null;
+    } catch {
+      return null;
+    }
+  };
+
   return createAggregatorApiHandler({
     nowMs,
     preQuoteVerifier: verifyChain,
@@ -297,7 +310,11 @@ export function createLiveAggregatorApiHandler({
     // pools against each official base token. `routable` = at least one live
     // pool, so the UI can immediately enable trading the token.
     tokenScanProvider: async ({ address }) => {
-      const token = await readTokenMetadata(address);
+      const [token, iconUrl] = await Promise.all([
+        readTokenMetadata(address),
+        fetchTokenIcon(address.toLowerCase()),
+      ]);
+      if (iconUrl) token.iconUrl = iconUrl;
       const baseTokens = OFFICIAL_DOGEOS_TOKENS.filter(
         (base) => base.address.toLowerCase() !== token.address,
       );

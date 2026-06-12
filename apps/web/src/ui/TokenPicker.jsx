@@ -292,7 +292,7 @@ export default function TokenPicker({ tokens, excludeSymbol, onPick, onImport, o
     : [];
   const pickTrending = (t) =>
     importToken(
-      { address: t.address, symbol: t.symbol, name: t.name, decimals: t.decimals },
+      { address: t.address, symbol: t.symbol, name: t.name, decimals: t.decimals, iconUrl: t.iconUrl },
       [],
     );
 
@@ -469,7 +469,7 @@ export default function TokenPicker({ tokens, excludeSymbol, onPick, onImport, o
                   textAlign: "left",
                 }}
               >
-                <TokenIcon token={decorateToken({ symbol: t.symbol, address: t.address })} size={28} />
+                <TokenIcon token={decorateToken({ symbol: t.symbol, address: t.address, iconUrl: t.iconUrl })} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, color: th.ink, display: "flex", alignItems: "center", gap: 7 }}>
                     {t.symbol}

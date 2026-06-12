@@ -78,6 +78,7 @@ export function createTrendingTokensProvider({
       const name = String(item.name ?? "").trim();
       const decimals = decimalsOf(item);
       const holders = Number(item.holders_count ?? item.holders ?? 0);
+      const iconUrl = item.icon_url || null;
 
       if (!address || !symbol || decimals === null) continue;
       if (officialSet.has(address)) continue;
@@ -86,7 +87,7 @@ export function createTrendingTokensProvider({
 
       const existing = bySymbol.get(symbol.toLowerCase());
       if (!existing || holders > existing.holders) {
-        bySymbol.set(symbol.toLowerCase(), { address, symbol, name: name || symbol, decimals, holders });
+        bySymbol.set(symbol.toLowerCase(), { address, symbol, name: name || symbol, decimals, holders, iconUrl });
       }
     }
 
@@ -121,6 +122,7 @@ export function createTrendingTokensProvider({
           name: candidate.name,
           decimals: candidate.decimals,
           holders: candidate.holders,
+          iconUrl: candidate.iconUrl,
           verified: false,
           trending: true,
           tradeable: venues.length > 0,
@@ -129,8 +131,12 @@ export function createTrendingTokensProvider({
       }),
     );
 
+    // Only surface tokens that are actually tradeable on our venues — a
+    // popular token with no pool here is not useful (and can't be a scam we
+    // accidentally route into). Rank by holders.
     return enriched
-      .sort((a, b) => Number(b.tradeable) - Number(a.tradeable) || b.holders - a.holders)
+      .filter((token) => token.tradeable)
+      .sort((a, b) => b.holders - a.holders)
       .slice(0, limit);
   }
 
