@@ -516,15 +516,20 @@ export default function SwapView({
           >
             <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
               <Label>you receive</Label>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
+              {/* Fixed height so the box NEVER resizes when the scan swaps the
+                  skeleton for a value (or re-scans on each poll). The number's
+                  line-height matches the row height to keep the baseline stable
+                  regardless of value length. */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 7, minWidth: 0, height: 40 }}>
                 {scanning ? (
-                  <Skeleton w={140} h={26} r={6} />
+                  <Skeleton w={140} h={26} r={6} style={{ alignSelf: "center" }} />
                 ) : (
                   <span
                     style={{
                       fontFamily: "'DM Mono',monospace",
                       fontVariantNumeric: "tabular-nums",
                       fontSize: 30,
+                      lineHeight: "40px",
                       fontWeight: 500,
                       color: th.ink,
                       letterSpacing: "-0.02em",
@@ -1063,7 +1068,7 @@ export default function SwapView({
             v={
               hasResult
                 ? (() => {
-                    const fee = networkFeeDoge(best);
+                    const fee = networkFeeDoge(best, 6, settings.gas);
                     const gas = routeGasUnits(best);
                     if (fee == null) return "—";
                     return `${gas ? `${gas} gas · ` : ""}~${fee} Ð`;

@@ -110,13 +110,19 @@ export function bestVsNextPercent(quote, buyToken) {
 
 /* ---------- network fee (REAL, derived from the quote) ---------- */
 // The backend already computes feeEstimate.totalFeeWei = gasUnits * gasPrice +
-// DogeOS data/finality fee. We surface that as DOGE (18 decimals). Returns null
-// when the route didn't include a fee estimate (UI shows "—").
-export function networkFeeDoge(route, precision = 6) {
+// DogeOS data/finality fee. We surface that as DOGE (18 decimals), plus the
+// user's gas-speed tip (gasUnits * priorityFeeGwei) so eco/normal/fast
+// actually move the displayed estimate the way they move the paid fee.
+// Returns null when the route didn't include a fee estimate (UI shows "—").
+export function networkFeeDoge(route, precision = 6, priorityFeeGwei = 0) {
   const totalWei = route?.feeEstimate?.totalFeeWei ?? route?.score?.totalFeeWei;
   if (totalWei === undefined || totalWei === null) return null;
   try {
-    const decimal = unitsToDecimal(totalWei, 18, precision);
+    let wei = BigInt(totalWei);
+    if (Number.isFinite(priorityFeeGwei) && priorityFeeGwei > 0 && route?.gasUnits != null) {
+      wei += BigInt(route.gasUnits) * BigInt(Math.round(priorityFeeGwei * 1e9));
+    }
+    const decimal = unitsToDecimal(wei, 18, precision);
     if (decimal === "-") return null;
     // trim trailing zeros for a tidy "~0.0018 Ð"
     return decimal.includes(".") ? decimal.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "") : decimal;
