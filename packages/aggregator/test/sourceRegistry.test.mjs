@@ -9,19 +9,28 @@ import {
   listSources,
 } from "../src/sources/registry.mjs";
 
-test("source registry starts with external DogeOS v2/v3 venues only", () => {
+test("source registry exposes external venues plus the first-party split router", () => {
   const sources = listSources();
   const sourceIds = sources.map((source) => source.sourceId).sort();
 
   assert.deepEqual(sourceIds, [
     "barkswap-algebra",
     "dogebox",
+    "dogeswap-split",
     "muchfi-v2",
     "muchfi-v3",
     "suchswap",
   ]);
 
-  assert.equal(sources.every((source) => source.ownership === "external"), true);
+  // Every quote-source venue is external; the only internal source is the
+  // first-party DogeSwapRouter aggregator (disabled until its address is set).
+  assert.deepEqual(
+    sources.filter((source) => source.ownership !== "external").map((source) => source.sourceId),
+    ["dogeswap-split"],
+  );
+  const split = sources.find((source) => source.sourceId === "dogeswap-split");
+  assert.equal(split.ownership, "internal");
+  assert.equal(split.status, "disabled"); // no DOGESWAP_ROUTER_ADDRESS in test env
 });
 
 test("source registry marks verified live quote venues executable", () => {

@@ -233,6 +233,9 @@ export function buildVenueIntelligence({
   };
 
   for (const source of sources) {
+    // Disabled sources are deliberately off (e.g. the split router before its
+    // address is configured) — they are not surfaces to present to users.
+    if (source.status === SOURCE_STATUSES.DISABLED) continue;
     const summary = summarizeSource(source, venuesBySourceId.get(source.sourceId));
     classified[classifySource(summary)].push(summary);
   }

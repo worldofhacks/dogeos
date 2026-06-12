@@ -9,7 +9,12 @@ import {
   createVerifiedConcentratedLiquidityQuoteCandidateProvider,
 } from "../../aggregator/src/quotes/providers/concentratedLiquidity.mjs";
 import { createOneHopQuoteCandidateProvider } from "../../aggregator/src/routes/oneHop.mjs";
+import {
+  SPLIT_SOURCE_ID,
+  createSplitQuoteCandidateProvider,
+} from "../../aggregator/src/routes/splitRoutes.mjs";
 import { createErc20ApprovalPlanner } from "../../aggregator/src/swap/erc20Approval.mjs";
+import { createPermit2ApprovalPlanner } from "../../aggregator/src/swap/permit2Approval.mjs";
 import { createSwapBalanceVerifier } from "../../aggregator/src/swap/balancePreflight.mjs";
 import { createVerifiedCalldataBuilder } from "../../aggregator/src/swap/calldataRegistry.mjs";
 import { createVenueCalldataBuilders } from "../../aggregator/src/swap/venueCalldataBuilders.mjs";
@@ -139,6 +144,8 @@ export function createLiveAggregatorApiHandler({
   quoteProviderTimeoutMs,
   oneHopEnabled = true,
   oneHopViaTokens = defaultOneHopViaTokens(),
+  splitEnabled = true,
+  dogeSwapRouterAddress = process.env.DOGESWAP_ROUTER_ADDRESS || null,
   concentratedLiquidityQuoterProvider,
   outputWeiPerFeeWei = 1n,
   inputWeiPerFeeWei,
@@ -214,6 +221,12 @@ export function createLiveAggregatorApiHandler({
     viaTokens: oneHopViaTokens,
     directQuoteProvider: directQuoteCandidateProvider,
   });
+  const splitQuoteCandidateProvider = createSplitQuoteCandidateProvider({
+    enabled: splitEnabled,
+    routerAddress: dogeSwapRouterAddress,
+    directQuoteProvider: directQuoteCandidateProvider,
+    nowMs,
+  });
   const resolvedQuoteCandidateProvider =
     quoteCandidateProvider ??
     createCompositeQuoteCandidateProvider({
@@ -227,6 +240,10 @@ export function createLiveAggregatorApiHandler({
         {
           providerId: "one-hop",
           provider: oneHopQuoteCandidateProvider,
+        },
+        {
+          providerId: "split",
+          provider: splitQuoteCandidateProvider,
         },
       ],
     });
@@ -264,7 +281,18 @@ export function createLiveAggregatorApiHandler({
       createVerifiedCalldataBuilder({
         builders: calldataBuilders ?? createVenueCalldataBuilders(),
       }),
-    approvalPlanner: approvalPlanner ?? createErc20ApprovalPlanner({ client }),
+    approvalPlanner:
+      approvalPlanner ??
+      (() => {
+        // Split swaps pull through Permit2 (two-step approval); every other
+        // venue keeps the direct exact-amount ERC-20 approval.
+        const erc20Planner = createErc20ApprovalPlanner({ client });
+        const permit2Planner = createPermit2ApprovalPlanner({ client });
+        return (request) =>
+          request.quote?.sourceId === SPLIT_SOURCE_ID
+            ? permit2Planner(request)
+            : erc20Planner(request);
+      })(),
     balanceVerifier:
       balanceVerifier ??
       createSwapBalanceVerifier({

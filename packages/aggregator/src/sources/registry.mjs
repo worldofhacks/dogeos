@@ -16,6 +16,14 @@ export const SOURCE_STATUSES = Object.freeze({
   DISABLED: "disabled",
 });
 
+// Deployed first-party DogeSwapRouter (set after running
+// packages/contracts/script/DeployRouter.s.sol — see audit/DEPLOYMENT.md).
+const DOGESWAP_ROUTER_ADDRESS = process.env.DOGESWAP_ROUTER_ADDRESS || null;
+const DOGESWAP_ROUTER_SELECTORS = ["0xe56964c6"];
+const DOGESWAP_ROUTER_FUNCTIONS = [
+  "execute(bytes,bytes[],(address,uint256,address),uint256)",
+];
+
 const V2_ROUTER_SELECTORS = ["0x38ed1739", "0xd06ca61f", "0x8803dbee"];
 const V2_ROUTER_FUNCTIONS = [
   "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
@@ -513,6 +521,43 @@ const SOURCES = [
       reason: "No confirmed official-token route source.",
     },
   },
+  // First-party atomic split aggregator (packages/contracts/src/DogeSwapRouter.sol):
+  // movement-only command whitelist, Permit2-only pulls, enforced aggregate
+  // settlement. Activated by setting DOGESWAP_ROUTER_ADDRESS to the deployed
+  // router (see packages/contracts/audit/DEPLOYMENT.md); stays disabled
+  // otherwise so no split candidate can ever reach calldata building.
+  {
+    sourceId: "dogeswap-split",
+    displayName: "DogeSwap Split",
+    ownership: "internal",
+    protocolType: "aggregator",
+    status: DOGESWAP_ROUTER_ADDRESS ? SOURCE_STATUSES.ACTIVE : SOURCE_STATUSES.DISABLED,
+    factory: null,
+    router: DOGESWAP_ROUTER_ADDRESS,
+    quoter: null,
+    abiProvenance: "venue-artifact",
+    pools: [],
+    verificationTargets: DOGESWAP_ROUTER_ADDRESS
+      ? [
+          {
+            role: "router",
+            address: DOGESWAP_ROUTER_ADDRESS,
+            abiProvenance: "venue-artifact",
+            expectedSelectors: DOGESWAP_ROUTER_SELECTORS,
+            expectedAbiFunctions: DOGESWAP_ROUTER_FUNCTIONS,
+            notes:
+              "First-party DogeSwapRouter; source + audit in packages/contracts. Split legs execute atomically behind enforced settlement.",
+          },
+        ]
+      : [],
+    supportedPairs: ["WDOGE/USDC", "WDOGE/USDT"],
+    verification: {
+      execution: Boolean(DOGESWAP_ROUTER_ADDRESS),
+      reason: DOGESWAP_ROUTER_ADDRESS
+        ? "First-party audited router (53 Foundry tests, movement-only commands, enforced settlement); deployed bytecode selector-verified on-chain."
+        : "DOGESWAP_ROUTER_ADDRESS not configured; split execution disabled.",
+    },
+  },
 ];
 
 export function listSources() {
@@ -532,7 +577,7 @@ export function getExecutableSources() {
 }
 
 export function listVenueContracts() {
-  return SOURCES.map((source) => ({
+  return SOURCES.filter((source) => source.status !== SOURCE_STATUSES.DISABLED).map((source) => ({
     sourceId: source.sourceId,
     displayName: source.displayName,
     ownership: source.ownership,

@@ -1,4 +1,8 @@
 import { listSources } from "../sources/registry.mjs";
+import {
+  DOGESWAP_ROUTER_EXECUTE_SELECTOR,
+  buildDogeSwapSplitCalldata,
+} from "./dogeSwapRouterCalldata.mjs";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -166,6 +170,18 @@ export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
           quoteMode: "exactOutput",
           selector: SELECTORS.muchfiV3ExactOutputSingle,
           buildCalldata: buildMuchFiV3ExactOutputSingleCalldata,
+        },
+      ];
+    }
+
+    if (source.sourceId === "dogeswap-split" && source.protocolType === "aggregator") {
+      return [
+        {
+          sourceId: source.sourceId,
+          protocolType: source.protocolType,
+          quoteMode: "exactInput",
+          selector: DOGESWAP_ROUTER_EXECUTE_SELECTOR,
+          buildCalldata: (quote) => buildDogeSwapSplitCalldata(source, quote),
         },
       ];
     }

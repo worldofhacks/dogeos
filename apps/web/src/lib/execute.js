@@ -312,15 +312,27 @@ export async function executeSwap({
     const approval = await postApproval({ quote, sender });
     quote = approval.quote ? mergeExecutionQuote(quote, approval.quote) : quote;
 
-    if (approval.approvalRequired && approval.transaction) {
-      report({ phase: "approve-sign", symbol: sellToken?.symbol });
-      const approvalHash = await sendWalletTransaction(approval.transaction, sender, {
-        providerMessage: "Switching wallet to DogeOS Chikyū for approval",
-        missingProviderMessage: "Connect an EVM wallet before approving.",
-      });
-      report({ phase: "approve-pending", symbol: sellToken?.symbol, hash: approvalHash });
-      await waitForTransactionReceipt(approvalHash, { label: "Approval", signal });
-      report({ phase: "approve-done", symbol: sellToken?.symbol, hash: approvalHash });
+    // Split routes pull through Permit2, so the plan may carry TWO sequential
+    // prerequisite transactions (ERC20→Permit2, then Permit2→router); direct
+    // venue routes keep the single classic approve.
+    const approvalTransactions =
+      Array.isArray(approval.transactions) && approval.transactions.length > 0
+        ? approval.transactions
+        : approval.transaction
+          ? [approval.transaction]
+          : [];
+
+    if (approval.approvalRequired && approvalTransactions.length > 0) {
+      for (const approvalTransaction of approvalTransactions) {
+        report({ phase: "approve-sign", symbol: sellToken?.symbol });
+        const approvalHash = await sendWalletTransaction(approvalTransaction, sender, {
+          providerMessage: "Switching wallet to DogeOS Chikyū for approval",
+          missingProviderMessage: "Connect an EVM wallet before approving.",
+        });
+        report({ phase: "approve-pending", symbol: sellToken?.symbol, hash: approvalHash });
+        await waitForTransactionReceipt(approvalHash, { label: "Approval", signal });
+        report({ phase: "approve-done", symbol: sellToken?.symbol, hash: approvalHash });
+      }
     }
   }
 

@@ -894,6 +894,24 @@ export default function SwapView({
             loading={scanning}
             v={rate ? `1 ${pay?.symbol ?? ""} = ${fmt(rate, dpFor(rate))} ${get?.symbol ?? ""}` : "—"}
           />
+          {/* Atomic split route: show the per-venue input distribution. */}
+          {hasResult && best?.routeType === "split" && Array.isArray(best.legs) && best.legs.length > 0 ? (
+            <DetailRow
+              k="split"
+              compact={mobile}
+              v={(() => {
+                const total = best.legs.reduce((sum, leg) => sum + Number(leg.amountIn ?? 0), 0);
+                if (!(total > 0)) return `${best.legs.length} legs · atomic`;
+                return `${best.legs
+                  .map((leg) => {
+                    const pct = Math.round((Number(leg.amountIn ?? 0) / total) * 100);
+                    const name = sourceNames[leg.sourceId]?.name ?? leg.sourceId;
+                    return `${pct}% ${name}`;
+                  })
+                  .join(" + ")} · atomic`;
+              })()}
+            />
+          ) : null}
           {/* Honesty: price impact omitted — backend computes no mid-price. */}
           <DetailRow k="price impact" compact={mobile} v="—" />
           <DetailRow

@@ -503,7 +503,9 @@ export function createAggregatorApiHandler({
     if (request.method === "GET" && url.pathname === "/sources") {
       return jsonResponse({
         chainId: DOGEOS_CHAIN.id,
-        data: listSources(),
+        // Hide deliberately-disabled sources (e.g. the split router before its
+        // address is configured) from UI metadata; routing still sees them.
+        data: listSources().filter((source) => source.status !== "disabled"),
       });
     }
 
@@ -697,6 +699,7 @@ export function createAggregatorApiHandler({
           owner,
           spender: quote.router,
           amount,
+          quote,
         });
 
         return jsonResponse({ ...plan, quote });

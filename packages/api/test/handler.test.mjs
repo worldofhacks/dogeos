@@ -923,12 +923,13 @@ test("POST /approval derives exact-output approval bounds from the quote before 
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.deepEqual(plannerInput, {
-    token: usdc.address,
-    owner: "0x2222222222222222222222222222222222222222",
-    spender: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
-    amount: 1_050_000n,
-  });
+  assert.equal(plannerInput.token, usdc.address);
+  assert.equal(plannerInput.owner, "0x2222222222222222222222222222222222222222");
+  assert.equal(plannerInput.spender, "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB");
+  assert.equal(plannerInput.amount, 1_050_000n);
+  // The planner also receives the refreshed quote so it can branch on source
+  // (Permit2 for the split router vs direct ERC-20 for single venues).
+  assert.equal(plannerInput.quote.sourceId, "muchfi-v3");
   assert.equal(body.approvalRequired, true);
   assert.equal(body.allowance, "5");
   assert.deepEqual(body.transaction, {

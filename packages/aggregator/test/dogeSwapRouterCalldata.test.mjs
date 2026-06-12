@@ -1,0 +1,109 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  CONTRACT_BALANCE,
+  DOGESWAP_ROUTER_EXECUTE_SELECTOR,
+  ROUTER_COMMANDS,
+  buildDogeSwapSplitCalldata,
+  encodeDogeSwapRouterExecute,
+  encodePermit2TransferFromInput,
+  encodeV2SwapInput,
+  encodeV3SwapInput,
+  encodeAlgebraSwapInput,
+} from "../src/swap/dogeSwapRouterCalldata.mjs";
+
+const usdc = "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925";
+const wdoge = "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE";
+const recipient = "0x1111111111111111111111111111111111111111";
+
+// Ground truth captured byte-for-byte from `cast calldata` against the
+// audited DogeSwapRouter ABI (forge toolchain), for a split program:
+//   PERMIT2_TRANSFER_FROM(USDC, 1e18)
+//   V3_SWAP(USDC->WDOGE, fee 500, amountIn 0.5e18, minOut 0)
+//   V2_SWAP(amountIn CONTRACT_BALANCE, minOut 0, path [USDC, WDOGE])
+//   settlement (WDOGE, 0.98e18, recipient), deadline 1780000300
+const CAST_FIXTURE =
+  "0xe56964c600000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000100000000000000000000000000f6bdb158a5ddf77f1b83bc9074f6a472c58d78ae0000000000000000000000000000000000000000000000000d99a8cec7e200000000000000000000000000001111111111111111111111111111111111111111000000000000000000000000000000000000000000000000000000006a18a62c000000000000000000000000000000000000000000000000000000000000000301030200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001800000000000000000000000000000000000000000000000000000000000000040000000000000000000000000d19d2ffb1c284668b7afe72cddae1baf3bc039250000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000d19d2ffb1c284668b7afe72cddae1baf3bc03925000000000000000000000000f6bdb158a5ddf77f1b83bc9074f6a472c58d78ae00000000000000000000000000000000000000000000000000000000000001f400000000000000000000000000000000000000000000000006f05b59d3b20000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000002000000000000000000000000d19d2ffb1c284668b7afe72cddae1baf3bc03925000000000000000000000000f6bdb158a5ddf77f1b83bc9074f6a472c58d78ae";
+
+test("encodeDogeSwapRouterExecute matches the cast-generated calldata byte-for-byte", () => {
+  const calldata = encodeDogeSwapRouterExecute({
+    commands: [ROUTER_COMMANDS.PERMIT2_TRANSFER_FROM, ROUTER_COMMANDS.V3_SWAP, ROUTER_COMMANDS.V2_SWAP],
+    inputs: [
+      encodePermit2TransferFromInput({ token: usdc, amount: 10n ** 18n }),
+      encodeV3SwapInput({ sellToken: usdc, buyToken: wdoge, feeTier: 500n, amountIn: 5n * 10n ** 17n, minOut: 0n }),
+      encodeV2SwapInput({ amountIn: CONTRACT_BALANCE, minOut: 0n, path: [usdc, wdoge] }),
+    ],
+    settlement: { buyToken: wdoge, minOut: 98n * 10n ** 16n, recipient },
+    deadline: 1_780_000_300n,
+  });
+
+  assert.equal(calldata.toLowerCase(), CAST_FIXTURE.toLowerCase());
+});
+
+test("encodeV2SwapInput lays out amountIn, minOut, and a dynamic path", () => {
+  const input = encodeV2SwapInput({ amountIn: 123n, minOut: 7n, path: [usdc, wdoge] });
+  const words = input.match(/.{64}/g);
+  assert.equal(BigInt(`0x${words[0]}`), 123n);
+  assert.equal(BigInt(`0x${words[1]}`), 7n);
+  assert.equal(BigInt(`0x${words[2]}`), 96n); // path offset = 3 words
+  assert.equal(BigInt(`0x${words[3]}`), 2n); // path length
+  assert.equal(`0x${words[4].slice(24)}`, usdc.toLowerCase());
+  assert.equal(`0x${words[5].slice(24)}`, wdoge.toLowerCase());
+});
+
+test("encodeAlgebraSwapInput defaults the deployer to the zero sentinel", () => {
+  const input = encodeAlgebraSwapInput({ sellToken: usdc, buyToken: wdoge, amountIn: 5n, minOut: 1n });
+  const words = input.match(/.{64}/g);
+  assert.equal(`0x${words[2].slice(24)}`, "0x0000000000000000000000000000000000000000");
+});
+
+test("buildDogeSwapSplitCalldata pulls the total once and spends the last leg via CONTRACT_BALANCE", () => {
+  const calldata = buildDogeSwapSplitCalldata(
+    { routerPoolDeployer: "0x0000000000000000000000000000000000000000" },
+    {
+      sourceId: "dogeswap-split",
+      sellToken: usdc,
+      buyToken: wdoge,
+      amountIn: 100n * 10n ** 18n,
+      minAmountOut: 98n * 10n ** 18n,
+      recipient,
+      deadline: 1_780_000_300n,
+      legs: [
+        { protocolType: "v3", amountIn: 60n * 10n ** 18n, feeTier: 500n },
+        { protocolType: "v2", amountIn: 40n * 10n ** 18n },
+      ],
+    },
+  );
+
+  assert.ok(calldata.startsWith(DOGESWAP_ROUTER_EXECUTE_SELECTOR));
+  // The single Permit2 pull is for the full input amount…
+  assert.ok(calldata.includes((100n * 10n ** 18n).toString(16).padStart(64, "0")));
+  // …the first leg spends its explicit 60e18…
+  assert.ok(calldata.includes((60n * 10n ** 18n).toString(16).padStart(64, "0")));
+  // …and the last leg spends CONTRACT_BALANCE so no dust is stranded.
+  assert.ok(calldata.includes(CONTRACT_BALANCE.toString(16).padStart(64, "0")));
+});
+
+test("buildDogeSwapSplitCalldata rejects legs that overspend the declared total", () => {
+  assert.throws(
+    () =>
+      buildDogeSwapSplitCalldata(
+        {},
+        {
+          sourceId: "dogeswap-split",
+          sellToken: usdc,
+          buyToken: wdoge,
+          amountIn: 100n,
+          minAmountOut: 90n,
+          recipient,
+          deadline: 1_780_000_300n,
+          legs: [
+            { protocolType: "v3", amountIn: 150n, feeTier: 500n },
+            { protocolType: "v2", amountIn: 10n },
+          ],
+        },
+      ),
+    /overspend/,
+  );
+});
