@@ -7,7 +7,7 @@
 //   • trade defaults (slippage / gas / deadline / expert) persist via useSettings
 //     and feed the swap: SwapView reads default slippage, SwapFlow reads the
 //     deadline. The in-swap slider still overrides slippage per-trade.
-//   • appearance (dark + accent) wires to useTheme() through useSettings (the
+//   • appearance (dark panel) wires to useTheme() through useSettings (the
 //     Shell builds the theme from these and persists them).
 //   • network reads live block/gas from getChainStatus() where available, with
 //     documented DogeOS facts as the static frame.
@@ -16,14 +16,13 @@
 //     the verification summary. Compact + expandable; secondary by design.
 import React, { useEffect, useMemo, useState } from "react";
 
-import { useTheme, ACCENTS } from "./theme.js";
+import { useTheme } from "./theme.js";
 import { Label, Seg, useIsMobile } from "./primitives.jsx";
 import { useSettings, GAS_PRESETS, gasTier } from "./useSettings.js";
 import {
   getChainStatus,
   getIntelligence,
   getVerification,
-  DOGEOS_CHAIN_ID,
   DOGEOS_BLOCKSCOUT_URL,
   DOGEOS_FAUCET_URL,
 } from "../lib/api.js";
@@ -31,9 +30,6 @@ import {
 // Documented DogeOS network facts (docs.dogeos.com + testnet config).
 const NETWORK = {
   name: "DogeOS",
-  chainId: DOGEOS_CHAIN_ID,
-  security: "Dogecoin PoW",
-  tps: "10,000+",
   explorer: DOGEOS_BLOCKSCOUT_URL,
   faucet: DOGEOS_FAUCET_URL,
 };
@@ -134,8 +130,6 @@ export default function SettingsView() {
     setExpert,
     dark,
     setDark,
-    accent,
-    setAccent,
   } = settings;
 
   // Live chain status for the network card (block / gas) — documented facts frame.
@@ -201,27 +195,6 @@ export default function SettingsView() {
         <Row label="dark panel" hint="charcoal device shell">
           <Toggle on={dark} onClick={() => setDark(!dark)} />
         </Row>
-        <Row label="accent" hint="signal color across the app">
-          <div style={{ display: "flex", gap: 8 }}>
-            {ACCENTS.map((c) => (
-              <button
-                key={c}
-                className="tap"
-                onClick={() => setAccent(c)}
-                title={c}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 8,
-                  background: c,
-                  cursor: "pointer",
-                  border: accent === c ? `2px solid ${th.ink}` : `2px solid ${th.hair}`,
-                  boxShadow: accent === c ? `0 0 0 2px ${th.panel}` : "none",
-                }}
-              />
-            ))}
-          </div>
-        </Row>
       </Card>
 
       {/* ---------- network ---------- */}
@@ -232,21 +205,6 @@ export default function SettingsView() {
             <Label color={th.gold}>testnet</Label>
           </span>
         </Row>
-        <Row label="chain id" hint="add to your EVM wallet">
-          <span className="te-num" style={mono(th, th.inkSoft)}>
-            {NETWORK.chainId}
-          </span>
-        </Row>
-        <Row label="secured by" hint="state anchored to Dogecoin via ZK proofs">
-          <span className="te-num" style={mono(th, th.inkSoft)}>
-            {NETWORK.security}
-          </span>
-        </Row>
-        <Row label="throughput" hint="instant finality via PWR Chain">
-          <span className="te-num" style={mono(th, th.inkSoft)}>
-            {NETWORK.tps} TPS
-          </span>
-        </Row>
         <Row label="latest block" hint="live from the DogeOS RPC">
           <span className="te-num" style={mono(th, blockNumber != null ? th.chartUp : th.mute)}>
             {blockNumber != null ? `#${Number(blockNumber).toLocaleString("en-US")}` : "—"}
@@ -255,11 +213,6 @@ export default function SettingsView() {
         <Row label="gas price" hint="live base priority fee">
           <span className="te-num" style={mono(th, gasGwei != null ? th.inkSoft : th.mute)}>
             {gasGwei != null ? `${gasGwei} gwei` : "—"}
-          </span>
-        </Row>
-        <Row label="deposits / withdrawals" hint="free deposits · instant withdrawals">
-          <span className="te-num" style={mono(th, th.chartUp)}>
-            free · instant
           </span>
         </Row>
         <Row label="explorer" hint="blockscout.testnet.dogeos.com">

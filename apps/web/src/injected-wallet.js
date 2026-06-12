@@ -19,9 +19,14 @@ function defaultWindow() {
 function walletPreferenceLabel(walletPreference) {
   if (walletPreference === "metamask") return "MetaMask";
   if (walletPreference === "rainbow") return "Rainbow Wallet";
+  if (walletPreference === "phantom") return "Phantom";
   if (walletPreference === "mydoge") return "MyDoge Link";
   return "Injected wallet";
 }
+
+// Injected wallet brands the chooser offers. Anything else announced over
+// EIP-6963 (Compass, TronLink, ...) is hidden from the connect options.
+const SUPPORTED_WALLET_PREFERENCES = new Set(["mydoge", "metamask", "phantom", "rainbow"]);
 
 function providerRdns(provider, info) {
   return String(info?.rdns ?? provider?.info?.rdns ?? provider?.rdns ?? "").toLowerCase();
@@ -37,15 +42,30 @@ function providerLooksLikeRainbow(provider, info) {
   return Boolean(provider?.isRainbow) || rdns.includes("rainbow") || name.includes("rainbow");
 }
 
+// Phantom impersonates MetaMask on its EVM provider (isMetaMask: true), so it
+// must be recognised before any isMetaMask-based fallback can claim it.
+function providerLooksLikePhantom(provider, info) {
+  const rdns = providerRdns(provider, info);
+  const name = providerName(provider, info);
+  return Boolean(provider?.isPhantom) || rdns.includes("phantom") || name.includes("phantom");
+}
+
 function providerStronglyMatchesPreference(provider, walletPreference, info) {
   if (!provider?.request) return false;
   const rdns = providerRdns(provider, info);
   const name = providerName(provider, info);
   if (walletPreference === "metamask") {
-    return !providerLooksLikeRainbow(provider, info) && (rdns.includes("metamask") || name.includes("metamask"));
+    return (
+      !providerLooksLikeRainbow(provider, info) &&
+      !providerLooksLikePhantom(provider, info) &&
+      (rdns.includes("metamask") || name.includes("metamask"))
+    );
   }
   if (walletPreference === "rainbow") {
     return providerLooksLikeRainbow(provider, info);
+  }
+  if (walletPreference === "phantom") {
+    return providerLooksLikePhantom(provider, info);
   }
   if (walletPreference === "mydoge") {
     return (
@@ -67,6 +87,7 @@ function providerStronglyMatchesPreference(provider, walletPreference, info) {
 function classifyProviderPreference(provider, info) {
   if (providerStronglyMatchesPreference(provider, "mydoge", info)) return "mydoge";
   if (providerLooksLikeRainbow(provider, info)) return "rainbow";
+  if (providerLooksLikePhantom(provider, info)) return "phantom";
   if (providerStronglyMatchesPreference(provider, "metamask", info)) return "metamask";
   return "";
 }
@@ -78,12 +99,16 @@ function providerMatchesPreference(provider, walletPreference, info, { strongOnl
   const name = providerName(provider, info);
   if (walletPreference === "metamask") {
     if (providerLooksLikeRainbow(provider, info)) return false;
+    if (providerLooksLikePhantom(provider, info)) return false;
     if (rdns) return rdns.includes("metamask");
     if (name.includes("metamask")) return true;
     return Boolean(provider.isMetaMask) && !provider.isRainbow;
   }
   if (walletPreference === "rainbow") {
     return providerLooksLikeRainbow(provider, info);
+  }
+  if (walletPreference === "phantom") {
+    return providerLooksLikePhantom(provider, info);
   }
   if (walletPreference === "mydoge") {
     return (
@@ -344,6 +369,9 @@ export function createInjectedWalletBridge({
     if (walletPreference === "rainbow") {
       return "Rainbow Wallet provider is not available. Install or unlock Rainbow Wallet, then connect again.";
     }
+    if (walletPreference === "phantom") {
+      return "Phantom provider is not available. Install or unlock Phantom, then connect again.";
+    }
     return noWalletMessage;
   }
 
@@ -415,10 +443,14 @@ export function createInjectedWalletBridge({
         activeProvider.request({ method: "eth_accounts" }),
         readChainId(activeProvider),
       ]);
+      // Stale guard: a connect (openModal) or a later announcement may have
+      // switched the active provider while we awaited — don't clobber it.
+      if (provider !== activeProvider || isConnecting) return;
       address = firstAccount(accounts);
       chainId = nextChainId;
       publish();
     } catch (error) {
+      if (provider !== activeProvider || isConnecting) return;
       publish({ error: errorMessage(error, "Injected wallet state could not be read.") });
     }
   }
@@ -539,14 +571,18 @@ export function createInjectedWalletBridge({
       publish();
     },
     switchToDogeOS,
-    // Enumerate the injected EIP-1193 providers discovered on the page (window
-    // .ethereum[.providers] + EIP-6963 announcements), each tagged with a known
-    // preference key + display label. The UI uses this to decide between a
-    // direct MyDoge connect and a minimal chooser when several wallets exist.
+    // Enumerate the SUPPORTED injected EIP-1193 providers discovered on the
+    // page (window.ethereum[.providers] + EIP-6963 announcements), each tagged
+    // with its preference key + display label. Unsupported brands are filtered
+    // out — except when a single unsupported wallet is all that's installed,
+    // which is still offered so that user isn't dead-ended. The UI uses this to
+    // decide between a direct MyDoge connect and a minimal chooser when several
+    // wallets exist.
     listInjectedWallets() {
       const seenProviders = new Set();
       const seenBrands = new Set();
       const wallets = [];
+      const unsupported = [];
       // EIP-6963 entries (authoritative rdns/name) first, so the info-less
       // window.ethereum duplicate of the SAME wallet dedupes away instead of
       // listing the wallet twice (Rainbow injects both).
@@ -562,12 +598,21 @@ export function createInjectedWalletBridge({
         const brandKey = preference || providerRdns(entry.provider, entry.info);
         if (brandKey && seenBrands.has(brandKey)) continue;
         if (brandKey) seenBrands.add(brandKey);
-        wallets.push({
+        const wallet = {
           preference,
           label: entry.info?.name || walletPreferenceLabel(preference),
           rdns: providerRdns(entry.provider, entry.info),
-        });
+        };
+        // Only supported brands are offered as connect options; other injected
+        // wallets (Compass, TronLink, ...) are hidden from the chooser.
+        if (SUPPORTED_WALLET_PREFERENCES.has(preference)) wallets.push(wallet);
+        else unsupported.push(wallet);
       }
+      // Lone unknown wallet and nothing supported installed: offer it anyway
+      // (preference "" routes through the generic provider resolver) so the
+      // user can still connect instead of hitting the "MyDoge not detected"
+      // dead end.
+      if (wallets.length === 0 && unsupported.length === 1) return unsupported;
       return wallets;
     },
     getAddress: () => address,

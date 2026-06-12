@@ -241,12 +241,14 @@ export function useWallet() {
         return;
       }
 
-      // Injected mode (no clientId). Pick the preference:
+      // Injected mode (no clientId). The bridge lists SUPPORTED wallets
+      // (MyDoge, MetaMask, Phantom, Rainbow) — plus a lone unknown wallet when
+      // it's the only thing installed. Pick the preference:
       //   • explicit preference (from the chooser) wins;
-      //   • >1 injected wallet present → show the minimal chooser;
-      //   • exactly 1 present → connect that wallet (whatever it is);
-      //   • 0 present → attempt MyDoge, which yields the clear "MyDoge not
-      //     detected" help toast since nothing answered EIP-6963.
+      //   • >1 supported wallet present → show the minimal chooser;
+      //   • exactly 1 listed → connect that wallet directly;
+      //   • 0 listed → attempt MyDoge, which yields the clear "MyDoge not
+      //     detected" help toast since nothing usable answered EIP-6963.
       const explicit = typeof preference === "string" && preference;
       let target = explicit || DEFAULT_INJECTED_PREFERENCE;
       if (!explicit) {
@@ -256,10 +258,11 @@ export function useWallet() {
           return;
         }
         if (wallets.length === 1) {
-          // Single wallet: connect it directly so a lone non-MyDoge wallet still
-          // connects instead of erroring with "MyDoge not detected". An empty
-          // preference ("" — unrecognised brand) means "the only injected
-          // provider", which the bridge's generic resolver handles.
+          // Single listed wallet: connect it directly so a lone non-MyDoge
+          // wallet still connects instead of erroring with "MyDoge not
+          // detected". An empty preference ("" — lone unrecognised brand)
+          // means "the only injected provider", which the bridge's generic
+          // resolver handles.
           target = wallets[0].preference;
         }
       }
@@ -269,8 +272,8 @@ export function useWallet() {
   );
 
   // Resolve the chooser: connect the user's explicitly selected injected wallet.
-  // The preference is passed through as-is (incl. "" for an unrecognised brand,
-  // which the bridge resolves to that injected provider).
+  // The preference is passed through as-is; the chooser only lists supported
+  // brands so it is always a concrete preference key.
   const chooseWallet = useCallback(
     async (preference) => {
       setChooser(null);

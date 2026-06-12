@@ -622,6 +622,92 @@ test("initialize() discovers EIP-6963 wallets so the chooser lists every brand o
   assert.equal(wallets.find((wallet) => wallet.preference === "metamask").rdns, "io.metamask");
 });
 
+test("listInjectedWallets() offers only supported brands (no Compass/TronLink)", () => {
+  const metamask = createProvider();
+  metamask.isMetaMask = true;
+  // Phantom's EVM provider impersonates MetaMask; it must list as Phantom.
+  const phantom = createProvider();
+  phantom.isPhantom = true;
+  phantom.isMetaMask = true;
+  const compass = createProvider();
+  const tronlink = createProvider();
+
+  const globalObject = createEip6963Window([
+    { info: { rdns: "io.metamask", name: "MetaMask" }, provider: metamask },
+    { info: { rdns: "app.phantom", name: "Phantom" }, provider: phantom },
+    { info: { rdns: "io.leapwallet.CompassWallet", name: "Compass Wallet" }, provider: compass },
+    { info: { rdns: "network.tron.link", name: "TronLink" }, provider: tronlink },
+  ]);
+
+  const bridge = createInjectedWalletBridge({ globalObject });
+  bridge.initialize();
+
+  const wallets = bridge.listInjectedWallets();
+  assert.deepEqual(wallets.map((wallet) => wallet.preference).sort(), ["metamask", "phantom"]);
+  assert.equal(wallets.find((wallet) => wallet.preference === "phantom").label, "Phantom");
+});
+
+test("a lone unsupported wallet is still offered and connects so users aren't dead-ended", async () => {
+  const compass = createProvider({ accounts: ["0x4444444444444444444444444444444444444444"], chainId: "0x5fdaf3" });
+  const globalObject = createEip6963Window([
+    { info: { rdns: "io.leapwallet.CompassWallet", name: "Compass Wallet" }, provider: compass },
+  ]);
+
+  const bridge = createInjectedWalletBridge({ globalObject });
+  bridge.initialize();
+
+  const wallets = bridge.listInjectedWallets();
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].preference, "");
+  assert.equal(wallets[0].label, "Compass Wallet");
+
+  const address = await bridge.openModal({ walletPreference: wallets[0].preference });
+  assert.equal(address, "0x4444444444444444444444444444444444444444");
+});
+
+test("multiple unsupported wallets with no supported brand list nothing", () => {
+  const compass = createProvider();
+  const tronlink = createProvider();
+  const globalObject = createEip6963Window([
+    { info: { rdns: "io.leapwallet.CompassWallet", name: "Compass Wallet" }, provider: compass },
+    { info: { rdns: "network.tron.link", name: "TronLink" }, provider: tronlink },
+  ]);
+
+  const bridge = createInjectedWalletBridge({ globalObject });
+  bridge.initialize();
+
+  assert.deepEqual(bridge.listInjectedWallets(), []);
+});
+
+test("choosing Phantom connects the Phantom provider, not the MetaMask impersonation", async () => {
+  const metamask = createProvider({ accounts: ["0x2222222222222222222222222222222222222222"], chainId: "0x5fdaf3" });
+  metamask.isMetaMask = true;
+  const phantom = createProvider({ accounts: ["0x3333333333333333333333333333333333333333"], chainId: "0x5fdaf3" });
+  phantom.isPhantom = true;
+  phantom.isMetaMask = true;
+
+  const globalObject = createEip6963Window([
+    { info: { rdns: "io.metamask", name: "MetaMask" }, provider: metamask },
+    { info: { rdns: "app.phantom", name: "Phantom" }, provider: phantom },
+  ]);
+
+  const states = [];
+  const bridge = createInjectedWalletBridge({
+    globalObject,
+    publishWalletState: (state) => states.push(state),
+  });
+  bridge.initialize();
+
+  const address = await bridge.openModal({ walletPreference: "phantom" });
+  assert.equal(address, "0x3333333333333333333333333333333333333333");
+  assert.equal(states.at(-1).walletLabel, "Phantom");
+
+  // And choosing MetaMask must not land on Phantom's impersonating provider.
+  await bridge.disconnect();
+  const metamaskAddress = await bridge.openModal({ walletPreference: "metamask" });
+  assert.equal(metamaskAddress, "0x2222222222222222222222222222222222222222");
+});
+
 test("wallet choice persists to storage and clears on disconnect", async () => {
   const metamask = createProvider({ chainId: "0x5fdaf3" });
   metamask.isMetaMask = true;

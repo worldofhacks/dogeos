@@ -14,7 +14,6 @@ import ActivityView from "./ActivityView.jsx";
 import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
 import WalletChooser from "./WalletChooser.jsx";
-import { getChainStatus, DOGEOS_CHAIN_ID } from "../lib/api.js";
 import { chainIdMatchesDogeos } from "../lib/execute.js";
 
 const NAV_ITEMS = [
@@ -118,22 +117,6 @@ export default function Shell() {
     return () => window.removeEventListener("resize", f);
   }, []);
   const sideBySide = chartPop && vw >= 1000 && view === "swap";
-
-  // Live chain status for the footer (chain id / latest block).
-  const [chainStatus, setChainStatus] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    getChainStatus()
-      .then((body) => {
-        if (!cancelled) setChainStatus(body.data ?? body);
-      })
-      .catch(() => {
-        /* footer falls back to the documented chain id */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // connect chip: disconnected = accent "connect"; connected = pill + gold dot +
   // truncated address (click disconnects). A red dot + "wrong network" flags
