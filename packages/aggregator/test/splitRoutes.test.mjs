@@ -125,6 +125,41 @@ test("split provider declines when one venue dominates (no real improvement)", a
   assert.deepEqual(await provider({ sellToken: usdc, buyToken: wdoge, amountIn: 10n ** 18n }), []);
 });
 
+test("split provider refines the ratio around the coarse winner", async () => {
+  // Marginal-price equalization for penalties 3 vs 4 puts the optimum at
+  // ~57% — between the coarse grid points. The refinement pass (5000 ± 1250)
+  // must discover 62.5% and beat the best coarse ratio (50/50).
+  const requestedRatios = [];
+  const baseProvider = depthAwareDirectProvider();
+  const provider = createSplitQuoteCandidateProvider({
+    routerAddress: router,
+    directQuoteProvider: async (input) => {
+      if ((input.includeSources ?? []).length === 1) {
+        requestedRatios.push(BigInt(input.amountIn));
+      }
+      return baseProvider(input);
+    },
+    nowMs: () => 1_000,
+  });
+
+  const [candidate] = await provider({
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn: 10n ** 17n,
+    quoteMode: "exactInput",
+  });
+
+  assert.ok(candidate, "expected a split candidate");
+  // Refinement quoted amounts beyond the 25/50/75 grid…
+  const gridAmounts = new Set([25n, 50n, 75n].map((r) => (10n ** 17n * r) / 100n));
+  assert.ok(
+    requestedRatios.some((amount) => !gridAmounts.has(amount) && !gridAmounts.has(10n ** 17n - amount)),
+    "expected refined off-grid ratio quotes",
+  );
+  // …and the chosen split is the refined 62.5/37.5, not the coarse 50/50.
+  assert.equal(candidate.legs[0].amountIn, (10n ** 17n * 625n) / 1000n);
+});
+
 test("wrapQuoteForRouterExecution retargets eligible venue quotes onto the router", () => {
   const venueQuote = leg("barkswap-algebra", "algebra", 5n, 4n, { router: "0x77147f436cE9739D2A54Ffe428DBe02b90c0205e", feeBps: 5n });
   const wrapped = wrapQuoteForRouterExecution(venueQuote, { routerAddress: router });

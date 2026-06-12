@@ -531,6 +531,9 @@ const SOURCES = [
     displayName: "DogeSwap Split",
     ownership: "internal",
     protocolType: "aggregator",
+    // Execution mode surfaced to the UI: "all" = every eligible exact-input
+    // swap settles through the router; "split-only" = only multi-venue splits.
+    routerMode: DOGESWAP_ROUTER_ADDRESS ? process.env.DOGESWAP_ROUTER_MODE || "all" : "off",
     status: DOGESWAP_ROUTER_ADDRESS ? SOURCE_STATUSES.ACTIVE : SOURCE_STATUSES.DISABLED,
     factory: null,
     router: DOGESWAP_ROUTER_ADDRESS,

@@ -232,6 +232,11 @@ export function createLiveAggregatorApiHandler({
     enabled: splitEnabled,
     routerAddress: dogeSwapRouterAddress,
     directQuoteProvider: directQuoteCandidateProvider,
+    // In "all" mode single-venue swaps pay the same router overhead as a
+    // split, so any strict output improvement is real — keep just a 1bp
+    // anti-flap epsilon. In split-only mode the split carries extra gas vs a
+    // direct venue swap, so demand a more meaningful edge.
+    minImprovementBps: dogeSwapRouterMode === "all" ? 1n : 5n,
     nowMs,
   });
   const resolvedQuoteCandidateProvider =

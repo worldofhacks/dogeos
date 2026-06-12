@@ -53,6 +53,19 @@ function dpFor(n) {
   return n > 0 && n < 1 ? 4 : 2;
 }
 
+// "62% MuchFi V3 + 38% Barkswap" from a split route's legs.
+function splitLegsSummary(legs, sourceNames) {
+  const total = legs.reduce((sum, leg) => sum + Number(leg.amountIn ?? 0), 0);
+  if (!(total > 0)) return `${legs.length} legs`;
+  return legs
+    .map((leg) => {
+      const pct = Math.round((Number(leg.amountIn ?? 0) / total) * 100);
+      const name = sourceNames[leg.sourceId]?.name ?? leg.sourceId;
+      return `${pct}% ${name}`;
+    })
+    .join(" + ");
+}
+
 /* ---------- subcomponents ----------
    Module scope on purpose: defined inside SwapView's render body these get a
    fresh function identity every render, so React unmounts/remounts their
@@ -131,6 +144,9 @@ export default function SwapView({
   // ---- token catalog + venue display names (real) ----
   const [tokens, setTokens] = useState([]);
   const [sourceNames, setSourceNames] = useState({}); // sourceId -> { name, type }
+  // First-party router execution mode, surfaced by /sources via the
+  // dogeswap-split entry ("all" | "split-only"; entry absent = direct-only).
+  const [routerMode, setRouterMode] = useState("off");
   const [paySym, setPaySym] = useState("USDC");
   const [getSym, setGetSym] = useState("WDOGE");
   const [picker, setPicker] = useState(null); // 'pay' | 'get' | null
@@ -153,11 +169,14 @@ export default function SwapView({
     getSources()
       .then((body) => {
         if (cancelled) return;
+        const list = body.data ?? body ?? [];
         const map = {};
-        for (const s of body.data ?? body ?? []) {
+        for (const s of list) {
           map[s.sourceId] = { name: s.displayName ?? s.sourceId, type: s.protocolType ?? "" };
         }
         setSourceNames(map);
+        const split = list.find((s) => s.sourceId === "dogeswap-split");
+        setRouterMode(split?.routerMode ?? (split ? "split-only" : "off"));
       })
       .catch(() => {});
     return () => {
@@ -255,6 +274,16 @@ export default function SwapView({
 
   const bestMeta = best ? sourceNames[best.sourceId] : null;
   const bestName = bestMeta?.name ?? best?.displayName ?? best?.sourceId ?? "scanning";
+  const bestIsSplit = best?.routeType === "split" && Array.isArray(best.legs) && best.legs.length > 0;
+  // Route label for the review screen: names the venues inside a split, and
+  // flags router settlement when every swap executes through it.
+  const routeLabel = !best
+    ? bestName
+    : bestIsSplit
+      ? `${bestName}: ${splitLegsSummary(best.legs, sourceNames)}`
+      : routerMode === "all"
+        ? `${bestName} · via DogeSwapRouter`
+        : bestName;
   const bestType = bestMeta?.type ?? best?.protocolType ?? best?.routeType ?? "";
 
   // The aggregator-scan header shows live "scanning" until a ready quote
@@ -895,22 +924,13 @@ export default function SwapView({
             v={rate ? `1 ${pay?.symbol ?? ""} = ${fmt(rate, dpFor(rate))} ${get?.symbol ?? ""}` : "—"}
           />
           {/* Atomic split route: show the per-venue input distribution. */}
-          {hasResult && best?.routeType === "split" && Array.isArray(best.legs) && best.legs.length > 0 ? (
-            <DetailRow
-              k="split"
-              compact={mobile}
-              v={(() => {
-                const total = best.legs.reduce((sum, leg) => sum + Number(leg.amountIn ?? 0), 0);
-                if (!(total > 0)) return `${best.legs.length} legs · atomic`;
-                return `${best.legs
-                  .map((leg) => {
-                    const pct = Math.round((Number(leg.amountIn ?? 0) / total) * 100);
-                    const name = sourceNames[leg.sourceId]?.name ?? leg.sourceId;
-                    return `${pct}% ${name}`;
-                  })
-                  .join(" + ")} · atomic`;
-              })()}
-            />
+          {hasResult && bestIsSplit ? (
+            <DetailRow k="split" compact={mobile} v={`${splitLegsSummary(best.legs, sourceNames)} · atomic`} />
+          ) : null}
+          {/* Settlement guarantee — every routed swap enforces min-out on the
+              measured output delta and refunds leftovers (DogeSwapRouter). */}
+          {hasResult && (bestIsSplit || routerMode === "all") ? (
+            <DetailRow k="settlement" compact={mobile} v="DogeSwapRouter · atomic · enforced min-out" />
           ) : null}
           {/* Honesty: price impact omitted — backend computes no mid-price. */}
           <DetailRow k="price impact" compact={mobile} v="—" />
@@ -990,7 +1010,7 @@ export default function SwapView({
           outNum={outNum}
           minRecvNum={minRecvNum}
           slippage={slippage}
-          venue={bestName}
+          venue={routeLabel}
           bestRoute={best}
           quote={quote}
           slippageBps={slippageBps}

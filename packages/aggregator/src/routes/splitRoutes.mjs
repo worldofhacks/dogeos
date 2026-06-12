@@ -119,6 +119,7 @@ export function createSplitQuoteCandidateProvider({
   routerAddress = null,
   directQuoteProvider,
   splitRatiosBps = DEFAULT_SPLIT_RATIOS_BPS,
+  refineStepBps = 1_250n,
   minImprovementBps = 5n,
   nowMs = () => Date.now(),
 } = {}) {
@@ -140,42 +141,56 @@ export function createSplitQuoteCandidateProvider({
     const [venueA, venueB] = rankedVenues;
     const amountIn = BigInt(input.amountIn);
 
-    const ratioCandidates = await Promise.all(
-      splitRatiosBps.map(async (ratioBps) => {
-        const amountA = (amountIn * BigInt(ratioBps)) / BASIS_POINTS;
-        const amountB = amountIn - amountA;
-        if (amountA <= 0n || amountB <= 0n) return null;
+    const evaluateRatio = async (ratioBps) => {
+      const amountA = (amountIn * BigInt(ratioBps)) / BASIS_POINTS;
+      const amountB = amountIn - amountA;
+      if (amountA <= 0n || amountB <= 0n) return null;
 
-        const [quotesA, quotesB] = await Promise.all([
-          directQuoteProvider({ ...innerInput, amountIn: amountA, includeSources: [venueA.sourceId] }),
-          directQuoteProvider({ ...innerInput, amountIn: amountB, includeSources: [venueB.sourceId] }),
-        ]);
-        const legA = activeBestBySource(quotesA, "exactInput").find(
-          (quote) => quote.sourceId === venueA.sourceId,
-        );
-        const legB = activeBestBySource(quotesB, "exactInput").find(
-          (quote) => quote.sourceId === venueB.sourceId,
-        );
-        if (!legA || !legB) return null;
+      const [quotesA, quotesB] = await Promise.all([
+        directQuoteProvider({ ...innerInput, amountIn: amountA, includeSources: [venueA.sourceId] }),
+        directQuoteProvider({ ...innerInput, amountIn: amountB, includeSources: [venueB.sourceId] }),
+      ]);
+      const legA = activeBestBySource(quotesA, "exactInput").find(
+        (quote) => quote.sourceId === venueA.sourceId,
+      );
+      const legB = activeBestBySource(quotesB, "exactInput").find(
+        (quote) => quote.sourceId === venueB.sourceId,
+      );
+      if (!legA || !legB) return null;
 
-        return [
+      return {
+        ratioBps: BigInt(ratioBps),
+        legs: [
           { quote: legA, amountIn: amountA },
           { quote: legB, amountIn: amountB },
-        ];
-      }),
-    );
+        ],
+        amountOut: legA.amountOut + legB.amountOut,
+      };
+    };
 
-    let bestLegs = null;
-    let bestOut = 0n;
-    for (const legs of ratioCandidates) {
-      if (!legs) continue;
-      const out = legs.reduce((total, { quote }) => total + quote.amountOut, 0n);
-      if (out > bestOut) {
-        bestOut = out;
-        bestLegs = legs;
-      }
+    const pickBest = (evaluated) =>
+      evaluated
+        .filter(Boolean)
+        .reduce((best, candidate) => (!best || candidate.amountOut > best.amountOut ? candidate : best), null);
+
+    // Stage 1: coarse ratio sweep. Stage 2: refine around the coarse winner —
+    // real depth-aware re-quotes, so the chosen split tracks the true optimum
+    // instead of snapping to a coarse grid point.
+    const coarse = pickBest(await Promise.all(splitRatiosBps.map((ratio) => evaluateRatio(ratio))));
+    if (!coarse) return [];
+
+    let best = coarse;
+    if (refineStepBps > 0n) {
+      const tried = new Set(splitRatiosBps.map((ratio) => BigInt(ratio).toString()));
+      const refineRatios = [coarse.ratioBps - refineStepBps, coarse.ratioBps + refineStepBps].filter(
+        (ratio) => ratio > 0n && ratio < BASIS_POINTS && !tried.has(ratio.toString()),
+      );
+      const refined = pickBest(await Promise.all(refineRatios.map((ratio) => evaluateRatio(ratio))));
+      if (refined && refined.amountOut > best.amountOut) best = refined;
     }
-    if (!bestLegs) return [];
+
+    const bestLegs = best.legs;
+    const bestOut = best.amountOut;
 
     // Only surface the split when it genuinely beats the best single venue —
     // otherwise the extra router gas is pure cost.
