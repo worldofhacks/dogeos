@@ -970,12 +970,6 @@ export default function SwapView({
             }
           />
 
-          {!mobile && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, paddingTop: 6 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: th.gold }} />
-              <Label color={th.mute}>settles to Dogecoin · instant finality</Label>
-            </div>
-          )}
         </div>
         </div>
 

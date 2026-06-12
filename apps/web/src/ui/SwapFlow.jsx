@@ -547,7 +547,7 @@ export default function SwapFlow({
                   ...(deadlineSeconds
                     ? [["deadline", `${Math.round(deadlineSeconds / 60)}m`]]
                     : []),
-                  ["settles on", "Dogecoin · instant"],
+                  ["settles on", "Dogecoin"],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                     <Label>{k}</Label>

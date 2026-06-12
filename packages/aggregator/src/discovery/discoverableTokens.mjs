@@ -39,6 +39,10 @@ async function readBalance(client, token, owner) {
   }
 }
 
+const PRIMARY_BASE_DECIMALS = 18n; // WDOGE
+const PROBE_BASE_AMOUNT = 5n * 10n ** 16n; // 0.05 WDOGE — small so impact is fair to shallow pools
+const MIN_ROUND_TRIP_BPS = 6000; // must recover >= 60% of a buy->sell round trip
+
 export function createDiscoverableTokensProvider({
   client,
   fetchFn = fetch,
@@ -47,9 +51,16 @@ export function createDiscoverableTokensProvider({
   baseTokens = [],
   officialAddresses = [],
   primaryBase, // address used for the liquidity ranking (WDOGE)
+  // Round-trip tradeability gate: async ({ sellToken, buyToken, amountIn }) =>
+  // { ok, amountOut, priceImpactBps }. A token is surfaced ONLY if it quotes
+  // both ways with positive output and sane price impact — this is what
+  // rejects honeypots (buyable, not sellable) and drained one-sided pools that
+  // a liquidity-balance check alone cannot catch.
+  quoteProbe,
   limit = DEFAULT_LIMIT,
   rankPoolSize = DEFAULT_RANK_POOL,
   minBaseLiquidity = 1n, // wei of the base token; tokens below are dust/spam
+  minRoundTripBps = MIN_ROUND_TRIP_BPS,
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
   nowMs = () => Date.now(),
 } = {}) {
@@ -129,9 +140,59 @@ export function createDiscoverableTokensProvider({
       }
     }
 
-    const top = [...bySymbol.values()]
-      .sort((a, b) => (b.baseLiquidity > a.baseLiquidity ? 1 : -1))
-      .slice(0, limit);
+    const rankedBySymbol = [...bySymbol.values()].sort((a, b) =>
+      b.baseLiquidity > a.baseLiquidity ? 1 : -1,
+    );
+
+    // Round-trip tradeability gate — reject honeypots / drained pools. Probe
+    // in SMALL BATCHES (each probe fans out to multiple venues; flooding the
+    // RPC with all candidates at once times them all out), stopping once
+    // `limit` tokens pass.
+    const gated = [];
+    if (typeof quoteProbe === "function") {
+      // Probe one token at a time (each probe fans out to multiple venues;
+      // concurrency floods the testnet RPC and times healthy pools out).
+      const PROBE_BATCH = 1;
+      // One direction, retried — the live RPC intermittently times a single
+      // source out under load; a healthy pool quotes on a retry.
+      const probeDir = async (sellToken, buyToken, amountIn) => {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const r = await quoteProbe({ sellToken, buyToken, amountIn }).catch(() => null);
+          if (r?.ok && BigInt(r.amountOut ?? 0n) > 0n) return r;
+        }
+        return null;
+      };
+      // Round-trip recovery test: buy a SMALL amount of base into the token,
+      // then sell exactly that back. A healthy pool returns ~most of the base
+      // (minus fees + a little impact). Honeypots return ~nothing (sell
+      // blocked / no route); drained one-sided pools return far too little.
+      // Using a small, consistent probe makes this fair to shallow-but-real
+      // pools and independent of the token's price/decimals.
+      const isTradeable = async (token) => {
+        const probeIn = PROBE_BASE_AMOUNT;
+        const buy = await probeDir(rankBase, token.address, probeIn);
+        if (!buy) return false;
+        const tokensOut = BigInt(buy.amountOut);
+        const sell = await probeDir(token.address, rankBase, tokensOut);
+        if (!sell) return false;
+        const recovered = BigInt(sell.amountOut);
+        // recovered / probeIn >= minRoundTripBps / 10000
+        return recovered * 10000n >= probeIn * BigInt(minRoundTripBps);
+      };
+      for (let i = 0; i < rankedBySymbol.length && gated.length < limit; i += PROBE_BATCH) {
+        const batch = rankedBySymbol.slice(i, i + PROBE_BATCH);
+        // eslint-disable-next-line no-await-in-loop
+        const flags = await Promise.all(batch.map((token) => isTradeable(token)));
+        batch.forEach((token, j) => {
+          if (flags[j]) gated.push(token);
+        });
+      }
+    } else {
+      gated.push(...rankedBySymbol);
+    }
+
+    const top = gated.slice(0, limit);
 
     // Enrich survivors with explorer holders + logo.
     const enriched = await Promise.all(

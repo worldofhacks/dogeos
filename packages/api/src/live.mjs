@@ -341,12 +341,46 @@ export function createLiveAggregatorApiHandler({
       client,
       fetchFn,
       blockscoutBaseUrl: DOGEOS_CHAIN.blockscoutBaseUrl,
-      sources: listSources(),
+      // Only EXECUTABLE venues — a token whose only pool is on a non-executable
+      // venue (e.g. SuchSwap, router:null) can't be swapped through us, so it
+      // must not be surfaced as tradeable.
+      sources: listSources().filter((source) => source.verification?.execution === true),
       baseTokens: OFFICIAL_DOGEOS_TOKENS.filter(
         (t) => t.symbol === "WDOGE" || t.symbol === "USDC" || t.symbol === "USDT",
       ),
       officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
       primaryBase: OFFICIAL_DOGEOS_TOKENS.find((t) => t.symbol === "WDOGE")?.address,
+      // Require >= 0.1 WDOGE backing a token's pools — cheaply drops dust and
+      // drained one-sided pools before the (RPC-heavy) quote gate, so far
+      // fewer candidates need metadata + probing.
+      minBaseLiquidity: 10n ** 17n,
+      // Round-trip tradeability gate: reject honeypots / drained pools by
+      // quoting both directions through the live direct-route provider.
+      quoteProbe: async ({ sellToken, buyToken, amountIn }) => {
+        try {
+          const candidates = await directQuoteCandidateProvider({
+            chainId: DOGEOS_CHAIN.id,
+            quoteMode: "exactInput",
+            sellToken,
+            buyToken,
+            amountIn: BigInt(amountIn),
+            includeSources: [],
+            excludeSources: [],
+          });
+          const active = (candidates ?? []).filter(
+            (c) => c.status === "active" && BigInt(c.amountOut ?? 0n) > 0n,
+          );
+          if (active.length === 0) return { ok: false };
+          const best = active.reduce((a, b) => (BigInt(b.amountOut) > BigInt(a.amountOut) ? b : a));
+          return {
+            ok: true,
+            amountOut: best.amountOut,
+            priceImpactBps: Number(best.priceImpactBps ?? 0),
+          };
+        } catch {
+          return { ok: false };
+        }
+      },
     }),
     chainStatusProvider:
       createLiveChainStatusProvider({
