@@ -114,6 +114,73 @@ export function composeSplitCandidate({ legs, routerAddress, input, nowMs = () =
   };
 }
 
+// Deterministic refresh for an already-accepted split: re-quote the EXACT
+// locked legs (same venues, same per-leg amountIn) instead of re-running the
+// optimizer. The optimizer is marginal — re-running it on a refresh often
+// fails to reproduce a split (so /swap would 422), and the original split's
+// short TTL would otherwise expire during approval+permit signing. This pins
+// the user-accepted structure, refreshes leg prices, and always reproduces.
+export function createSplitQuoteRefresher({
+  routerAddress = null,
+  directQuoteProvider,
+  nowMs = () => Date.now(),
+} = {}) {
+  return async function refreshSplitQuote(quote, { slippageBps = 50n } = {}) {
+    if (!routerAddress || typeof directQuoteProvider !== "function") {
+      throw new Error("Split refresh is not configured.");
+    }
+    const lockedLegs = Array.isArray(quote.legs) ? quote.legs : [];
+    if (lockedLegs.length < 1) {
+      throw new Error("Split quote has no legs to refresh.");
+    }
+
+    const base = {
+      chainId: quote.chainId,
+      quoteMode: "exactInput",
+      sellToken: quote.sellToken,
+      buyToken: quote.buyToken,
+      excludeSources: [],
+    };
+
+    const refreshedLegs = await Promise.all(
+      lockedLegs.map(async (leg) => {
+        const legInput = {
+          ...base,
+          amountIn: BigInt(leg.amountIn),
+          includeSources: [leg.sourceId],
+        };
+        const quotes = await directQuoteProvider(legInput);
+        const fresh = activeBestBySource(quotes, "exactInput").find(
+          (candidate) => candidate.sourceId === leg.sourceId,
+        );
+        if (!fresh) {
+          throw new Error(
+            `Split leg ${leg.sourceId} could not be re-quoted. Refresh the quote and try again.`,
+          );
+        }
+        return { quote: fresh, amountIn: BigInt(leg.amountIn) };
+      }),
+    );
+
+    const totalAmountIn = refreshedLegs.reduce((sum, { amountIn }) => sum + amountIn, 0n);
+    const candidate = composeSplitCandidate({
+      legs: refreshedLegs,
+      routerAddress,
+      input: { sellToken: quote.sellToken, buyToken: quote.buyToken, amountIn: totalAmountIn },
+      nowMs,
+    });
+
+    // Apply the accepted slippage to the freshly-summed output.
+    const slippage = BigInt(slippageBps);
+    const minimumOutput = (candidate.amountOut * (BASIS_POINTS - slippage)) / BASIS_POINTS;
+    return {
+      ...candidate,
+      minimumOutput,
+      minAmountOut: minimumOutput,
+    };
+  };
+}
+
 export function createSplitQuoteCandidateProvider({
   enabled = true,
   routerAddress = null,

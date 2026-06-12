@@ -135,8 +135,6 @@ export default function Shell() {
     };
   }, []);
 
-  const chainId = chainStatus?.chainId ?? chainStatus?.expectedChainId ?? DOGEOS_CHAIN_ID;
-
   // connect chip: disconnected = accent "connect"; connected = pill + gold dot +
   // truncated address (click disconnects). A red dot + "wrong network" flags
   // the connected-but-not-on-DogeOS state, which otherwise looks healthy here
@@ -316,9 +314,7 @@ export default function Shell() {
                 flexWrap: "wrap",
               }}
             >
-              <Label color={theme.mute}>DogeOS Chikyū · chain {chainId}</Label>
-              <span style={{ width: 3, height: 3, borderRadius: "50%", background: theme.mute }} />
-              <Label color={theme.mute}>secured by Dogecoin PoW</Label>
+              <Label color={theme.mute}>DogeOS Chikyū</Label>
             </div>
           </div>
 
@@ -556,11 +552,7 @@ export default function Shell() {
               flexWrap: "wrap",
             }}
           >
-            <Label color={theme.mute}>DogeOS Chikyū Testnet · chain {chainId}</Label>
-            <span style={{ width: 3, height: 3, borderRadius: "50%", background: theme.mute }} />
-            <Label color={theme.mute}>secured by Dogecoin PoW</Label>
-            <span style={{ width: 3, height: 3, borderRadius: "50%", background: theme.mute }} />
-            <Label color={theme.mute}>ZK-anchored · 10,000+ TPS</Label>
+            <Label color={theme.mute}>DogeOS Chikyū Testnet</Label>
           </div>
         </div>
 

@@ -13,6 +13,7 @@ import {
   ROUTER_EXECUTION_MODE,
   SPLIT_SOURCE_ID,
   createSplitQuoteCandidateProvider,
+  createSplitQuoteRefresher,
   wrapQuoteForRouterExecution,
 } from "../../aggregator/src/routes/splitRoutes.mjs";
 import { createErc20ApprovalPlanner } from "../../aggregator/src/swap/erc20Approval.mjs";
@@ -228,6 +229,13 @@ export function createLiveAggregatorApiHandler({
     viaTokens: oneHopViaTokens,
     directQuoteProvider: directQuoteCandidateProvider,
   });
+  const splitQuoteRefresher = dogeSwapRouterAddress
+    ? createSplitQuoteRefresher({
+        routerAddress: dogeSwapRouterAddress,
+        directQuoteProvider: directQuoteCandidateProvider,
+        nowMs,
+      })
+    : undefined;
   const splitQuoteCandidateProvider = createSplitQuoteCandidateProvider({
     enabled: splitEnabled,
     routerAddress: dogeSwapRouterAddress,
@@ -297,6 +305,7 @@ export function createLiveAggregatorApiHandler({
       dogeSwapRouterMode === "all" && dogeSwapRouterAddress
         ? (quote) => wrapQuoteForRouterExecution(quote, { routerAddress: dogeSwapRouterAddress })
         : undefined,
+    splitQuoteRefresher,
     approvalPlanner:
       approvalPlanner ??
       (() => {

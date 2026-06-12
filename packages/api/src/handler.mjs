@@ -5,6 +5,7 @@ import {
   listSources,
   listVenueContracts,
 } from "../../aggregator/src/index.mjs";
+import { SPLIT_SOURCE_ID } from "../../aggregator/src/routes/splitRoutes.mjs";
 import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
 import { OFFICIAL_DOGEOS_TOKENS } from "../../config/src/tokens.mjs";
 
@@ -460,6 +461,9 @@ export function createAggregatorApiHandler({
   // calldata building — the hook that retargets eligible venue quotes onto
   // the first-party router for execution. Identity by default.
   executionQuoteTransform = (quote) => quote,
+  // Deterministic refresher for split quotes (re-quotes the locked legs).
+  // When unset, splits fall back to the generic optimizer refresh.
+  splitQuoteRefresher,
   activityProvider = fetchBlockscoutAddressTransactions,
   chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
@@ -498,6 +502,30 @@ export function createAggregatorApiHandler({
 
     const result = await promise;
     return result.candidates;
+  }
+
+  // Refresh a swap quote before build. Splits use the deterministic
+  // leg-re-quote refresher (the generic optimizer refresh is flaky for the
+  // marginal split route and would intermittently fail to reproduce it);
+  // every other quote uses the standard route refresh.
+  async function refreshExecutionQuote(originalQuote) {
+    if (originalQuote.sourceId === SPLIT_SOURCE_ID && splitQuoteRefresher) {
+      const refreshed = await splitQuoteRefresher(originalQuote, {
+        slippageBps: inferredSwapSlippageBps(originalQuote),
+      });
+      return clampRefreshedSwapQuote(
+        quoteWithSwapExecutionFields(refreshed, originalQuote),
+        originalQuote,
+      );
+    }
+    return refreshSwapQuote({
+      quote: originalQuote,
+      quoteCandidateProvider: resolveQuoteCandidates,
+      nowMs,
+      gasPriceWei,
+      outputWeiPerFeeWei,
+      inputWeiPerFeeWei,
+    });
   }
 
   return async function handleAggregatorRequest(request) {
@@ -690,14 +718,7 @@ export function createAggregatorApiHandler({
         await preSwapVerifier(originalQuote);
 
         const quote = refreshSwapQuoteBeforeBuild
-          ? await refreshSwapQuote({
-              quote: originalQuote,
-              quoteCandidateProvider: resolveQuoteCandidates,
-              nowMs,
-              gasPriceWei,
-              outputWeiPerFeeWei,
-              inputWeiPerFeeWei,
-            })
+          ? await refreshExecutionQuote(originalQuote)
           : originalQuote;
         const executionQuote = executionQuoteTransform(quote);
         const amount =
@@ -729,14 +750,7 @@ export function createAggregatorApiHandler({
         await preSwapVerifier(originalQuote);
 
         const refreshedQuote = refreshSwapQuoteBeforeBuild
-          ? await refreshSwapQuote({
-              quote: originalQuote,
-              quoteCandidateProvider: resolveQuoteCandidates,
-              nowMs,
-              gasPriceWei,
-              outputWeiPerFeeWei,
-              inputWeiPerFeeWei,
-            })
+          ? await refreshExecutionQuote(originalQuote)
           : originalQuote;
         const quote = executionQuoteTransform(refreshedQuote);
         const tx = buildSwapTx({

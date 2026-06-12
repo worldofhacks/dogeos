@@ -6,6 +6,7 @@ import {
   SPLIT_SOURCE_ID,
   composeSplitCandidate,
   createSplitQuoteCandidateProvider,
+  createSplitQuoteRefresher,
   wrapQuoteForRouterExecution,
 } from "../src/routes/splitRoutes.mjs";
 
@@ -158,6 +159,75 @@ test("split provider refines the ratio around the coarse winner", async () => {
   );
   // …and the chosen split is the refined 62.5/37.5, not the coarse 50/50.
   assert.equal(candidate.legs[0].amountIn, (10n ** 17n * 625n) / 1000n);
+});
+
+test("split refresher deterministically re-quotes the locked legs (always reproduces)", async () => {
+  // The optimizer is marginal and flaky; the refresher must instead re-quote
+  // the EXACT locked legs at their locked amountIn so a split /swap never
+  // intermittently fails to reproduce the route.
+  const calls = [];
+  const refresher = createSplitQuoteRefresher({
+    routerAddress: router,
+    directQuoteProvider: async (input) => {
+      calls.push({ include: input.includeSources, amountIn: input.amountIn });
+      const src = input.includeSources[0];
+      const pt = src === "muchfi-v3" ? "v3" : "v2";
+      // fresh price + fresh timestamp (the live provider stamps nowMs)
+      const extra = { quoteTimestampMs: 2_000, ...(src === "muchfi-v3" ? { feeTier: 500n } : {}) };
+      return [leg(src, pt, BigInt(input.amountIn), (BigInt(input.amountIn) * 99n) / 100n, extra)];
+    },
+    nowMs: () => 2_000,
+  });
+
+  const lockedQuote = {
+    sourceId: SPLIT_SOURCE_ID,
+    chainId: 6_281_971,
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn: 100n,
+    legs: [
+      { sourceId: "muchfi-v3", protocolType: "v3", amountIn: "60", feeTier: 500n },
+      { sourceId: "muchfi-v2", protocolType: "v2", amountIn: "40" },
+    ],
+  };
+
+  const refreshed = await refresher(lockedQuote, { slippageBps: 100n });
+
+  // Re-quoted each leg at its EXACT locked amountIn, pinned to its venue.
+  assert.deepEqual(calls.map((c) => c.include[0]).sort(), ["muchfi-v2", "muchfi-v3"]);
+  assert.deepEqual(calls.map((c) => String(c.amountIn)).sort(), ["40", "60"]);
+  assert.equal(refreshed.sourceId, SPLIT_SOURCE_ID);
+  assert.equal(refreshed.legs.length, 2);
+  // fresh aggregate output = floor(60*0.99) + floor(40*0.99) = 59 + 39 = 98;
+  // minOut = floor(98 * 0.99) = 97 (1% slippage, integer math)
+  assert.equal(refreshed.amountOut, 98n);
+  assert.equal(refreshed.minAmountOut, 97n);
+  assert.equal(refreshed.quoteTimestampMs, 2_000); // fresh timestamp resets TTL
+});
+
+test("split refresher fails closed when a leg can no longer be quoted", async () => {
+  const refresher = createSplitQuoteRefresher({
+    routerAddress: router,
+    directQuoteProvider: async (input) =>
+      input.includeSources[0] === "muchfi-v3" ? [leg("muchfi-v3", "v3", BigInt(input.amountIn), 1n, { feeTier: 500n })] : [],
+    nowMs: () => 2_000,
+  });
+  await assert.rejects(
+    refresher(
+      {
+        sourceId: SPLIT_SOURCE_ID,
+        chainId: 6_281_971,
+        sellToken: usdc,
+        buyToken: wdoge,
+        legs: [
+          { sourceId: "muchfi-v3", protocolType: "v3", amountIn: "60", feeTier: 500n },
+          { sourceId: "muchfi-v2", protocolType: "v2", amountIn: "40" },
+        ],
+      },
+      { slippageBps: 100n },
+    ),
+    /could not be re-quoted/,
+  );
 });
 
 test("wrapQuoteForRouterExecution retargets eligible venue quotes onto the router", () => {

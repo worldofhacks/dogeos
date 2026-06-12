@@ -38,7 +38,7 @@ import { useCallback, useEffect, useState } from "react";
 import { showToast } from "./Toast.jsx";
 
 const INJECTED_HELP =
-  "MyDoge not detected. Install MyDoge, or set DOGEOS_CLIENT_ID to enable the in-app DogeOS Connect Kit (MyDoge + WalletConnect).";
+  "MyDoge not detected. Install MyDoge to connect.";
 
 // Default injected preference when no clientId is set: target MyDoge directly so
 // a single click connects the Dogecoin-native wallet the user expects.

@@ -117,7 +117,7 @@ export default function WalletChooser({ chooser, onChoose, onCancel }) {
 
         <div style={{ padding: "0 16px 14px" }}>
           <Label color={th.mute}>
-            Don’t see MyDoge? Install it, or set DOGEOS_CLIENT_ID to enable the in-app DogeOS Connect Kit.
+            Don’t see MyDoge? Install it.
           </Label>
         </div>
       </div>
