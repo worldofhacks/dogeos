@@ -152,6 +152,68 @@ test("buildDogeSwapSplitCalldata prepends PERMIT2_PERMIT when a signed permit is
   assert.equal(commandsOf(withPermit), "00010302"); // permit, pull, v3, v2
 });
 
+test("verified registry builds router-execution calldata for a wrapped venue quote", async () => {
+  const { createVerifiedCalldataBuilder } = await import("../src/swap/calldataRegistry.mjs");
+  const { createVenueCalldataBuilders } = await import("../src/swap/venueCalldataBuilders.mjs");
+
+  const dogeRouter = "0xa3158549f38400F355aDf20C92DA1769620Aa35A";
+  const venueRouter = "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB";
+  const sources = [
+    {
+      sourceId: "muchfi-v3",
+      protocolType: "v3",
+      status: "active",
+      router: venueRouter,
+      abiProvenance: "venue-artifact",
+      verification: { execution: true },
+    },
+    {
+      sourceId: "dogeswap-split",
+      protocolType: "aggregator",
+      status: "active",
+      router: dogeRouter,
+      abiProvenance: "venue-artifact",
+      verification: { execution: true },
+    },
+  ];
+  const builder = createVerifiedCalldataBuilder({
+    sources,
+    builders: createVenueCalldataBuilders({ sources }),
+  });
+
+  const wrappedQuote = {
+    sourceId: "muchfi-v3",
+    protocolType: "v3",
+    status: "active",
+    quoteMode: "exactInput",
+    executionMode: "dogeswap-router",
+    router: dogeRouter,
+    venueRouter,
+    sellToken: usdc,
+    buyToken: wdoge,
+    amountIn: 10n ** 18n,
+    minAmountOut: 9n * 10n ** 17n,
+    recipient,
+    deadline: 1_780_000_300n,
+    legs: [{ sourceId: "muchfi-v3", protocolType: "v3", amountIn: 10n ** 18n, feeTier: 500n }],
+  };
+  const calldata = builder(wrappedQuote);
+  assert.ok(calldata.startsWith(DOGESWAP_ROUTER_EXECUTE_SELECTOR));
+
+  // Discipline: a wrapped quote whose venueRouter does not match the verified
+  // venue must be rejected.
+  assert.throws(
+    () => builder({ ...wrappedQuote, venueRouter: recipient }),
+    /venue router does not match/,
+  );
+  // And a wrapped quote pointing at an unverified execution router must fail.
+  const withoutRouterSource = createVerifiedCalldataBuilder({
+    sources: [sources[0]],
+    builders: createVenueCalldataBuilders({ sources: [sources[0]] }),
+  });
+  assert.throws(() => withoutRouterSource(wrappedQuote), /not active and verified/);
+});
+
 test("buildDogeSwapSplitCalldata rejects legs that overspend the declared total", () => {
   assert.throws(
     () =>

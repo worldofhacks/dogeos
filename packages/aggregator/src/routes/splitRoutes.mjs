@@ -8,6 +8,45 @@
 // split materially beats single-venue execution.
 
 export const SPLIT_SOURCE_ID = "dogeswap-split";
+export const ROUTER_EXECUTION_MODE = "dogeswap-router";
+
+const ROUTER_WRAPPABLE_PROTOCOLS = new Set(["v2", "v3", "algebra"]);
+
+// Retarget an eligible single-venue exact-input quote onto the first-party
+// DogeSwapRouter for execution: ranking and display stay venue-based, but the
+// transaction goes through the router so EVERY swap gets enforced settlement
+// (aggregate minOut on measured delta), an enforced deadline (MuchFi V3's own
+// calldata drops it), refunds, pause/caps, and the one-approval-per-token
+// Permit2 flow. Exact-output quotes pass through untouched — the router's
+// command set is exact-input only.
+export function wrapQuoteForRouterExecution(quote, { routerAddress } = {}) {
+  if (!routerAddress) return quote;
+  if ((quote.quoteMode ?? "exactInput") === "exactOutput") return quote;
+  if (quote.sourceId === SPLIT_SOURCE_ID || quote.executionMode === ROUTER_EXECUTION_MODE) return quote;
+  if (!ROUTER_WRAPPABLE_PROTOCOLS.has(quote.protocolType)) return quote;
+  if (quote.status !== "active") return quote;
+
+  return {
+    ...quote,
+    executionMode: ROUTER_EXECUTION_MODE,
+    venueRouter: quote.router,
+    router: routerAddress,
+    legs: [
+      {
+        sourceId: quote.sourceId,
+        protocolType: quote.protocolType,
+        poolAddress: quote.poolAddress,
+        amountIn: quote.amountIn,
+        amountOut: quote.amountOut,
+        gasUnits: quote.gasUnits,
+        ...(quote.feeTier !== undefined ? { feeTier: quote.feeTier } : {}),
+        ...(quote.feeBps !== undefined ? { feeBps: quote.feeBps } : {}),
+        ...(quote.deployer !== undefined ? { deployer: quote.deployer } : {}),
+        ...(quote.path !== undefined ? { path: quote.path } : {}),
+      },
+    ],
+  };
+}
 
 const BASIS_POINTS = 10_000n;
 // Router execution overhead on top of the venue legs: Permit2 pull +

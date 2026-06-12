@@ -134,6 +134,21 @@ export function buildBarkswapAlgebraExactOutputSingleCalldata(source, quote) {
   return `${SELECTORS.barkswapAlgebraExactOutputSingle}${encodeAddress(quote.sellToken, "sellToken")}${encodeAddress(quote.buyToken, "buyToken")}${encodeAddress(algebraDeployerFor(source, quote), "deployer")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(quote.deadline, "deadline")}${encodeUint(amountOut, "amountOut")}${encodeUint(maxAmountIn, "maxAmountIn")}${encodeUint(0n, "limitSqrtPrice")}`;
 }
 
+// Router-execution variant for a venue: same verified venue quote, but the
+// transaction is a single-leg DogeSwapRouter program (enforced settlement,
+// enforced deadline, Permit2 single-approval). Selected by the calldata
+// registry when the quote carries executionMode "dogeswap-router".
+function routerExecutionBuilder(source) {
+  return {
+    sourceId: source.sourceId,
+    protocolType: source.protocolType,
+    quoteMode: "exactInput",
+    executionMode: "dogeswap-router",
+    selector: DOGESWAP_ROUTER_EXECUTE_SELECTOR,
+    buildCalldata: (quote) => buildDogeSwapSplitCalldata(source, quote),
+  };
+}
+
 export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
   return sources.flatMap((source) => {
     if (source.sourceId === "muchfi-v2" && source.protocolType === "v2") {
@@ -152,6 +167,7 @@ export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
           selector: SELECTORS.v2SwapTokensForExactTokens,
           buildCalldata: buildV2SwapTokensForExactTokensCalldata,
         },
+        routerExecutionBuilder(source),
       ];
     }
 
@@ -171,6 +187,7 @@ export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
           selector: SELECTORS.muchfiV3ExactOutputSingle,
           buildCalldata: buildMuchFiV3ExactOutputSingleCalldata,
         },
+        routerExecutionBuilder(source),
       ];
     }
 
@@ -202,6 +219,7 @@ export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
           selector: SELECTORS.barkswapAlgebraExactOutputSingle,
           buildCalldata: (quote) => buildBarkswapAlgebraExactOutputSingleCalldata(source, quote),
         },
+        routerExecutionBuilder(source),
       ];
     }
 

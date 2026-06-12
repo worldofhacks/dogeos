@@ -456,6 +456,10 @@ export function createAggregatorApiHandler({
   swapVerifier,
   approvalPlanner,
   balanceVerifier,
+  // Applied to the (refreshed, clamped) quote before approval planning and
+  // calldata building — the hook that retargets eligible venue quotes onto
+  // the first-party router for execution. Identity by default.
+  executionQuoteTransform = (quote) => quote,
   activityProvider = fetchBlockscoutAddressTransactions,
   chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
@@ -695,17 +699,19 @@ export function createAggregatorApiHandler({
               inputWeiPerFeeWei,
             })
           : originalQuote;
-        const amount = quote.quoteMode === "exactOutput" ? quote.maxAmountIn : quote.amountIn;
+        const executionQuote = executionQuoteTransform(quote);
+        const amount =
+          executionQuote.quoteMode === "exactOutput" ? executionQuote.maxAmountIn : executionQuote.amountIn;
 
         const plan = await approvalPlanner({
-          token: quote.sellToken,
+          token: executionQuote.sellToken,
           owner,
-          spender: quote.router,
+          spender: executionQuote.router,
           amount,
-          quote,
+          quote: executionQuote,
         });
 
-        return jsonResponse({ ...plan, quote });
+        return jsonResponse({ ...plan, quote: executionQuote });
       } catch (error) {
         return errorResponse(422, "approval-not-buildable", error.message);
       }
@@ -722,7 +728,7 @@ export function createAggregatorApiHandler({
 
         await preSwapVerifier(originalQuote);
 
-        const quote = refreshSwapQuoteBeforeBuild
+        const refreshedQuote = refreshSwapQuoteBeforeBuild
           ? await refreshSwapQuote({
               quote: originalQuote,
               quoteCandidateProvider: resolveQuoteCandidates,
@@ -732,6 +738,7 @@ export function createAggregatorApiHandler({
               inputWeiPerFeeWei,
             })
           : originalQuote;
+        const quote = executionQuoteTransform(refreshedQuote);
         const tx = buildSwapTx({
           quote,
           nowMs: await resolveProvider(nowMs, Date.now(), quote),

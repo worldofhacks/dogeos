@@ -10,8 +10,10 @@ import {
 } from "../../aggregator/src/quotes/providers/concentratedLiquidity.mjs";
 import { createOneHopQuoteCandidateProvider } from "../../aggregator/src/routes/oneHop.mjs";
 import {
+  ROUTER_EXECUTION_MODE,
   SPLIT_SOURCE_ID,
   createSplitQuoteCandidateProvider,
+  wrapQuoteForRouterExecution,
 } from "../../aggregator/src/routes/splitRoutes.mjs";
 import { createErc20ApprovalPlanner } from "../../aggregator/src/swap/erc20Approval.mjs";
 import { createPermit2ApprovalPlanner } from "../../aggregator/src/swap/permit2Approval.mjs";
@@ -146,6 +148,11 @@ export function createLiveAggregatorApiHandler({
   oneHopViaTokens = defaultOneHopViaTokens(),
   splitEnabled = true,
   dogeSwapRouterAddress = process.env.DOGESWAP_ROUTER_ADDRESS || null,
+  // "all": every eligible exact-input swap executes through the first-party
+  // router (single-approval Permit2 flow, enforced settlement + deadline).
+  // "split-only": only multi-venue splits use the router. Exact-output swaps
+  // always go direct to the venue (the router's commands are exact-input only).
+  dogeSwapRouterMode = process.env.DOGESWAP_ROUTER_MODE || (process.env.DOGESWAP_ROUTER_ADDRESS ? "all" : "off"),
   concentratedLiquidityQuoterProvider,
   outputWeiPerFeeWei = 1n,
   inputWeiPerFeeWei,
@@ -281,15 +288,21 @@ export function createLiveAggregatorApiHandler({
       createVerifiedCalldataBuilder({
         builders: calldataBuilders ?? createVenueCalldataBuilders(),
       }),
+    executionQuoteTransform:
+      dogeSwapRouterMode === "all" && dogeSwapRouterAddress
+        ? (quote) => wrapQuoteForRouterExecution(quote, { routerAddress: dogeSwapRouterAddress })
+        : undefined,
     approvalPlanner:
       approvalPlanner ??
       (() => {
-        // Split swaps pull through Permit2 (two-step approval); every other
-        // venue keeps the direct exact-amount ERC-20 approval.
+        // Anything executing through the first-party router (splits, and all
+        // venue swaps in router mode) uses the single-approval Permit2 flow;
+        // direct venue execution keeps the exact-amount ERC-20 approval.
         const erc20Planner = createErc20ApprovalPlanner({ client });
         const permit2Planner = createPermit2ApprovalPlanner({ client });
         return (request) =>
-          request.quote?.sourceId === SPLIT_SOURCE_ID
+          request.quote?.sourceId === SPLIT_SOURCE_ID ||
+          request.quote?.executionMode === ROUTER_EXECUTION_MODE
             ? permit2Planner(request)
             : erc20Planner(request);
       })(),

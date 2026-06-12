@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ROUTER_EXECUTION_MODE,
   SPLIT_SOURCE_ID,
   composeSplitCandidate,
   createSplitQuoteCandidateProvider,
+  wrapQuoteForRouterExecution,
 } from "../src/routes/splitRoutes.mjs";
 
 const usdc = "0xD19d2Ffb1c284668b7AFe72cddae1BAF3Bc03925";
@@ -121,6 +123,30 @@ test("split provider declines when one venue dominates (no real improvement)", a
     directQuoteProvider: linear,
   });
   assert.deepEqual(await provider({ sellToken: usdc, buyToken: wdoge, amountIn: 10n ** 18n }), []);
+});
+
+test("wrapQuoteForRouterExecution retargets eligible venue quotes onto the router", () => {
+  const venueQuote = leg("barkswap-algebra", "algebra", 5n, 4n, { router: "0x77147f436cE9739D2A54Ffe428DBe02b90c0205e", feeBps: 5n });
+  const wrapped = wrapQuoteForRouterExecution(venueQuote, { routerAddress: router });
+
+  assert.equal(wrapped.executionMode, ROUTER_EXECUTION_MODE);
+  assert.equal(wrapped.router, router);
+  assert.equal(wrapped.venueRouter, "0x77147f436cE9739D2A54Ffe428DBe02b90c0205e");
+  assert.equal(wrapped.sourceId, "barkswap-algebra"); // ranking/display unchanged
+  assert.equal(wrapped.legs.length, 1);
+  assert.equal(wrapped.legs[0].amountIn, 5n);
+  assert.equal(wrapped.legs[0].protocolType, "algebra");
+});
+
+test("wrapQuoteForRouterExecution passes through exact-output, split, and non-venue quotes", () => {
+  const exactOutput = leg("muchfi-v2", "v2", 5n, 4n, { quoteMode: "exactOutput" });
+  assert.equal(wrapQuoteForRouterExecution(exactOutput, { routerAddress: router }), exactOutput);
+
+  const split = leg(SPLIT_SOURCE_ID, "aggregator", 5n, 4n);
+  assert.equal(wrapQuoteForRouterExecution(split, { routerAddress: router }), split);
+
+  const venue = leg("muchfi-v2", "v2", 5n, 4n);
+  assert.equal(wrapQuoteForRouterExecution(venue, {}), venue); // no router configured
 });
 
 test("split provider respects source pinning to other venues", async () => {

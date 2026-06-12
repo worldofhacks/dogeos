@@ -1423,6 +1423,58 @@ test("POST /swap refresh clamps the on-chain floor to the accepted minAmountOut"
   assert.equal(body.transaction.routeBinding.minAmountOut, "1000000");
 });
 
+test("POST /swap retargets venue quotes onto the router via executionQuoteTransform", async () => {
+  const dogeRouter = "0xa3158549f38400F355aDf20C92DA1769620Aa35A";
+  let builderInput;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    refreshSwapQuoteBeforeBuild: true,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 0n,
+    executionQuoteTransform: (quote) => ({
+      ...quote,
+      executionMode: "dogeswap-router",
+      venueRouter: quote.router,
+      router: dogeRouter,
+      legs: [{ sourceId: quote.sourceId, protocolType: quote.protocolType, amountIn: quote.amountIn, feeTier: 500n }],
+    }),
+    quoteCandidateProvider: async (input) => [
+      candidate({
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        amountIn: input.amountIn,
+        amountOut: 1_200_000n,
+        quoteTimestampMs: now,
+        ttlMs: 5_000,
+      }),
+    ],
+    calldataBuilder: (quote) => {
+      builderInput = quote;
+      return "0xe56964c6";
+    },
+    swapVerifier: async () => ({
+      status: "simulated",
+      estimatedGas: 100_000n,
+      gasLimit: 120_000n,
+      gasBufferBps: 12_000n,
+      blockTag: "latest",
+    }),
+  });
+
+  const response = await handle(exactInputSwapRequest());
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  // The transaction targets the first-party router…
+  assert.equal(body.transaction.to, dogeRouter);
+  // …while the quote keeps the venue identity for display/refresh pinning.
+  assert.equal(body.quote.sourceId, "muchfi-v3");
+  assert.equal(body.quote.executionMode, "dogeswap-router");
+  assert.equal(builderInput.executionMode, "dogeswap-router");
+  assert.equal(builderInput.legs.length, 1);
+});
+
 test("POST /swap carries the client's signed Permit2 permit through the refresh", async () => {
   let builderInput;
   const handle = exactInputRefreshHandle({
