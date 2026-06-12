@@ -466,6 +466,7 @@ export function createAggregatorApiHandler({
   splitQuoteRefresher,
   activityProvider = fetchBlockscoutAddressTransactions,
   tokenScanProvider,
+  trendingTokensProvider,
   chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
     throw new Error("No calldata builder configured.");
@@ -550,6 +551,19 @@ export function createAggregatorApiHandler({
         chainId: DOGEOS_CHAIN.id,
         data: OFFICIAL_DOGEOS_TOKENS,
       });
+    }
+
+    // Popular UNVERIFIED tokens beyond the curated list (spam-filtered,
+    // tradeable-first). Cached server-side; never blocks the picker.
+    if (request.method === "GET" && url.pathname === "/trending-tokens") {
+      if (!trendingTokensProvider) {
+        return jsonResponse({ chainId: DOGEOS_CHAIN.id, data: [] });
+      }
+      try {
+        return jsonResponse({ chainId: DOGEOS_CHAIN.id, data: await trendingTokensProvider() });
+      } catch (error) {
+        return unavailableResponse("trending-tokens-unavailable", error);
+      }
     }
 
     // Discover a pasted/arbitrary token: read its ERC-20 metadata and scan

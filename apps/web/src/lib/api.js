@@ -50,6 +50,12 @@ export function scanToken(address) {
   return fetchJson(`/token?address=${encodeURIComponent(address)}`);
 }
 
+// Popular UNVERIFIED tokens beyond the curated list (spam-filtered,
+// tradeable-first). Cached server-side; safe to call on picker open.
+export function getTrendingTokens() {
+  return fetchJson("/trending-tokens");
+}
+
 export function getSources() {
   return fetchJson("/sources");
 }

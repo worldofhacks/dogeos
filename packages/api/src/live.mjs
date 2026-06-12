@@ -5,6 +5,7 @@ import {
 import { createDogeosDataFinalityFeeProvider } from "../../aggregator/src/fees/l1GasPriceOracle.mjs";
 import { createTokenMetadataReader } from "../../aggregator/src/discovery/tokenMetadata.mjs";
 import { scanVenuePools } from "../../aggregator/src/discovery/poolScan.mjs";
+import { createTrendingTokensProvider } from "../../aggregator/src/discovery/trendingTokens.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
 import {
@@ -318,6 +319,13 @@ export function createLiveAggregatorApiHandler({
         pairedWith: [...new Set(pools.map((pool) => pool.pairedWith.symbol))],
       };
     },
+    trendingTokensProvider: createTrendingTokensProvider({
+      client,
+      fetchFn,
+      blockscoutBaseUrl: DOGEOS_CHAIN.blockscoutBaseUrl,
+      baseTokens: OFFICIAL_DOGEOS_TOKENS.filter((t) => t.symbol === "WDOGE" || t.symbol === "USDC"),
+      officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
+    }),
     chainStatusProvider:
       createLiveChainStatusProvider({
         client,

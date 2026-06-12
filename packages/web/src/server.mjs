@@ -21,6 +21,7 @@ const API_PATHS = new Set([
   "/sources",
   "/tokens",
   "/token",
+  "/trending-tokens",
   "/chain-status",
   "/venues",
   "/intelligence",

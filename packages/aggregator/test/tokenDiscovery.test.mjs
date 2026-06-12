@@ -155,3 +155,75 @@ test("scanVenuePools aggregates live pools across configured venues", async () =
   assert.deepEqual(pools.map((p) => p.sourceId).sort(), ["v2x", "v3x"]);
   assert.equal(pools.find((p) => p.sourceId === "v3x").feeTier, 500);
 });
+
+import { createTrendingTokensProvider } from "../src/discovery/trendingTokens.mjs";
+
+function blockscoutFetch(items) {
+  return async () => ({ ok: true, async json() { return { items }; } });
+}
+
+test("trending provider drops clone-spam, debt artifacts, and officials; flags tradeable", async () => {
+  const items = [
+    // ZEX clone spam: 3 distinct contracts, same symbol -> dropped entirely
+    { symbol: "ZEX", name: "Zex Coin", address: "0x" + "a".repeat(40), decimals: "5", holders_count: "1886" },
+    { symbol: "ZEX", name: "Zex Coin", address: "0x" + "b".repeat(40), decimals: "5", holders_count: "1720" },
+    { symbol: "ZEX", name: "Zex Coin", address: "0x" + "c".repeat(40), decimals: "5", holders_count: "972" },
+    // lending artifact -> dropped
+    { symbol: "variableDebtUSDT", name: "Aave Variable Debt", address: "0x" + "d".repeat(40), decimals: "18", holders_count: "31" },
+    // official -> dropped
+    { symbol: "USDC", name: "USD Coin", address: USDC, decimals: "18", holders_count: "413" },
+    // legit-ish unverified token WITH a pool -> kept, tradeable
+    { symbol: "FOO", name: "Foo Token", address: "0x" + "e".repeat(40), decimals: "18", holders_count: "50" },
+    // legit-ish unverified token WITHOUT a pool -> kept, not tradeable
+    { symbol: "BAR", name: "Bar Token", address: "0x" + "f".repeat(40), decimals: "18", holders_count: "80" },
+  ];
+
+  const fooAddress = "0x" + "e".repeat(40);
+  const client = {
+    async call({ data }) {
+      const sel = data.slice(0, 10);
+      // FOO has a v2 pair; everyone else returns zero
+      if (sel === "0xe6a43905" && data.includes("e".repeat(40))) return `0x${"e".repeat(24)}${"1".repeat(40)}`.slice(0, 66);
+      if (sel === "0x0902f1ac") return `0x${"0".repeat(63)}5${"0".repeat(63)}5${"0".repeat(64)}`;
+      return `0x${"0".repeat(64)}`;
+    },
+  };
+
+  const provider = createTrendingTokensProvider({
+    client,
+    fetchFn: blockscoutFetch(items),
+    blockscoutBaseUrl: "https://bs.test",
+    baseTokens: [{ symbol: "WDOGE", address: WDOGE }],
+    officialAddresses: [USDC, WDOGE],
+    nowMs: () => 1000,
+  });
+
+  const trending = await provider();
+  const symbols = trending.map((t) => t.symbol);
+  assert.equal(symbols.includes("ZEX"), false, "clone spam dropped");
+  assert.equal(symbols.includes("variableDebtUSDT"), false, "debt artifact dropped");
+  assert.equal(symbols.includes("USDC"), false, "official dropped");
+  assert.equal(symbols.includes("FOO"), true);
+  assert.equal(symbols.includes("BAR"), true);
+  assert.equal(trending.every((t) => t.verified === false), true);
+  void fooAddress;
+});
+
+test("trending provider caches results within the TTL", async () => {
+  let fetches = 0;
+  const provider = createTrendingTokensProvider({
+    client: null,
+    fetchFn: async () => {
+      fetches += 1;
+      return { ok: true, async json() { return { items: [] }; } };
+    },
+    blockscoutBaseUrl: "https://bs.test",
+    baseTokens: [],
+    officialAddresses: [],
+    cacheTtlMs: 10_000,
+    nowMs: () => 5000,
+  });
+  await provider();
+  await provider();
+  assert.equal(fetches, 1, "second call served from cache");
+});

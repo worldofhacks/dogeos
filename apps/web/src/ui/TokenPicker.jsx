@@ -9,7 +9,7 @@ import { useTheme } from "./theme.js";
 import { Label, TokenIcon, useIsMobile, compact } from "./primitives.jsx";
 import { decorateToken, filterTokens, compactAddress } from "../lib/tokens.js";
 import { unitsToNumber, walletBalanceKey } from "../lib/units.js";
-import { scanToken } from "../lib/api.js";
+import { scanToken, getTrendingTokens } from "../lib/api.js";
 import { addCustomToken } from "../lib/customTokens.js";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -272,6 +272,30 @@ export default function TokenPicker({ tokens, excludeSymbol, onPick, onImport, o
     onPick({ ...token, custom: true });
   };
 
+  // Popular UNVERIFIED tokens (lazy, cached server-side). Only shown when the
+  // user hasn't typed a query, and only those not already in the list.
+  const [trending, setTrending] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    getTrendingTokens()
+      .then((res) => {
+        if (!cancelled) setTrending(res.data ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const knownAddrs = new Set(tokens.map((t) => String(t.address).toLowerCase()));
+  const trendingShown = !trimmed
+    ? trending.filter((t) => !knownAddrs.has(String(t.address).toLowerCase())).slice(0, 8)
+    : [];
+  const pickTrending = (t) =>
+    importToken(
+      { address: t.address, symbol: t.symbol, name: t.name, decimals: t.decimals },
+      [],
+    );
+
   return (
     <Modal onClose={onClose}>
       <div style={{ padding: "16px 20px 12px" }}>
@@ -402,7 +426,71 @@ export default function TokenPicker({ tokens, excludeSymbol, onPick, onImport, o
             )}
           </div>
         )}
-        {list.length === 0 && !(isAddress && !known) && (
+        {/* Popular UNVERIFIED tokens — shown only on the empty search state. */}
+        {trendingShown.length > 0 && (
+          <div style={{ borderTop: `1px solid ${th.hair}` }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 18px 6px",
+              }}
+            >
+              <Label>popular</Label>
+              <span
+                style={{
+                  fontFamily: "'DM Mono',monospace",
+                  fontSize: 9.5,
+                  letterSpacing: "0.04em",
+                  color: th.chartDown,
+                  border: `1px solid ${th.chartDown}66`,
+                  borderRadius: 6,
+                  padding: "2px 6px",
+                }}
+              >
+                UNVERIFIED · DYOR
+              </span>
+            </div>
+            {trendingShown.map((t) => (
+              <button
+                key={t.address}
+                className="tap"
+                onClick={() => pickTrending(t)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 11,
+                  padding: "10px 18px",
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <TokenIcon token={decorateToken({ symbol: t.symbol, address: t.address })} size={28} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: th.ink, display: "flex", alignItems: "center", gap: 7 }}>
+                    {t.symbol}
+                    {t.tradeable && (
+                      <Label color={th.chartUp} style={{ fontSize: 8 }}>
+                        ● pool
+                      </Label>
+                    )}
+                  </div>
+                  <span className="te-num" style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: th.mute }}>
+                    {compactAddress(t.address)}
+                  </span>
+                </div>
+                <Label color={th.mute} style={{ fontSize: 10 }}>
+                  {t.holders ? `${t.holders} holders` : ""}
+                </Label>
+              </button>
+            ))}
+          </div>
+        )}
+        {list.length === 0 && trendingShown.length === 0 && !(isAddress && !known) && (
           <div style={{ padding: 30, textAlign: "center" }}>
             <Label>no tokens match “{q}”</Label>
           </div>
