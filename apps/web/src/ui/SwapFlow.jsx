@@ -237,6 +237,7 @@ function Spinner({ th, size = 26, track }) {
 //   bestRoute         — the live best route object from /quote (for /swap)
 //   quote             — the full /quote response (for ttl / freshness)
 //   slippageBps       — bps for execution binding
+//   priorityFeeGwei   — gas-speed tip (DOGE gwei) from trade defaults
 //   sender            — connected wallet address
 //   onRefresh         — re-quote (returns void; resolves freshness)
 //   isScanning        — true while a re-quote is in flight
@@ -254,6 +255,7 @@ export default function SwapFlow({
   quote,
   slippageBps,
   deadlineSeconds,
+  priorityFeeGwei,
   sender,
   onRefresh,
   isScanning,
@@ -322,6 +324,7 @@ export default function SwapFlow({
       sender,
       slippageBps,
       deadlineSeconds,
+      priorityFeeGwei,
       payAmt,
       recv: outNum,
       venue,
@@ -547,7 +550,7 @@ export default function SwapFlow({
                   ...(deadlineSeconds
                     ? [["deadline", `${Math.round(deadlineSeconds / 60)}m`]]
                     : []),
-                  ["settles on", "Dogecoin · instant"],
+                  ["settles on", "Dogecoin"],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                     <Label>{k}</Label>

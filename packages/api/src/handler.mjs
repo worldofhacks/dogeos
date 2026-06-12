@@ -60,6 +60,29 @@ function isHexAddress(value) {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value ?? ""));
 }
 
+function isZeroAddress(value) {
+  return /^0x0{40}$/i.test(String(value ?? ""));
+}
+
+// Returns an error message if the swap output recipient is not safely bound to
+// the sender, or null when the binding is valid. The recipient must be a real,
+// non-zero address equal (case-insensitively) to the connected wallet that
+// signs the transaction.
+function recipientBindingError(recipient, sender) {
+  const recipientStr = String(recipient ?? "");
+  const senderStr = String(sender ?? "");
+  if (!isHexAddress(senderStr)) {
+    return "A valid sender address is required to build a swap.";
+  }
+  if (!isHexAddress(recipientStr) || isZeroAddress(recipientStr)) {
+    return "quote.recipient must be a valid non-zero address.";
+  }
+  if (recipientStr.toLowerCase() !== senderStr.toLowerCase()) {
+    return "quote.recipient must equal the swap sender; third-party recipients are not allowed.";
+  }
+  return null;
+}
+
 function normalizedActivityLimit(value) {
   const numericLimit = Number(value ?? DEFAULT_ACTIVITY_LIMIT);
   if (!Number.isFinite(numericLimit)) return DEFAULT_ACTIVITY_LIMIT;
@@ -781,6 +804,18 @@ export function createAggregatorApiHandler({
         const sender = String(body.sender ?? originalQuote.sender ?? "");
         if (originalQuote.status !== "active") {
           throw new Error(`Source ${originalQuote.sourceId} is not active for execution.`);
+        }
+
+        // Bind the settlement output to the wallet that signs the tx. The
+        // recipient is encoded into the swap calldata (DogeSwapRouter settlement
+        // / venue swap), so an unbound recipient lets a caller build a
+        // simulation-"verified" swap that pays a third party — and the
+        // address(0) recipient is silently no-op'd by the router, stranding the
+        // output (recoverable only by the owner). Fail closed before any
+        // calldata is built.
+        const recipientMismatch = recipientBindingError(originalQuote.recipient, sender);
+        if (recipientMismatch) {
+          return errorResponse(400, "recipient-mismatch", recipientMismatch);
         }
 
         await preSwapVerifier(originalQuote);

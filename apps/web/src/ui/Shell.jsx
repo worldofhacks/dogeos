@@ -90,7 +90,7 @@ function TabIcon({ name, active }) {
 export default function Shell() {
   // Theme is driven by persisted settings (Settings view → appearance card).
   const settings = useSettings();
-  const theme = useMemo(() => makeTheme(settings.dark, settings.accent), [settings.dark, settings.accent]);
+  const theme = useMemo(() => makeTheme(settings.dark), [settings.dark]);
 
   const [view, setView] = useState("swap");
   const mobile = useIsMobile();

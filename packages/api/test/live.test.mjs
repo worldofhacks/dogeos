@@ -660,6 +660,7 @@ test("createLiveAggregatorApiHandler loads venue calldata builders for active li
 
   const response = await handle(
     jsonRequest("/swap", {
+      sender: "0x1111111111111111111111111111111111111111",
       quote: {
         sourceId: "muchfi-v3",
         protocolType: "v3",
@@ -716,7 +717,7 @@ test("createLiveAggregatorApiHandler verifies chain and simulates active swaps b
         buyToken: wdoge.address,
         amountIn: "1000000",
         minAmountOut: "900000",
-        recipient: "0x1111111111111111111111111111111111111111",
+        recipient: "0x2222222222222222222222222222222222222222",
         deadline: 1_780_000_300,
         quoteTimestampMs: now,
         ttlMs: 10_000,

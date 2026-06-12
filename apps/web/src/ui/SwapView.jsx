@@ -6,14 +6,16 @@
 //     scanning) — follows the live best route + the flip
 //   • freshness line: scanning spinner OR countdown ring (tap-to-refresh)
 //   • CTA states: connect / enter amount / insufficient balance / review swap
-//   • amount + slippage sliders w/ presets + escalating slippage warning bands
+//   • amount slider + slippage control (presets capped at 5%, custom expert
+//     input above that) w/ escalating slippage warning bands
 //   • expandable aggregator scan (best venue, "best of N", ranked venues with
 //     per-venue output + −X.XX% vs best, winner gold) — REAL from best+alternatives
-//   • detail rows (rate, min received, network fee) — REAL from the quote
+//   • detail rows (rate, price impact, min received, network fee) — REAL from the quote
 //
-// HONESTY: no USD sublabels (no price feed), no price-impact row (backend has
-// none), router fee shown as 0% (default), network fee derived from the quote's
-// feeEstimate (gasUnits × gasPrice + data/finality fee), else "—".
+// HONESTY: no USD sublabels (no price feed); price impact is REAL (backend
+// priceImpactBps from reserves / sqrtPriceX96) and shows "—" only on split
+// routes that carry none; router fee shown as 0% (default); network fee derived
+// from the quote's feeEstimate (gasUnits × gasPrice + data/finality fee), else "—".
 //
 // Layout: the module height is pinned constant across scanning↔ready via
 // fixed-height rows + skeleton shimmers so there is NO layout shift.
@@ -27,7 +29,7 @@ import SwapFlow from "./SwapFlow.jsx";
 import { ChartPanel, ChartPopout } from "./ChartView.jsx";
 import { showToast } from "./Toast.jsx";
 import { useWallet } from "./useWallet.js";
-import { useSettings } from "./useSettings.js";
+import { useSettings, SLIPPAGE_PRESETS, MAX_SLIPPAGE_PERCENT, clampSlippagePercent } from "./useSettings.js";
 import { useQuote } from "./useQuote.js";
 import { useTokenBalances } from "./useTokenBalances.js";
 import { getTokens, getSources, DOGEOS_CHAIN_ID } from "../lib/api.js";
@@ -41,6 +43,7 @@ import {
   routeOutputNumber,
   routeOutputDecimal,
   minReceivedDecimal,
+  priceImpactPercent,
   effectiveRate,
   venueDeficitPercent,
   bestVsNextPercent,
@@ -216,14 +219,27 @@ export default function SwapView({
   // ---- amount + slippage controls ----
   const [payAmt, setPayAmt] = useState("");
   // Default slippage comes from the persisted settings (Settings → trade
-  // defaults); the in-swap slider below still overrides it per-trade. We seed
+  // defaults); the in-swap control below still overrides it per-trade. We seed
   // once and let the user diverge; if they haven't touched it we keep it in
-  // sync with the default.
+  // sync with the default. `slippageText` mirrors the value so the custom input
+  // accepts free typing (e.g. intermediate "0.") without snapping.
   const [slippage, setSlippage] = useState(settings.slippage);
+  const [slippageText, setSlippageText] = useState(String(settings.slippage));
   const [slippageTouched, setSlippageTouched] = useState(false);
   useEffect(() => {
-    if (!slippageTouched) setSlippage(settings.slippage);
+    if (!slippageTouched) {
+      setSlippage(settings.slippage);
+      setSlippageText(String(settings.slippage));
+    }
   }, [settings.slippage, slippageTouched]);
+  // Apply a slippage value from a preset chip or the custom input (clamped to
+  // the server's hard ceiling so the UI can never request a rejected tolerance).
+  const applySlippage = (value) => {
+    const clamped = clampSlippagePercent(value);
+    setSlippageTouched(true);
+    setSlippage(clamped);
+    setSlippageText(String(clamped));
+  };
   const [spin, setSpin] = useState(0);
   const [routeOpen, setRouteOpen] = useState(false);
   const [showFlow, setShowFlow] = useState(false); // swap execution overlay
@@ -696,26 +712,99 @@ export default function SwapView({
                 setPayAmt(v <= 0 ? "" : String(+(payBalNum * v / 100).toFixed(dp)));
               }}
             />
-            <Slider
-              label="slippage"
-              value={slippage}
-              min={0.1}
-              max={50}
-              step={0.1}
-              accent={slippage > 20 ? th.chartDown : slippage > 5 ? th.gold : undefined}
-              valueColor={slippage > 20 ? th.chartDown : slippage > 5 ? th.gold : th.ink}
-              format={(v) => (v >= 49.95 ? "MAX" : v.toFixed(1) + "%")}
-              presets={[
-                { value: 0.5, label: "0.5%" },
-                { value: 5, label: "5%" },
-                { value: 25, label: "25%" },
-                { value: 50, label: "MAX" },
-              ]}
-              onChange={(v) => {
-                setSlippageTouched(true);
-                setSlippage(v);
-              }}
-            />
+            {/* slippage: quick presets cap at 5%; higher is a typed custom
+                value (expert gate), clamped to the server's 50% ceiling. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Label color={th.mute}>slippage</Label>
+                <span
+                  className="te-num"
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: slippage > 20 ? th.chartDown : slippage > 5 ? th.gold : th.ink,
+                  }}
+                >
+                  {Number.isInteger(slippage) ? slippage : Number(slippage.toFixed(2))}%
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>
+                {SLIPPAGE_PRESETS.map((p) => {
+                  const active = Math.abs(slippage - p) < 0.0001;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => applySlippage(p)}
+                      style={{
+                        flex: 1,
+                        padding: "8px 0",
+                        borderRadius: 9,
+                        cursor: "pointer",
+                        fontFamily: "'DM Mono',monospace",
+                        fontSize: 12,
+                        color: active ? th.ink : th.mute,
+                        background: active
+                          ? th.dark
+                            ? "rgba(255,207,46,0.14)"
+                            : "rgba(255,207,46,0.16)"
+                          : "transparent",
+                        border: `1px solid ${active ? th.gold + "88" : th.hair}`,
+                        transition: "background 120ms, border-color 120ms",
+                      }}
+                    >
+                      {p}%
+                    </button>
+                  );
+                })}
+                <div style={{ position: "relative", width: 96, flexShrink: 0 }}>
+                  <input
+                    inputMode="decimal"
+                    value={slippageText}
+                    title={`custom slippage — up to ${MAX_SLIPPAGE_PERCENT}%`}
+                    aria-label="custom slippage percent"
+                    placeholder="custom"
+                    onChange={(e) => {
+                      const cleaned = sanitizeAmountInput(e.target.value);
+                      setSlippageText(cleaned);
+                      const v = Number.parseFloat(cleaned);
+                      if (Number.isFinite(v)) {
+                        setSlippageTouched(true);
+                        setSlippage(clampSlippagePercent(v));
+                      }
+                    }}
+                    onBlur={() => setSlippageText(String(slippage))}
+                    style={{
+                      width: "100%",
+                      padding: "8px 22px 8px 10px",
+                      borderRadius: 9,
+                      fontFamily: "'DM Mono',monospace",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: th.ink,
+                      background: "transparent",
+                      border: `1px solid ${th.hair}`,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      right: 9,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      fontFamily: "'DM Mono',monospace",
+                      fontSize: 12,
+                      color: th.mute,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    %
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           {slippage > 5 &&
             (() => {
@@ -936,8 +1025,21 @@ export default function SwapView({
           {hasResult && (bestIsSplit || routerMode === "all") ? (
             <DetailRow k="settlement" compact={mobile} v="atomic · min-out enforced" />
           ) : null}
-          {/* Honesty: price impact omitted — backend computes no mid-price. */}
-          <DetailRow k="price impact" compact={mobile} v="—" />
+          {/* REAL price impact from the route's priceImpactBps (on-chain
+              reserves / sqrtPriceX96). "—" only when the route carries none
+              (e.g. synthetic split routes). */}
+          <DetailRow
+            k="price impact"
+            compact={mobile}
+            loading={scanning}
+            v={(() => {
+              const pct = hasResult ? priceImpactPercent(best) : null;
+              if (pct === null) return "—";
+              const color = pct >= 5 ? th.chartDown : pct >= 1 ? th.gold : th.inkSoft;
+              const text = pct < 0.01 ? "<0.01%" : `${pct.toFixed(2)}%`;
+              return <span style={{ color }}>{text}</span>;
+            })()}
+          />
           <DetailRow
             k="min received"
             compact={mobile}
@@ -970,12 +1072,6 @@ export default function SwapView({
             }
           />
 
-          {!mobile && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, paddingTop: 6 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: th.gold }} />
-              <Label color={th.mute}>settles to Dogecoin · instant finality</Label>
-            </div>
-          )}
         </div>
         </div>
 
@@ -1019,6 +1115,7 @@ export default function SwapView({
           quote={quote}
           slippageBps={slippageBps}
           deadlineSeconds={settings.deadline * 60}
+          priorityFeeGwei={settings.gas}
           sender={wallet.address}
           onRefresh={refresh}
           isScanning={scanning}

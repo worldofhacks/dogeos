@@ -1054,7 +1054,7 @@ test("POST /approval and /swap coalesce identical in-flight refreshed quote work
     amountOut: "1050000",
     minAmountOut: "1000000",
     slippageBps: "100",
-    recipient: "0x1111111111111111111111111111111111111111",
+    recipient: "0x2222222222222222222222222222222222222222",
     deadline: 1_780_000_300,
     quoteTimestampMs: now,
     ttlMs: 10_000,
@@ -1236,7 +1236,7 @@ test("POST /swap attaches on-chain simulation and gas estimates for active quote
         buyToken: wdoge.address,
         amountIn: "1000000",
         minAmountOut: "900000",
-        recipient: "0x1111111111111111111111111111111111111111",
+        recipient: "0x2222222222222222222222222222222222222222",
         deadline: 1_780_000_300,
         quoteTimestampMs: now,
         ttlMs: 10_000,
@@ -1323,7 +1323,7 @@ test("POST /swap can refresh the selected source quote before calldata building"
         amountOut: "1050000",
         minAmountOut: "1000000",
         slippageBps: "100",
-        recipient: "0x1111111111111111111111111111111111111111",
+        recipient: "0x2222222222222222222222222222222222222222",
         deadline: 1_780_000_300,
         quoteTimestampMs: now,
         ttlMs: 10_000,
@@ -1338,7 +1338,7 @@ test("POST /swap can refresh the selected source quote before calldata building"
   assert.deepEqual(quoteProviderInput.excludeSources, []);
   assert.equal(builderInput.amountOut, 1_200_000n);
   assert.equal(builderInput.minAmountOut, 1_188_000n);
-  assert.equal(builderInput.recipient, "0x1111111111111111111111111111111111111111");
+  assert.equal(builderInput.recipient, "0x2222222222222222222222222222222222222222");
   assert.equal(builderInput.deadline, 1_780_000_300);
   assert.equal(body.quote.amountOut, "1200000");
   assert.equal(body.quote.minAmountOut, "1188000");
@@ -1391,7 +1391,7 @@ function exactInputSwapRequest() {
       amountOut: "1050000",
       minAmountOut: "1000000",
       slippageBps: "100",
-      recipient: "0x1111111111111111111111111111111111111111",
+      recipient: "0x2222222222222222222222222222222222222222",
       deadline: 1_780_000_300,
       quoteTimestampMs: now,
       ttlMs: 10_000,
@@ -1546,7 +1546,7 @@ test("POST /swap refuses insufficient balances after simulation", async () => {
         buyToken: wdoge.address,
         amountIn: "1000000",
         minAmountOut: "900000",
-        recipient: "0x1111111111111111111111111111111111111111",
+        recipient: "0x2222222222222222222222222222222222222222",
         deadline: 1_780_000_300,
         quoteTimestampMs: now,
         ttlMs: 10_000,
@@ -1593,7 +1593,7 @@ test("POST /swap normalizes exact-output quote bounds before calldata building",
         amountOut: "900000",
         maxAmountIn: "1050000",
         minAmountOut: "900000",
-        recipient: "0x1111111111111111111111111111111111111111",
+        recipient: "0x2222222222222222222222222222222222222222",
         deadline: 1_780_000_300,
         quoteTimestampMs: now,
         ttlMs: 10_000,
@@ -1605,6 +1605,82 @@ test("POST /swap normalizes exact-output quote bounds before calldata building",
   assert.equal(builderInput.quoteMode, "exactOutput");
   assert.equal(builderInput.amountOut, 900_000n);
   assert.equal(builderInput.maxAmountIn, 1_050_000n);
+});
+
+test("POST /swap rejects a recipient that is not the sender", async () => {
+  let calldataCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => {
+      calldataCalled = true;
+      return "0x38ed1739";
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x3333333333333333333333333333333333333333",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(calldataCalled, false);
+  assert.equal(body.error.code, "recipient-mismatch");
+  assert.match(body.error.message, /recipient must equal the swap sender/i);
+});
+
+test("POST /swap rejects the zero-address recipient", async () => {
+  let calldataCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => {
+      calldataCalled = true;
+      return "0x38ed1739";
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/swap", {
+      sender: "0x2222222222222222222222222222222222222222",
+      quote: {
+        sourceId: "muchfi-v3",
+        protocolType: "v3",
+        status: "active",
+        chainId: DOGEOS_CHAIN.id,
+        router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+        sellToken: usdc.address,
+        buyToken: wdoge.address,
+        amountIn: "1000000",
+        minAmountOut: "900000",
+        recipient: "0x0000000000000000000000000000000000000000",
+        deadline: 1_780_000_300,
+        quoteTimestampMs: now,
+        ttlMs: 10_000,
+      },
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(calldataCalled, false);
+  assert.equal(body.error.code, "recipient-mismatch");
+  assert.match(body.error.message, /non-zero address/i);
 });
 
 test("GET /token returns metadata + discovered pools for a routable token", async () => {

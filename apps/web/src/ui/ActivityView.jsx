@@ -5,11 +5,14 @@
 //     (useSwapExecution → logSwapActivity). Rich: pay/get token marks,
 //     {payAmt} → {recv} · {venue}, confirmed/pending/failed pill, relative time.
 //   • CHAIN  — getActivity(address, limit) → real Blockscout txns for the
-//     connected wallet. Blockscout txns don't carry decoded pay/get token
-//     symbols, so we honestly show the tx method + status + relative time and
-//     link each row to Blockscout by hash (no fabricated amounts/pairs).
+//     connected wallet, FILTERED to swaps only (method contains "swap", or the
+//     tx targets a known venue/aggregator router from /sources). Approvals,
+//     transfers and other on-chain actions are not shown. Blockscout txns
+//     don't carry decoded pay/get token symbols, so we honestly show the tx
+//     method + status + relative time and link each row to Blockscout by hash.
 //
-// Both streams are merged newest-first and tagged (local · / on-chain ·).
+// Both streams are merged newest-first and tagged (local · / on-chain ·); a
+// swap that exists in both (same tx hash) renders once, as the richer local row.
 // "clear" clears ONLY the local history (on-chain history is the wallet's own).
 // Empty state: Doge mascot + microcopy + accent "start a swap".
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -17,11 +20,80 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "./theme.js";
 import { Label, TokenIcon, fmt, timeAgo } from "./primitives.jsx";
 import { useWallet } from "./useWallet.js";
-import { getTokens, getActivity, DOGEOS_BLOCKSCOUT_URL } from "../lib/api.js";
+import { getTokens, getActivity, getSources, DOGEOS_BLOCKSCOUT_URL } from "../lib/api.js";
 import { decorateToken } from "../lib/tokens.js";
 
 const HISTORY_KEY = "doge.history";
 const HISTORY_EVENT = "doge:history-updated";
+
+// Fetch the server max, then filter to swaps client-side (a 20-tx page of
+// mixed activity could leave just a couple of swaps).
+const ACTIVITY_FETCH_LIMIT = 50;
+
+// Module-level stale-while-revalidate caches: switching to this tab renders
+// the last known data instantly and refreshes in the background, instead of
+// re-paying token catalog + Blockscout latency on every visit.
+let tokensCache = null; //            token list
+let routersCache = null; //           Set<lowercase router address> from /sources
+let activityCache = { address: "", items: null }; // last chain fetch per wallet
+let swapLegsCache = { address: "", legs: null }; // tx hash → pay/get legs
+
+// Swaps-only filter for the on-chain stream. A tx is a swap when its decoded
+// method says so, or when it targets a known venue/aggregator router (the
+// DogeSwapRouter's method is "execute", which alone doesn't say "swap").
+// Until /sources arrives (routers === null) we accept "execute"/"multicall"
+// so router swaps aren't missing from the first paint.
+function isSwapTransaction(item, routers) {
+  const method = String(item?.method ?? "").toLowerCase();
+  if (method.includes("swap")) return true;
+  const to = String(item?.to?.hash ?? item?.to ?? "").toLowerCase();
+  if (routers) return routers.has(to);
+  return method === "execute" || method === "multicall";
+}
+
+// Reconstruct each swap's pay/get legs from the wallet's Blockscout token
+// transfers (CORS-open API): per tx hash, the user's outgoing transfer is the
+// pay side and the incoming one is the get side. Amounts are summed per token
+// (split routes move the same pair through several venues in one tx).
+function tokenTransfersUrl(address) {
+  return `${DOGEOS_BLOCKSCOUT_URL}/api/v2/addresses/${address}/token-transfers`;
+}
+
+function transferAmount(total) {
+  const value = Number(total?.value);
+  const decimals = Number(total?.decimals ?? 18);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return value / 10 ** (Number.isFinite(decimals) ? decimals : 18);
+}
+
+// Map: lowercase tx hash → { pay: {token, amount}, get: {token, amount} }
+function indexSwapLegsByTx(transfers, address) {
+  const user = String(address ?? "").toLowerCase();
+  const byTx = new Map();
+  for (const item of Array.isArray(transfers) ? transfers : []) {
+    const hash = String(item?.transaction_hash ?? item?.tx_hash ?? "").toLowerCase();
+    const token = item?.token;
+    if (!hash || !token?.symbol) continue;
+    const from = String(item?.from?.hash ?? "").toLowerCase();
+    const to = String(item?.to?.hash ?? "").toLowerCase();
+    const side = from === user ? "pay" : to === user ? "get" : null;
+    if (!side) continue;
+    const legs = byTx.get(hash) ?? { pay: new Map(), get: new Map() };
+    const key = String(token.address ?? token.symbol).toLowerCase();
+    const prior = legs[side].get(key) ?? { token, amount: 0 };
+    prior.amount += transferAmount(item.total);
+    legs[side].set(key, prior);
+    byTx.set(hash, legs);
+  }
+  // Collapse each side to its dominant token (by amount moved).
+  const resolved = new Map();
+  for (const [hash, legs] of byTx) {
+    const top = (sideMap) =>
+      [...sideMap.values()].sort((a, b) => b.amount - a.amount)[0] ?? null;
+    resolved.set(hash, { pay: top(legs.pay), get: top(legs.get) });
+  }
+  return resolved;
+}
 
 function readLocalHistory() {
   if (typeof window === "undefined" || !window.localStorage) return [];
@@ -83,8 +155,15 @@ export default function ActivityView({ onTrade }) {
   const wallet = useWallet();
 
   const [local, setLocal] = useState(readLocalHistory);
-  const [chain, setChain] = useState([]);
-  const [tokens, setTokens] = useState([]);
+  // Seed every stream from the module caches so a revisit paints instantly.
+  const [chain, setChain] = useState(() =>
+    activityCache.address === wallet.address && activityCache.items ? activityCache.items : [],
+  );
+  const [chainLoaded, setChainLoaded] = useState(
+    () => activityCache.address === wallet.address && activityCache.items != null,
+  );
+  const [tokens, setTokens] = useState(() => tokensCache ?? []);
+  const [routers, setRouters] = useState(() => routersCache);
 
   // Keep local history live (other tabs / the swap flow in this tab).
   useEffect(() => {
@@ -97,12 +176,14 @@ export default function ActivityView({ onTrade }) {
     };
   }, []);
 
-  // Token catalog (for the local rows' pay/get marks).
+  // Token catalog (for the local rows' pay/get marks) — cached across visits.
   useEffect(() => {
     let cancelled = false;
     getTokens()
       .then((body) => {
-        if (!cancelled) setTokens(body.data ?? body ?? []);
+        const list = body.data ?? body ?? [];
+        tokensCache = list;
+        if (!cancelled) setTokens(list);
       })
       .catch(() => {});
     return () => {
@@ -110,19 +191,76 @@ export default function ActivityView({ onTrade }) {
     };
   }, []);
 
-  // Real on-chain history for the connected wallet.
+  // Venue/aggregator router addresses (for the swaps-only filter) — cached.
+  useEffect(() => {
+    if (routersCache) return undefined;
+    let cancelled = false;
+    getSources()
+      .then((body) => {
+        const sources = body.data ?? body ?? [];
+        const set = new Set(
+          sources.map((s) => String(s.router ?? "").toLowerCase()).filter((a) => a.startsWith("0x")),
+        );
+        routersCache = set;
+        if (!cancelled) setRouters(set);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Token transfers per swap tx (pay/get legs for the on-chain rows) — cached.
+  const [swapLegs, setSwapLegs] = useState(() =>
+    swapLegsCache.address === wallet.address ? swapLegsCache.legs : null,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    if (!wallet.address) {
+      setSwapLegs(null);
+      return undefined;
+    }
+    fetch(tokenTransfersUrl(wallet.address))
+      .then((r) => r.json())
+      .then((body) => {
+        const legs = indexSwapLegsByTx(body?.items, wallet.address);
+        swapLegsCache = { address: wallet.address, legs };
+        if (!cancelled) setSwapLegs(legs);
+      })
+      .catch(() => {
+        /* legs are an enrichment — rows fall back to the method layout */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wallet.address]);
+
+  // Real on-chain history for the connected wallet — stale-while-revalidate.
   useEffect(() => {
     let cancelled = false;
     if (!wallet.address) {
       setChain([]);
+      setChainLoaded(true);
       return undefined;
     }
-    getActivity(wallet.address, 20)
+    const cached = activityCache.address === wallet.address && activityCache.items;
+    if (cached) {
+      setChain(activityCache.items);
+      setChainLoaded(true);
+    } else {
+      setChainLoaded(false);
+    }
+    getActivity(wallet.address, ACTIVITY_FETCH_LIMIT)
       .then((body) => {
-        if (!cancelled) setChain(Array.isArray(body.data) ? body.data : []);
+        const items = Array.isArray(body.data) ? body.data : [];
+        activityCache = { address: wallet.address, items };
+        if (!cancelled) {
+          setChain(items);
+          setChainLoaded(true);
+        }
       })
       .catch(() => {
-        if (!cancelled) setChain([]);
+        if (!cancelled) setChainLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -137,7 +275,26 @@ export default function ActivityView({ onTrade }) {
     [tokens],
   );
 
-  // Merge both streams newest-first.
+  // Token mark for an on-chain leg: prefer the catalog entry (brand color /
+  // logo) by address, else decorate the Blockscout token info directly.
+  const tokForLeg = useCallback(
+    (info, sym) => {
+      const addr = String(info?.address ?? "").toLowerCase();
+      const fromCatalog = addr
+        ? tokens.find((token) => String(token.address ?? "").toLowerCase() === addr)
+        : null;
+      if (fromCatalog) return decorateToken(fromCatalog);
+      if (info?.symbol) {
+        return decorateToken({ symbol: info.symbol, address: info.address, icon_url: info.icon_url });
+      }
+      return tokBySym(sym);
+    },
+    [tokens, tokBySym],
+  );
+
+  // Merge both streams newest-first: chain rows filtered to swaps only, and
+  // any swap already in local history (same tx hash) renders once as the
+  // richer local row instead of twice.
   const entries = useMemo(() => {
     const localRows = local.map((e, i) => ({
       key: `local-${e.hash ?? i}-${e.ts ?? i}`,
@@ -151,17 +308,38 @@ export default function ActivityView({ onTrade }) {
       ts: e.ts ?? Date.now(),
       hash: e.hash,
     }));
-    const chainRows = chain.map((item, i) => ({
-      key: `chain-${item.hash ?? i}`,
-      origin: "chain",
-      method: item.method,
-      status: chainStatus(item),
-      ts: chainTimestampMs(item),
-      hash: item.hash,
-      to: item.to?.hash ?? item.to ?? null,
-    }));
+    const localHashes = new Set(localRows.map((e) => String(e.hash ?? "").toLowerCase()).filter(Boolean));
+    const chainRows = chain
+      .filter((item) => isSwapTransaction(item, routers))
+      .filter((item) => !localHashes.has(String(item.hash ?? "").toLowerCase()))
+      .map((item, i) => {
+        // Pay/get legs from the wallet's token transfers; a DOGE-in swap has
+        // no outgoing ERC-20 transfer, so the native tx value is the pay side.
+        const legs = swapLegs?.get(String(item.hash ?? "").toLowerCase()) ?? null;
+        let pay = legs?.pay ?? null;
+        const get = legs?.get ?? null;
+        const nativeIn = Number(item.value);
+        if (!pay && Number.isFinite(nativeIn) && nativeIn > 0) {
+          pay = { token: { symbol: "DOGE" }, amount: nativeIn / 1e18 };
+        }
+        return {
+          key: `chain-${item.hash ?? i}`,
+          origin: "chain",
+          method: item.method,
+          status: chainStatus(item),
+          ts: chainTimestampMs(item),
+          hash: item.hash,
+          to: item.to?.hash ?? item.to ?? null,
+          paySym: pay?.token?.symbol,
+          getSym: get?.token?.symbol,
+          payAmt: pay?.amount ?? 0,
+          recv: get?.amount ?? 0,
+          payTokenInfo: pay?.token ?? null,
+          getTokenInfo: get?.token ?? null,
+        };
+      });
     return [...localRows, ...chainRows].sort((a, b) => b.ts - a.ts);
-  }, [local, chain]);
+  }, [local, chain, routers, swapLegs]);
 
   const statusStyle = (s) =>
     ({
@@ -169,6 +347,33 @@ export default function ActivityView({ onTrade }) {
       pending: { c: th.gold, t: "pending" },
       failed: { c: th.chartDown, t: "failed" },
     })[s] || { c: th.mute, t: s };
+
+  /* ---------- first-load state (nothing cached yet) ---------- */
+  if (entries.length === 0 && !chainLoaded) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          padding: "60px 24px",
+        }}
+      >
+        <span
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: "50%",
+            border: `2px solid ${th.hair}`,
+            borderTopColor: th.accent,
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <Label color={th.mute}>loading your swaps…</Label>
+      </div>
+    );
+  }
 
   /* ---------- empty state ---------- */
   if (entries.length === 0) {
@@ -244,9 +449,9 @@ export default function ActivityView({ onTrade }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <Label>recent activity</Label>
+          <Label>recent swaps</Label>
           <div style={{ fontWeight: 700, fontSize: 18, marginTop: 2 }}>
-            {entries.length} {entries.length === 1 ? "entry" : "entries"}
+            {entries.length} {entries.length === 1 ? "swap" : "swaps"}
           </div>
         </div>
         {local.length > 0 && (
@@ -316,9 +521,17 @@ export default function ActivityView({ onTrade }) {
             </div>
           );
 
-          if (e.origin === "local") {
-            const pay = tokBySym(e.paySym);
-            const get = tokBySym(e.getSym);
+          // Token-pair layout whenever both legs are known — local history rows
+          // and on-chain rows enriched from the wallet's token transfers.
+          if (e.paySym && e.getSym) {
+            const pay =
+              e.origin === "local" ? tokBySym(e.paySym) : tokForLeg(e.payTokenInfo, e.paySym);
+            const get =
+              e.origin === "local" ? tokBySym(e.getSym) : tokForLeg(e.getTokenInfo, e.getSym);
+            const amounts =
+              e.payAmt > 0 || e.recv > 0
+                ? `${fmt(e.payAmt, e.payAmt < 1 ? 4 : 2)} → ${fmt(e.recv, e.recv < 1 ? 4 : 2)}`
+                : null;
             return (
               <ActivityRow key={e.key} href={rowHref} style={rowStyle}>
                 <div style={{ position: "relative", width: 46, height: 30, flexShrink: 0 }}>
@@ -341,14 +554,14 @@ export default function ActivityView({ onTrade }) {
                   <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 7 }}>
                     {e.paySym} → {e.getSym}
                     <Label color={th.mute} style={{ fontSize: 8 }}>
-                      local
+                      {e.origin === "local" ? "local" : "on-chain"}
                     </Label>
                   </div>
                   <span
                     className="te-num"
                     style={{ fontFamily: "'DM Mono',monospace", fontSize: 11.5, color: th.mute }}
                   >
-                    {fmt(e.payAmt, e.payAmt < 1 ? 4 : 2)} → {fmt(e.recv, e.recv < 1 ? 4 : 2)}
+                    {amounts ?? (e.hash ? `${e.hash.slice(0, 8)}…${e.hash.slice(-6)}` : "—")}
                     {e.venue ? ` · ${e.venue}` : ""}
                   </span>
                 </div>

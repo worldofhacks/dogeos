@@ -5,8 +5,11 @@
 // (a.k.a. minimumOutput), gasUnits, router, status, quoteMode, protocolType,
 // routeType, and feeEstimate { executionFeeWei, dataFinalityFeeWei, totalFeeWei }.
 //
-// These helpers pull REAL fields only. We do NOT synthesize price impact (the
-// backend exposes none) or USD values (no price feed).
+// These helpers pull REAL fields only. Price impact IS real when present: the
+// backend computes priceImpactBps per route from on-chain reserves (V2) or
+// sqrtPriceX96 (concentrated liquidity). It is absent on synthetic split routes,
+// where we show "—" rather than fabricate one. We never synthesize USD values
+// (no price feed).
 import { unitsToDecimal, unitsToNumber } from "./units.js";
 
 export const QUOTE_DEBOUNCE_MS = 250;
@@ -65,6 +68,17 @@ export function minReceivedDecimal(route, buyToken, precision = 6) {
   if (!route || !buyToken) return "-";
   const min = route.minAmountOut ?? route.minimumOutput ?? route.amountOut;
   return unitsToDecimal(min, buyToken.decimals, precision);
+}
+
+// Price impact for a route as a JS number in percent, or null when the route
+// carries no measured impact (e.g. synthetic split routes). REAL: derived from
+// the backend's priceImpactBps (on-chain reserves / sqrtPriceX96), never faked.
+export function priceImpactPercent(route) {
+  const bps = route?.priceImpactBps;
+  if (bps === undefined || bps === null) return null;
+  const n = Number(bps);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n / 100;
 }
 
 // Effective rate: 1 sell = X buy, from the best route's actual amounts.

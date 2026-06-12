@@ -242,6 +242,12 @@ export async function sendWalletTransaction(transaction, sender, options = {}) {
   if (transaction.gas !== undefined) {
     request.gas = hexQuantity(transaction.gas);
   }
+  // Priority-fee (tip) override from the gas-speed setting, in DOGE gwei. The
+  // DogeOS sequencer orders by tip under congestion (first-come-first-served
+  // when quiet); the wallet estimates maxFeePerGas around it.
+  if (Number.isFinite(options.priorityFeeGwei) && options.priorityFeeGwei > 0) {
+    request.maxPriorityFeePerGas = hexQuantity(BigInt(Math.round(options.priorityFeeGwei * 1e9)));
+  }
 
   try {
     return await awaitWalletResponse(
@@ -338,7 +344,7 @@ export function isNativeSell(sellToken) {
 // the router apply it inside the swap transaction. Fallback for wallets
 // without eth_signTypedData_v4: send the on-chain Permit2.approve instead
 // (the classic second approval). User rejection aborts — it is a consent step.
-async function obtainPermit2Authorization({ permit, sender, sellToken, report, signal }) {
+async function obtainPermit2Authorization({ permit, sender, sellToken, report, signal, priorityFeeGwei }) {
   const provider = await ensureWalletReadyForDogeos(sender, {
     missingProviderMessage: "Connect an EVM wallet before approving.",
   });
@@ -378,6 +384,7 @@ async function obtainPermit2Authorization({ permit, sender, sellToken, report, s
       providerMessage: "Switching wallet to DogeOS Chikyū for approval",
       missingProviderMessage: "Connect an EVM wallet before approving.",
       signal,
+      priorityFeeGwei,
     });
     report({ phase: "approve-pending", symbol: sellToken?.symbol, hash });
     await waitForTransactionReceipt(hash, { label: "Approval", signal });
@@ -398,6 +405,7 @@ export async function executeSwap({
   sender,
   slippageBps,
   deadlineSeconds,
+  priorityFeeGwei,
   report = () => {},
   signal,
 } = {}) {
@@ -431,6 +439,7 @@ export async function executeSwap({
           providerMessage: "Switching wallet to DogeOS Chikyū for approval",
           missingProviderMessage: "Connect an EVM wallet before approving.",
           signal,
+          priorityFeeGwei,
         });
         report({ phase: "approve-pending", symbol: sellToken?.symbol, hash: approvalHash });
         await waitForTransactionReceipt(approvalHash, { label: "Approval", signal });
@@ -445,6 +454,7 @@ export async function executeSwap({
         sellToken,
         report,
         signal,
+        priorityFeeGwei,
       });
       if (permitted) {
         quote = { ...quote, permit2Permit: permitted };
@@ -461,7 +471,7 @@ export async function executeSwap({
   const executionQuote = mergeExecutionQuote(quote, swap.quote);
 
   report({ phase: "swap-sign" });
-  const txHash = await sendWalletTransaction(transaction, sender, { signal });
+  const txHash = await sendWalletTransaction(transaction, sender, { signal, priorityFeeGwei });
   report({ phase: "swap-pending", hash: txHash });
 
   // 3) Receipt — poll until included / reverted / timeout.

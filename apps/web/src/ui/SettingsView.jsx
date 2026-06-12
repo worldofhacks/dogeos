@@ -18,7 +18,15 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import { useTheme } from "./theme.js";
 import { Label, Seg, useIsMobile } from "./primitives.jsx";
-import { useSettings, GAS_PRESETS, gasTier } from "./useSettings.js";
+import {
+  useSettings,
+  GAS_PRESETS,
+  gasTier,
+  SLIPPAGE_PRESETS,
+  MAX_SLIPPAGE_PERCENT,
+  clampSlippagePercent,
+} from "./useSettings.js";
+import { sanitizeAmountInput } from "../lib/units.js";
 import {
   getChainStatus,
   getIntelligence,
@@ -130,6 +138,15 @@ export default function SettingsView() {
     setDark,
   } = settings;
 
+  // Custom-slippage text mirror so the input accepts free typing; presets cap
+  // at 5%, the input is the expert gate up to MAX_SLIPPAGE_PERCENT.
+  const [slipText, setSlipText] = useState(String(slippage));
+  const applySlippage = (value) => {
+    const clamped = clampSlippagePercent(value);
+    setSlippage(clamped);
+    setSlipText(String(clamped));
+  };
+
   // Live chain status for the network card (latest block).
   const [chainStatus, setChainStatus] = useState(null);
   useEffect(() => {
@@ -159,16 +176,85 @@ export default function SettingsView() {
       <Card title="trade defaults">
         <Row
           label="slippage tolerance"
-          hint="default for new swaps — the in-swap slider still overrides per-trade. raise it to win contested launches"
+          hint={`default for new swaps — the in-swap control still overrides per-trade. presets cap at 5%; type a custom value (up to ${MAX_SLIPPAGE_PERCENT}%) for volatile launches — higher = more frontrun / MEV risk`}
         >
-          <Seg
-            value={slippage}
-            options={[0.5, 5, 25, 50]}
-            onChange={setSlippage}
-            fmt={(v) => (v >= 50 ? "MAX" : v + "%")}
-          />
+          <div style={{ display: "flex", gap: 7, alignItems: "stretch", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {SLIPPAGE_PRESETS.map((p) => {
+              const active = Math.abs(slippage - p) < 0.0001;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => applySlippage(p)}
+                  style={{
+                    padding: "6px 11px",
+                    borderRadius: 9,
+                    cursor: "pointer",
+                    fontFamily: "'DM Mono',monospace",
+                    fontSize: 12,
+                    color: active ? th.ink : th.mute,
+                    background: active
+                      ? th.dark
+                        ? "rgba(255,207,46,0.14)"
+                        : "rgba(255,207,46,0.16)"
+                      : "transparent",
+                    border: `1px solid ${active ? th.gold + "88" : th.hair}`,
+                    transition: "background 120ms, border-color 120ms",
+                  }}
+                >
+                  {p}%
+                </button>
+              );
+            })}
+            <div style={{ position: "relative", width: 88 }}>
+              <input
+                inputMode="decimal"
+                value={slipText}
+                title={`custom slippage — up to ${MAX_SLIPPAGE_PERCENT}%`}
+                aria-label="custom slippage percent"
+                placeholder="custom"
+                onChange={(e) => {
+                  const cleaned = sanitizeAmountInput(e.target.value);
+                  setSlipText(cleaned);
+                  const v = Number.parseFloat(cleaned);
+                  if (Number.isFinite(v)) setSlippage(clampSlippagePercent(v));
+                }}
+                onBlur={() => setSlipText(String(slippage))}
+                style={{
+                  width: "100%",
+                  padding: "6px 20px 6px 10px",
+                  borderRadius: 9,
+                  fontFamily: "'DM Mono',monospace",
+                  fontSize: 12,
+                  textAlign: "right",
+                  color: th.ink,
+                  background: "transparent",
+                  border: `1px solid ${th.hair}`,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontFamily: "'DM Mono',monospace",
+                  fontSize: 12,
+                  color: th.mute,
+                  pointerEvents: "none",
+                }}
+              >
+                %
+              </span>
+            </div>
+          </div>
         </Row>
-        <Row label="gas speed" hint="priority fee on DogeOS — fine-tune on the swap dial">
+        <Row
+          label="gas speed"
+          hint={`sequencer tip — eco ${GAS_PRESETS.eco} · normal ${GAS_PRESETS.normal} · fast ${GAS_PRESETS.fast} gwei (billionths of a DOGE). higher gets ordered first under congestion`}
+        >
           <Seg
             value={gasTier(gas)}
             options={["eco", "normal", "fast"]}
