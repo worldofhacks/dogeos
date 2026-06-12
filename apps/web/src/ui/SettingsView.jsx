@@ -4,13 +4,13 @@
 // design has no home for (GET /verification + GET /intelligence).
 //
 // Wiring:
-//   • trade defaults (slippage / gas / deadline / expert) persist via useSettings
+//   • trade defaults (slippage / gas / deadline) persist via useSettings
 //     and feed the swap: SwapView reads default slippage, SwapFlow reads the
 //     deadline. The in-swap slider still overrides slippage per-trade.
 //   • appearance (dark panel) wires to useTheme() through useSettings (the
 //     Shell builds the theme from these and persists them).
-//   • network reads live block/gas from getChainStatus() where available, with
-//     documented DogeOS facts as the static frame.
+//   • network reads the live latest block from getChainStatus() where
+//     available, with documented DogeOS facts as the static frame.
 //   • advanced is REAL backend data: classified venue intelligence (active /
 //     read-only / watchlist / rejected) + per-source ABI/contract provenance +
 //     the verification summary. Compact + expandable; secondary by design.
@@ -126,13 +126,11 @@ export default function SettingsView() {
     setGas,
     deadline,
     setDeadline,
-    expert,
-    setExpert,
     dark,
     setDark,
   } = settings;
 
-  // Live chain status for the network card (block / gas) — documented facts frame.
+  // Live chain status for the network card (latest block).
   const [chainStatus, setChainStatus] = useState(null);
   useEffect(() => {
     let cancelled = false;
@@ -147,11 +145,6 @@ export default function SettingsView() {
   }, []);
 
   const blockNumber = chainStatus?.blockNumber;
-  const gasPriceWei = chainStatus?.gasPriceWei;
-  const gasGwei =
-    gasPriceWei != null && Number.isFinite(Number(gasPriceWei))
-      ? (Number(gasPriceWei) / 1e9).toFixed(2)
-      : null;
 
   return (
     <div
@@ -185,9 +178,6 @@ export default function SettingsView() {
         <Row label="tx deadline" hint="cancel if not confirmed in time">
           <Seg value={deadline} options={[10, 20, 30]} onChange={setDeadline} fmt={(v) => v + "m"} />
         </Row>
-        <Row label="expert mode" hint="allow high price impact, skip confirms">
-          <Toggle on={expert} onClick={() => setExpert(!expert)} />
-        </Row>
       </Card>
 
       {/* ---------- appearance ---------- */}
@@ -208,11 +198,6 @@ export default function SettingsView() {
         <Row label="latest block" hint="live from the DogeOS RPC">
           <span className="te-num" style={mono(th, blockNumber != null ? th.chartUp : th.mute)}>
             {blockNumber != null ? `#${Number(blockNumber).toLocaleString("en-US")}` : "—"}
-          </span>
-        </Row>
-        <Row label="gas price" hint="live base priority fee">
-          <span className="te-num" style={mono(th, gasGwei != null ? th.inkSoft : th.mute)}>
-            {gasGwei != null ? `${gasGwei} gwei` : "—"}
           </span>
         </Row>
         <Row label="explorer" hint="blockscout.testnet.dogeos.com">

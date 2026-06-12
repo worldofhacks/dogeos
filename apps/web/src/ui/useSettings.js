@@ -10,7 +10,6 @@
 //   slippage  — default slippage tolerance, percent (0.5 / 5 / 25 / 50=MAX)
 //   gas       — gas-speed priority fee (gwei); tier derived via gasTier()
 //   deadline  — tx deadline, minutes (10 / 20 / 30)
-//   expert    — expert mode (allow high price impact / skip confirms)
 //   dark      — dark device shell
 //   accent    — signal accent color
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -29,7 +28,6 @@ export const DEFAULTS = Object.freeze({
   slippage: 0.5,
   gas: GAS_PRESETS.normal,
   deadline: 20,
-  expert: false,
   dark: false,
   accent: DEFAULT_ACCENT,
 });
@@ -74,7 +72,6 @@ export function SettingsProvider({ children }) {
       setSlippage: (slippage) => update({ slippage }),
       setGas: (gas) => update({ gas }),
       setDeadline: (deadline) => update({ deadline }),
-      setExpert: (expert) => update({ expert }),
       setDark: (dark) => update({ dark }),
       setAccent: (accent) => update({ accent }),
     }),
@@ -96,7 +93,6 @@ export function useSettings() {
     setSlippage: () => {},
     setGas: () => {},
     setDeadline: () => {},
-    setExpert: () => {},
     setDark: () => {},
     setAccent: () => {},
   };
