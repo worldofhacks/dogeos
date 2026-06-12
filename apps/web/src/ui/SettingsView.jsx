@@ -253,7 +253,7 @@ export default function SettingsView() {
         </Row>
         <Row
           label="gas speed"
-          hint={`sequencer tip — eco ${GAS_PRESETS.eco} · normal ${GAS_PRESETS.normal} · fast ${GAS_PRESETS.fast} gwei (billionths of a DOGE). higher gets ordered first under congestion`}
+          hint="sequencer tip, scaled to the live DogeOS base fee — normal adds ~50%, fast ~200%. higher gets ordered first under congestion"
         >
           <Seg
             value={gasTier(gas)}

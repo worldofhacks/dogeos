@@ -228,6 +228,35 @@ function awaitWalletResponse(promise, { signal, timeoutMs = WALLET_RESPONSE_TIME
   });
 }
 
+// Map the gas-speed setting to a tip as a fraction of the LIVE base fee, and
+// set both EIP-1559 fields so the transaction is always valid on a tiny-base-
+// fee L2. Tier thresholds mirror useSettings.gasTier (eco < 1.5 <= normal <= 6
+// < fast). On failure to read the base fee, leave gas to the wallet.
+const GAS_TIP_FRACTION_BPS = { eco: 0n, normal: 5_000n, fast: 20_000n }; // 0% / 50% / 200% of base
+
+export function gasSpeedTier(priorityFeeGwei) {
+  const g = Number(priorityFeeGwei);
+  if (!Number.isFinite(g) || g <= 0) return null;
+  return g < 1.5 ? "eco" : g <= 6 ? "normal" : "fast";
+}
+
+export async function applyGasSpeed(request, provider, priorityFeeGwei) {
+  const tier = gasSpeedTier(priorityFeeGwei);
+  if (!tier) return request;
+  let baseFeeWei = 0n;
+  try {
+    baseFeeWei = BigInt(await provider.request({ method: "eth_gasPrice" }));
+  } catch {
+    return request; // can't read base fee — let the wallet pick gas
+  }
+  if (baseFeeWei <= 0n) return request;
+  const tip = (baseFeeWei * GAS_TIP_FRACTION_BPS[tier]) / 10_000n;
+  // 2x base-fee headroom (standard) guarantees maxFeePerGas >= tip.
+  request.maxFeePerGas = hexQuantity(baseFeeWei * 2n + tip);
+  request.maxPriorityFeePerGas = hexQuantity(tip);
+  return request;
+}
+
 /* ---------- send + receipt (ported from app.js) ---------- */
 export async function sendWalletTransaction(transaction, sender, options = {}) {
   const provider = await ensureWalletReadyForDogeos(sender, options);
@@ -242,12 +271,12 @@ export async function sendWalletTransaction(transaction, sender, options = {}) {
   if (transaction.gas !== undefined) {
     request.gas = hexQuantity(transaction.gas);
   }
-  // Priority-fee (tip) override from the gas-speed setting, in DOGE gwei. The
-  // DogeOS sequencer orders by tip under congestion (first-come-first-served
-  // when quiet); the wallet estimates maxFeePerGas around it.
-  if (Number.isFinite(options.priorityFeeGwei) && options.priorityFeeGwei > 0) {
-    request.maxPriorityFeePerGas = hexQuantity(BigInt(Math.round(options.priorityFeeGwei * 1e9)));
-  }
+  // Gas-speed tip. DogeOS base fees are tiny (~0.015 gwei), so a fixed gwei
+  // tip would dwarf the base fee and violate EIP-1559's invariant
+  // `maxFeePerGas >= maxPriorityFeePerGas` (the wallet sets maxFeePerGas from
+  // the base fee). So scale the tip to the LIVE base fee and always set a
+  // valid maxFeePerGas = 2*baseFee + tip ourselves.
+  await applyGasSpeed(request, provider, options.priorityFeeGwei);
 
   try {
     return await awaitWalletResponse(
