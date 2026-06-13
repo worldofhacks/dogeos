@@ -103,8 +103,8 @@ function Card({ title, right, children }) {
 function Row({ label, hint, children }) {
   const th = useTheme();
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-      <div>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: th.ink }}>{label}</div>
         {hint && (
           <Label
@@ -174,11 +174,16 @@ export default function SettingsView() {
     >
       {/* ---------- trade defaults ---------- */}
       <Card title="trade defaults">
-        <Row
-          label="slippage tolerance"
-          hint={`default for new swaps — the in-swap control still overrides per-trade. presets cap at 5%; type a custom value (up to ${MAX_SLIPPAGE_PERCENT}%) for volatile launches — higher = more frontrun / MEV risk`}
-        >
-          <div style={{ display: "flex", gap: 7, alignItems: "stretch", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: th.ink }}>slippage tolerance</div>
+            <Label
+              style={{ marginTop: 3, display: "block", textTransform: "none", letterSpacing: 0, fontSize: 11.5 }}
+            >
+              {`default for new swaps — the in-swap control still overrides per-trade. presets cap at 5%; type a custom value (up to ${MAX_SLIPPAGE_PERCENT}%) for volatile launches — higher = more frontrun / MEV risk`}
+            </Label>
+          </div>
+          <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>
             {SLIPPAGE_PRESETS.map((p) => {
               const active = Math.abs(slippage - p) < 0.0001;
               return (
@@ -187,7 +192,8 @@ export default function SettingsView() {
                   type="button"
                   onClick={() => applySlippage(p)}
                   style={{
-                    padding: "6px 11px",
+                    flex: 1,
+                    padding: "6px 0",
                     borderRadius: 9,
                     cursor: "pointer",
                     fontFamily: "'DM Mono',monospace",
@@ -206,7 +212,7 @@ export default function SettingsView() {
                 </button>
               );
             })}
-            <div style={{ position: "relative", width: 88 }}>
+            <div style={{ position: "relative", width: 88, flexShrink: 0 }}>
               <input
                 inputMode="decimal"
                 value={slipText}
@@ -250,7 +256,7 @@ export default function SettingsView() {
               </span>
             </div>
           </div>
-        </Row>
+        </div>
         <Row
           label="gas speed"
           hint="sequencer tip, scaled to the live DogeOS base fee — normal adds ~50%, fast ~200%. higher gets ordered first under congestion"
@@ -652,11 +658,13 @@ function SourceRow({ item, group }) {
 function EvidenceRow({ k, v, color }) {
   const th = useTheme();
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
       <Label style={{ flexShrink: 0 }}>{k}</Label>
       <span
         className="te-num"
         style={{
+          flex: 1,
+          minWidth: 0,
           fontFamily: "'DM Mono',monospace",
           fontSize: 11,
           color: color ?? th.inkSoft,
