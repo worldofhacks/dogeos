@@ -112,6 +112,36 @@ export function dogeosApiPlugin({
   };
 }
 
+// The DogeOS Connect Kit provider is a large lazy chunk (the SDK pulls in the
+// full WalletConnect/Reown stack + multi-chain wallet adapters). It is only
+// imported after React mounts, so on a cold load the user is already waiting on
+// it when they click Connect. Emit a low-priority `prefetch` hint so the browser
+// fetches it during idle time, off the first-paint critical path — by the time
+// Connect is clicked the bytes are usually already in cache.
+function prefetchSdkWalletChunkPlugin() {
+  return {
+    name: "prefetch-sdk-wallet-chunk",
+    transformIndexHtml(html, ctx) {
+      if (!ctx?.bundle) return html; // build-only; the dev server has no bundle
+      const tags = Object.keys(ctx.bundle)
+        .filter((file) => /assets\/sdk-wallet-provider-[^/]*\.(js|css)$/.test(file))
+        .map((file) => ({
+          tag: "link",
+          injectTo: "head",
+          attrs: {
+            rel: "prefetch",
+            href: `/${file}`,
+            as: file.endsWith(".css") ? "style" : "script",
+            // Match the module fetch's CORS mode so the prefetched bytes are
+            // reused by the dynamic import instead of re-downloaded.
+            ...(file.endsWith(".js") ? { crossorigin: "" } : {}),
+          },
+        }));
+      return { html, tags };
+    },
+  };
+}
+
 const loadedEnv = {
   ...loadEnv(process.env.NODE_ENV ?? "development", process.cwd(), ""),
   ...process.env,
@@ -136,5 +166,5 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
   },
-  plugins: [dogeosApiPlugin({ runtimeConfig: runtimeConfigFromEnv(loadedEnv) })],
+  plugins: [dogeosApiPlugin({ runtimeConfig: runtimeConfigFromEnv(loadedEnv) }), prefetchSdkWalletChunkPlugin()],
 });

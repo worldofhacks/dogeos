@@ -60,11 +60,16 @@ function loadSdkWallet() {
   if (existing?.openModal) return Promise.resolve(existing);
 
   sdkWalletReadyPromise ??= new Promise((resolve, reject) => {
+    // The Connect Kit provider is a large chunk (the SDK pulls in the full
+    // WalletConnect/Reown + multi-chain adapter graph), so allow a generous
+    // window before giving up — a 10s cap was firing mid-load on slower
+    // connections, surfacing a spurious error and tempting a re-click that
+    // stacked a second load on top of the first (the "~30s to connect" report).
     const timeout = window.setTimeout(() => {
       window.removeEventListener(SDK_WALLET_READY_EVENT, handleReady);
       sdkWalletReadyPromise = null;
-      reject(new Error("DogeOS SDK wallet did not load."));
-    }, 10_000);
+      reject(new Error("DogeOS wallet kit is taking longer than usual to load. Check your connection and try again."));
+    }, 45_000);
 
     function handleReady() {
       window.clearTimeout(timeout);
@@ -167,6 +172,11 @@ export function useWallet() {
   // Minimal chooser state for injected-only mode with multiple wallets. The
   // Shell renders <WalletChooser> from this; selecting an option resolves it.
   const [chooser, setChooser] = useState(null); // { wallets: [...] } | null
+  // True while connect() is awaiting the lazy SDK wallet chunk (and the ensuing
+  // handshake). The bridge only publishes `isConnecting` once it is mounted, so
+  // without this the button stayed clickable during the multi-second chunk load
+  // and a second click stacked another connect attempt.
+  const [preparing, setPreparing] = useState(false);
 
   // Subscribe to bridge updates + warm the lazy loader on mount.
   useEffect(() => {
@@ -204,69 +214,77 @@ export function useWallet() {
 
   const connect = useCallback(
     async (preference) => {
-      let wallet;
-      try {
-        wallet = await loadSdkWallet();
-      } catch (error) {
-        showToast(error?.message || INJECTED_HELP, "err");
-        return;
-      }
-      if (!wallet?.openModal) {
-        showToast("DogeOS SDK wallet is still loading. Try again in a moment.", "err");
-        return;
-      }
       if (state.address) return;
-      if (wallet.isConnected?.()) {
-        // The bridge is already connected but this hook instance missed the
-        // event (fresh mount). Resync local state instead of silently doing
-        // nothing — a dead connect button with no feedback is unrecoverable.
-        // Prefer the live getters (ground truth) over the cached publish.
-        const known = bridgeSnapshot() ?? knownWalletState();
-        if (known?.address) {
-          setState(known);
-          return;
-        }
-        // The bridge claims connected but yields no address — fall through to
-        // the normal connect flow rather than silently doing nothing.
-      }
-
-      // SDK mode (clientId set): the Connect Kit modal is the chooser. No
-      // per-wallet preference — openModal() presents the full wallet list.
-      if (!isInjectedBridge(wallet, state.walletSource)) {
+      // Mark the button busy for the WHOLE flow — most importantly the lazy SDK
+      // chunk load below — so it reads "connecting" and stays disabled instead
+      // of inviting a second click that doubles the wait.
+      setPreparing(true);
+      try {
+        let wallet;
         try {
-          await wallet.openModal();
+          wallet = await loadSdkWallet();
         } catch (error) {
-          showToast(error?.message || "Wallet connection failed.", "err");
-        }
-        return;
-      }
-
-      // Injected mode (no clientId). The bridge lists SUPPORTED wallets
-      // (MyDoge, MetaMask, Phantom, Rainbow) — plus a lone unknown wallet when
-      // it's the only thing installed. Pick the preference:
-      //   • explicit preference (from the chooser) wins;
-      //   • >1 supported wallet present → show the minimal chooser;
-      //   • exactly 1 listed → connect that wallet directly;
-      //   • 0 listed → attempt MyDoge, which yields the clear "MyDoge not
-      //     detected" help toast since nothing usable answered EIP-6963.
-      const explicit = typeof preference === "string" && preference;
-      let target = explicit || DEFAULT_INJECTED_PREFERENCE;
-      if (!explicit) {
-        const wallets = wallet.listInjectedWallets?.() ?? [];
-        if (wallets.length > 1) {
-          setChooser({ wallets });
+          showToast(error?.message || INJECTED_HELP, "err");
           return;
         }
-        if (wallets.length === 1) {
-          // Single listed wallet: connect it directly so a lone non-MyDoge
-          // wallet still connects instead of erroring with "MyDoge not
-          // detected". An empty preference ("" — lone unrecognised brand)
-          // means "the only injected provider", which the bridge's generic
-          // resolver handles.
-          target = wallets[0].preference;
+        if (!wallet?.openModal) {
+          showToast("DogeOS SDK wallet is still loading. Try again in a moment.", "err");
+          return;
         }
+        if (wallet.isConnected?.()) {
+          // The bridge is already connected but this hook instance missed the
+          // event (fresh mount). Resync local state instead of silently doing
+          // nothing — a dead connect button with no feedback is unrecoverable.
+          // Prefer the live getters (ground truth) over the cached publish.
+          const known = bridgeSnapshot() ?? knownWalletState();
+          if (known?.address) {
+            setState(known);
+            return;
+          }
+          // The bridge claims connected but yields no address — fall through to
+          // the normal connect flow rather than silently doing nothing.
+        }
+
+        // SDK mode (clientId set): the Connect Kit modal is the chooser. No
+        // per-wallet preference — openModal() presents the full wallet list.
+        if (!isInjectedBridge(wallet, state.walletSource)) {
+          try {
+            await wallet.openModal();
+          } catch (error) {
+            showToast(error?.message || "Wallet connection failed.", "err");
+          }
+          return;
+        }
+
+        // Injected mode (no clientId). The bridge lists SUPPORTED wallets
+        // (MyDoge, MetaMask, Phantom, Rainbow) — plus a lone unknown wallet when
+        // it's the only thing installed. Pick the preference:
+        //   • explicit preference (from the chooser) wins;
+        //   • >1 supported wallet present → show the minimal chooser;
+        //   • exactly 1 listed → connect that wallet directly;
+        //   • 0 listed → attempt MyDoge, which yields the clear "MyDoge not
+        //     detected" help toast since nothing usable answered EIP-6963.
+        const explicit = typeof preference === "string" && preference;
+        let target = explicit || DEFAULT_INJECTED_PREFERENCE;
+        if (!explicit) {
+          const wallets = wallet.listInjectedWallets?.() ?? [];
+          if (wallets.length > 1) {
+            setChooser({ wallets });
+            return;
+          }
+          if (wallets.length === 1) {
+            // Single listed wallet: connect it directly so a lone non-MyDoge
+            // wallet still connects instead of erroring with "MyDoge not
+            // detected". An empty preference ("" — lone unrecognised brand)
+            // means "the only injected provider", which the bridge's generic
+            // resolver handles.
+            target = wallets[0].preference;
+          }
+        }
+        await runInjectedConnect(wallet, target).catch(() => {});
+      } finally {
+        setPreparing(false);
       }
-      await runInjectedConnect(wallet, target).catch(() => {});
     },
     [state.address, state.walletSource, runInjectedConnect],
   );
@@ -319,7 +337,7 @@ export function useWallet() {
     chainId: state.chainId,
     walletLabel: state.walletLabel,
     isConnected: Boolean(state.address),
-    isConnecting: state.isConnecting,
+    isConnecting: Boolean(state.isConnecting) || preparing,
     error: state.error,
     connect,
     disconnect,
