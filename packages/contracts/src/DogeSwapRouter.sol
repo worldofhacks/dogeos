@@ -36,12 +36,12 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
 
     /// @notice Final settlement enforced after the command loop, independent of the command program.
     /// @dev Using the per-execute ledger delta of `buyToken`, the contract takes the capped fee,
-    ///      requires the remaining delta >= `minOut` (else revert), pays it to `recipient`, and
-    ///      refunds leftover input-token deltas to `msg.sender`. `recipient == address(0)` is a
-    ///      no-op settlement used only by unit tests that intentionally leave funds in the router.
+    ///      pays the recipient, requires the recipient's measured receipt >= `minOut` (else revert),
+    ///      and refunds leftover input-token deltas to `msg.sender`. Settlement is mandatory:
+    ///      `execute` rejects `recipient == address(0)` and `recipient == address(this)`.
     /// @param buyToken The output token to deliver; use `NATIVE` (0xEeee…EEeE) to settle native DOGE.
-    /// @param minOut Minimum net amount of `buyToken` (after fee) the recipient must receive.
-    /// @param recipient Destination of the bought token; `address(0)` disables settlement (tests only).
+    /// @param minOut Minimum net amount of `buyToken` (after fee) the recipient must actually receive.
+    /// @param recipient Destination of the bought token; must be nonzero and not the router itself.
     struct Settlement { address buyToken; uint256 minOut; address recipient; }
     /// @notice In-memory per-execute ledger of every token the call touches.
     /// @dev No mappings → memory-safe; linear scan, command lists are short. `entry` is each token's
@@ -80,6 +80,7 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     error DeadlineExpired(); error LengthMismatch(); error UnknownCommand(); error Unauthorized();
     error FeeTooHigh(); error NotionalCapExceeded(); error MinOutNotMet(); error InvalidSpender();
     error NativeTransferFailed(); error InsufficientLedgerBalance(); error LedgerOverflow();
+    error ZeroAddress(); error InvalidRecipient(); error InvalidFeeRecipient();
 
     event GuardianUpdated(address indexed guardian);
     event FeeUpdated(uint256 feeBps, address indexed feeRecipient);
@@ -100,7 +101,12 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     /// @param alg_ Immutable Barkswap Algebra router.
     constructor(address owner_, address guardian_, address wdoge_, address v2_, address v3_, address alg_)
         Ownable(owner_)
-    { guardian = guardian_; WDOGE = wdoge_; MUCHFI_V2_ROUTER = v2_; MUCHFI_V3_ROUTER = v3_; BARKSWAP_ALGEBRA_ROUTER = alg_; }
+    {
+        // Zero venue/WDOGE addresses would make the router silently un-swappable; reject at deploy.
+        // (guardian == address(0) stays valid: it disables guardian-triggered pause.)
+        if (wdoge_ == address(0) || v2_ == address(0) || v3_ == address(0) || alg_ == address(0)) revert ZeroAddress();
+        guardian = guardian_; WDOGE = wdoge_; MUCHFI_V2_ROUTER = v2_; MUCHFI_V3_ROUTER = v3_; BARKSWAP_ALGEBRA_ROUTER = alg_;
+    }
 
     /// @notice Accepts native DOGE only from WDOGE (unwrap proceeds); reverts for any other sender.
     /// @dev Guards against arbitrary native inflows that the per-execute ledger would not have snapshotted.
@@ -117,6 +123,11 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     /// @param r Fee recipient (only paid when `bps != 0`).
     function setFee(uint256 bps, address r) external onlyOwner {
         if (bps > Constants.MAX_FEE_BPS) revert FeeTooHigh();
+        // A nonzero fee with a zero recipient is not "harmless": settlement would then
+        // safeTransfer the fee to address(0) (reverts -> DoSes every ERC20-output swap) or
+        // send native to address(0) (silently burns it). Couple the two: zero recipient is
+        // only valid when the fee is off.
+        if (bps != 0 && r == address(0)) revert InvalidFeeRecipient();
         feeBps = bps; feeRecipient = r; emit FeeUpdated(bps, r);
     }
     /// @notice Sets the default per-execute aggregate input cap for tokens without a specific cap. Owner-only.
@@ -156,13 +167,17 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     ///      `payable` to support native DOGE in (wrap) flows. Guarded by `nonReentrant` (EIP-1153).
     /// @param commands Ordered command ids (one byte each); see `Commands`.
     /// @param inputs ABI-encoded arguments for each command (same length as `commands`).
-    /// @param s Final settlement (buyToken, minOut, recipient); `recipient == address(0)` disables it.
+    /// @param s Final settlement (buyToken, minOut, recipient); `recipient` must be nonzero and not the router.
     /// @param deadline Unix timestamp after which the call reverts `DeadlineExpired`.
     function execute(bytes calldata commands, bytes[] calldata inputs, Settlement calldata s, uint256 deadline)
         external payable whenNotPaused nonReentrant
     {
         // slither-disable-next-line timestamp
         if (block.timestamp > deadline) revert DeadlineExpired(); // deadline check; coarse miner drift is acceptable for swap expiry
+        // Reject a zero/self recipient up front: both strand the per-execute proceeds (zero skips
+        // settlement entirely; self leaves the bought token sitting in the router). Settlement is
+        // mandatory, so funds always either reach the recipient or are refunded to msg.sender.
+        if (s.recipient == address(0) || s.recipient == address(this)) revert InvalidRecipient();
         uint256 n = commands.length;
         if (inputs.length != n) revert LengthMismatch();
 
@@ -174,7 +189,11 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
         L.tokens = new address[](cap); L.entry = new uint256[](cap); L.pulled = new uint256[](cap);
         // seed native entry EXCLUDING this call's incoming value
         L.tokens[0] = NATIVE; L.entry[0] = address(this).balance - msg.value; L.count = 1;
-        if (s.recipient != address(0)) _touch(L, s.buyToken); // snapshot buyToken entry
+        _touch(L, s.buyToken); // snapshot buyToken entry (recipient is validated non-zero above)
+        // Meter ALL incoming native against the cap here, at the single ingress point, so the bound
+        // holds whether the native is later wrapped or settled/refunded as native (I8). _wrapNative
+        // therefore does NOT re-accrue.
+        if (msg.value != 0) _accrueInput(L, NATIVE, msg.value);
 
         for (uint256 i; i < n; ) { _dispatch(commands[i], inputs[i], deadline, L); unchecked { ++i; } } // per-command external calls are the core design; reentrancy is blocked by nonReentrant + the ledger
 
@@ -240,40 +259,53 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
         if (amt > d) revert InsufficientLedgerBalance();
         return amt;
     }
-    function _approveVenue(address t, address venue, uint256 a) internal {
+    /// @dev Exact, ephemeral venue approval: grant only `a` for the imminent swap. Paired with
+    ///      `_clearVenue` so no standing allowance survives the call — a compromised/upgraded venue
+    ///      then cannot reach the router's airdropped/stranded/rescue-pending balances out-of-band
+    ///      (the per-execute ledger only bounds spends THROUGH execute, never a standing allowance).
+    function _approveVenueExact(address t, address venue, uint256 a) internal {
         // slither-disable-next-line calls-loop
-        if (IERC20(t).allowance(address(this), venue) < a) IERC20(t).forceApprove(venue, type(uint256).max); // per-command venue approval is intended
+        IERC20(t).forceApprove(venue, a); // forceApprove handles USDT-style zero-before-nonzero
+    }
+    function _clearVenue(address t, address venue) internal {
+        // slither-disable-next-line calls-loop
+        IERC20(t).forceApprove(venue, 0); // reset to 0 so the allowance surface is provably zero between calls
     }
     function _v2Swap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
         (uint256 amountIn, uint256 minOut, address[] memory path) = abi.decode(input, (uint256, uint256, address[]));
         amountIn = _spend(L, amountIn, path[0]); _touch(L, path[path.length - 1]);
-        _approveVenue(path[0], MUCHFI_V2_ROUTER, amountIn);
+        _approveVenueExact(path[0], MUCHFI_V2_ROUTER, amountIn);
         // slither-disable-next-line unused-return,calls-loop
         IUniswapV2Router(MUCHFI_V2_ROUTER).swapExactTokensForTokens(amountIn, minOut, path, address(this), deadline); // output measured by ledger _delta, not the venue's return value
+        _clearVenue(path[0], MUCHFI_V2_ROUTER);
     }
     function _v3Swap(bytes calldata input, Ledger memory L) internal {
         (address tin, address tout, uint24 fee, uint256 amountIn, uint256 minOut) =
             abi.decode(input, (address, address, uint24, uint256, uint256));
         amountIn = _spend(L, amountIn, tin); _touch(L, tout);
-        _approveVenue(tin, MUCHFI_V3_ROUTER, amountIn);
+        _approveVenueExact(tin, MUCHFI_V3_ROUTER, amountIn);
         // slither-disable-next-line unused-return,calls-loop
         IUniswapV3SwapRouter(MUCHFI_V3_ROUTER).exactInputSingle(IUniswapV3SwapRouter.ExactInputSingleParams({ // output measured by ledger _delta, not the venue's return value
             tokenIn: tin, tokenOut: tout, fee: fee, recipient: address(this),
             amountIn: amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0 }));
+        _clearVenue(tin, MUCHFI_V3_ROUTER);
     }
     function _algebraSwap(bytes calldata input, uint256 deadline, Ledger memory L) internal {
         (address tin, address tout, address dep, uint256 amountIn, uint256 minOut) =
             abi.decode(input, (address, address, address, uint256, uint256));
         amountIn = _spend(L, amountIn, tin); _touch(L, tout);
-        _approveVenue(tin, BARKSWAP_ALGEBRA_ROUTER, amountIn);
+        _approveVenueExact(tin, BARKSWAP_ALGEBRA_ROUTER, amountIn);
         // slither-disable-next-line unused-return,calls-loop
         IAlgebraSwapRouter(BARKSWAP_ALGEBRA_ROUTER).exactInputSingle(IAlgebraSwapRouter.ExactInputSingleParams({ // output measured by ledger _delta, not the venue's return value
             tokenIn: tin, tokenOut: tout, deployer: dep, recipient: address(this),
             deadline: deadline, amountIn: amountIn, amountOutMinimum: minOut, limitSqrtPrice: 0 }));
+        _clearVenue(tin, BARKSWAP_ALGEBRA_ROUTER);
     }
     function _wrapNative(bytes calldata input, Ledger memory L) internal {
+        // Native ingress is metered once at execute() entry (msg.value), so wrapping — an internal
+        // native->WDOGE conversion — is NOT re-accrued here.
         uint256 a = _spend(L, abi.decode(input, (uint256)), NATIVE);
-        _accrueInput(L, NATIVE, a); _touch(L, WDOGE);
+        _touch(L, WDOGE);
         // slither-disable-next-line calls-loop
         IWETH9(WDOGE).deposit{value: a}(); // immutable WDOGE; per-command wrap is intended
     }
@@ -285,20 +317,37 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
 
     // ---- enforced settlement (I2/I4/I5 by construction) ----
     function _settle(Settlement calldata s, Ledger memory L) internal {
-        if (s.recipient == address(0)) return; // no-op (unit tests only)
+        // recipient is validated non-zero (and not self) in execute, so settlement always runs.
         uint256 out = _delta(L, s.buyToken);
         // slither-disable-next-line uninitialized-local
         uint256 fee; // intentional zero default; only assigned when a fee applies
         if (feeBps != 0 && out != 0) { fee = (out * feeBps) / Constants.BPS_DENOMINATOR; out -= fee; }
-        if (out < s.minOut) revert MinOutNotMet();
         if (fee != 0) _pay(s.buyToken, feeRecipient, fee);
-        _pay(s.buyToken, s.recipient, out);
+        // Enforce minOut on what the recipient ACTUALLY receives, not the router's measured delta:
+        // fee-on-transfer / deflationary output tokens credit the recipient less than `out`, so a
+        // router-side check would not bind I2 for them. Reverting here rolls back the payouts above.
+        uint256 received = _payReceived(s.buyToken, s.recipient, out);
+        if (received < s.minOut) revert MinOutNotMet();
         for (uint256 i; i < L.count; ++i) {           // refund leftover input deltas to caller
             address t = L.tokens[i];
             if (t == s.buyToken) continue;
             uint256 d = _delta(L, t);
             if (d != 0) _pay(t, msg.sender, d);
         }
+    }
+    /// @dev Pay `amount` of `t` to `to` and return the amount `to` ACTUALLY received (its measured
+    ///      balance delta), so settlement can bind minOut on the net receipt for fee-on-transfer
+    ///      output tokens. For standard tokens the return equals `amount`.
+    function _payReceived(address t, address to, uint256 amount) internal returns (uint256) {
+        if (amount == 0) return 0;
+        if (t == NATIVE) {
+            uint256 bal = to.balance;
+            _pay(t, to, amount);
+            return to.balance - bal;
+        }
+        uint256 bal = IERC20(t).balanceOf(to);
+        _pay(t, to, amount);
+        return IERC20(t).balanceOf(to) - bal;
     }
     function _pay(address t, address to, uint256 amount) internal {
         // slither-disable-next-line incorrect-equality

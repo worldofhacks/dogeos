@@ -13,8 +13,13 @@ contract RouterCoreTest is Test {
     address v3 = makeAddr("v3");
     address algebra = makeAddr("algebra");
 
+    // These tests all revert BEFORE settlement (deadline/length/unknown/paused), so a nonzero
+    // recipient just clears the recipient guard; buyToken == NATIVE avoids a balanceOf on a
+    // non-contract during the buyToken snapshot.
+    address internal constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
     function _noopSettlement() internal pure returns (DogeSwapRouter.Settlement memory) {
-        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+        return DogeSwapRouter.Settlement({buyToken: NATIVE, minOut: 0, recipient: address(0xBEEF)});
     }
 
     function setUp() public {
@@ -86,5 +91,48 @@ contract RouterCoreTest is Test {
         vm.prank(owner);
         router.setFee(100, makeAddr("fee"));
         assertEq(router.feeBps(), 100);
+    }
+
+    // A nonzero fee with a zero recipient is rejected (would DoS ERC20-output swaps / burn native).
+    function test_setFee_revertsZeroRecipientWithFee() public {
+        vm.prank(owner);
+        vm.expectRevert(DogeSwapRouter.InvalidFeeRecipient.selector);
+        router.setFee(50, address(0));
+
+        // turning the fee OFF with a zero recipient stays valid.
+        vm.prank(owner);
+        router.setFee(0, address(0));
+        assertEq(router.feeBps(), 0);
+        assertEq(router.feeRecipient(), address(0));
+    }
+
+    function test_execute_revertsOnZeroRecipient() public {
+        bytes memory commands = "";
+        bytes[] memory inputs = new bytes[](0);
+        DogeSwapRouter.Settlement memory s =
+            DogeSwapRouter.Settlement({buyToken: NATIVE, minOut: 0, recipient: address(0)});
+        vm.expectRevert(DogeSwapRouter.InvalidRecipient.selector);
+        router.execute(commands, inputs, s, block.timestamp + 1);
+    }
+
+    function test_execute_revertsOnSelfRecipient() public {
+        bytes memory commands = "";
+        bytes[] memory inputs = new bytes[](0);
+        DogeSwapRouter.Settlement memory s =
+            DogeSwapRouter.Settlement({buyToken: NATIVE, minOut: 0, recipient: address(router)});
+        vm.expectRevert(DogeSwapRouter.InvalidRecipient.selector);
+        router.execute(commands, inputs, s, block.timestamp + 1);
+    }
+
+    function test_constructor_revertsOnZeroVenue() public {
+        vm.expectRevert(DogeSwapRouter.ZeroAddress.selector);
+        new DogeSwapRouter(owner, guardian, address(0), v2, v3, algebra);
+
+        vm.expectRevert(DogeSwapRouter.ZeroAddress.selector);
+        new DogeSwapRouter(owner, guardian, wdoge, v2, address(0), algebra);
+
+        // guardian == address(0) stays valid (disables guardian-triggered pause).
+        DogeSwapRouter ok = new DogeSwapRouter(owner, address(0), wdoge, v2, v3, algebra);
+        assertEq(ok.guardian(), address(0));
     }
 }

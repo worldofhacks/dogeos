@@ -77,12 +77,16 @@ contract DeployRouter is Script {
             console2.log("Permit2 already present at", permit2);
         }
 
-        // ---- 2. TimelockController (Safe is proposer + executor + admin) ----
+        // ---- 2. TimelockController (Safe is proposer + executor; admin = address(0)) ----
+        // Pass admin = address(0): the timelock self-administers its roles via timelocked proposals
+        // (OZ grants DEFAULT_ADMIN_ROLE to the timelock itself in the constructor). Granting the Safe
+        // a standalone admin role would let it reconfigure proposer/executor instantly, with no delay,
+        // defeating the timelock if the Safe is compromised (OZ guidance: renounce/omit the admin).
         address[] memory proposers = new address[](1);
         proposers[0] = routerSafe;
         address[] memory executors = new address[](1);
         executors[0] = routerSafe;
-        TimelockController timelock = new TimelockController(timelockMinDelay, proposers, executors, routerSafe);
+        TimelockController timelock = new TimelockController(timelockMinDelay, proposers, executors, address(0));
 
         // ---- 3. Router (deployer is TEMPORARY owner so it can cap before going live) ----
         DogeSwapRouter router = new DogeSwapRouter(
@@ -98,10 +102,20 @@ contract DeployRouter is Script {
         router.setDefaultMaxInputPerTx(capDefault);
         router.setMaxInputPerTx(WDOGE, capWdoge);
         router.setMaxInputPerTx(USDC, capUsdc);
+        // Cap native ingress at the WDOGE limit too: native is metered under the NATIVE key, so
+        // without this an attacker could route native -> wrap -> swap and exceed the WDOGE-pool
+        // blast-radius limit via the (looser) default cap.
+        router.setMaxInputPerTx(Constants.NATIVE, capWdoge);
         if (usdt != address(0)) {
             router.setMaxInputPerTx(usdt, capUsdt);
         }
         require(router.feeBps() == 0, "fee must be 0 at deploy");
+
+        // ---- 4b. Pause the router so it is NOT live during the un-timelocked handover window ----
+        // transferOwnership below is Ownable2Step, so the deployer EOA stays owner until the Safe
+        // executes acceptOwnership through the timelock (hours-to-days later). Ship it paused so no
+        // swap volume flows while an un-timelocked key still owns it; governance unpauses post-handover.
+        router.pause();
 
         // ---- 5. DogeSwapRegistry: point at the router, then hand registry to the Safe ----
         DogeSwapRegistry registry = new DogeSwapRegistry(msg.sender);
@@ -126,10 +140,13 @@ contract DeployRouter is Script {
         console2.log("router.feeBps()           ", router.feeBps());
         console2.log("router pending owner = TL  (acceptOwnership() pending)");
         console2.log("");
+        console2.log("router state             : PAUSED (unpause via governance after handover)");
+        console2.log("");
         console2.log("POST-DEPLOY GOVERNANCE (manual, via the Safe):");
         console2.log(" - The Safe schedules+executes timelock.acceptOwnership(router) through the");
         console2.log("   TimelockController so the timelock becomes the router's owner.");
         console2.log(" - The Safe accepts ownership of the DogeSwapRegistry (acceptOwnership()).");
+        console2.log(" - Once the timelock owns the router, governance calls router.unpause() to go live.");
         console2.log(" See audit/DEPLOYMENT.md.");
     }
 

@@ -8,10 +8,14 @@ deploy step. Cross-references: `SLITHER_TRIAGE.md` (suppressed false positives),
 ---
 
 ## 1. Standing max allowance to immutable venues
-**Status: accepted (safe by construction).**
-`_approveVenue` grants `type(uint256).max` allowance from the router to each immutable venue
+**Status: RESOLVED 2026-06-16 (see `HARDENING-2026-06.md` H4).** Venue approvals are now exact and
+ephemeral (`_approveVenueExact(amountIn)` before each swap, reset to 0 after), so no standing
+allowance survives a call and a compromised venue cannot reach stranded/airdropped balances
+out-of-band. The original accepted-trade-off rationale is retained below for historical context.
+
+`_approveVenue` granted `type(uint256).max` allowance from the router to each immutable venue
 router (set once, refreshed only when the current allowance is below the needed amount). A
-standing max allowance normally widens blast radius, but here it is safe because:
+standing max allowance normally widens blast radius, but here it was argued safe because:
 - the venues are **immutable, trusted** DEX SwapRouters validated in the constructor (no
   user-supplied target can ever receive an approval);
 - the router holds **~zero balance between transactions** — the per-execute ledger (H1)
@@ -42,16 +46,14 @@ arbitrary-token risk. On-chain safety does not depend on a token allowlist (bala
 `SafeERC20`).
 
 ## 4. Missing zero-address checks on guardian / feeRecipient setters
-**Status: accepted (owner-only config states; documented LOW in Slither triage #9).**
-`setGuardian`, `setFee` (and the immutable constructor params) accept `address(0)`. These are
-owner-only (Timelock) admin paths, not attacker-reachable:
-- `guardian == address(0)` is a **valid intentional state** (disables guardian-triggered pause;
-  owner can still pause/unpause) — a zero-check would be wrong here;
-- `feeRecipient == address(0)` is harmless because fees only pay out when `feeBps != 0`, and a
-  zero-recipient fee config is an obvious owner error correctable by another `setFee`;
-- zero venue/WDOGE addresses simply make the router fail to swap (no funds at risk; redeploy).
-Adding constructor reverts is reasonable hardening but a **contract logic change**, out of scope
-for this comment-only audit-prep pass. Left as a documented LOW (see `SLITHER_TRIAGE.md §9`).
+**Status: RESOLVED 2026-06-16 (see `HARDENING-2026-06.md` H1/H6).**
+- `setFee` now reverts `InvalidFeeRecipient` when `bps != 0 && r == address(0)`. The earlier
+  "`feeRecipient == address(0)` is harmless" claim was WRONG: a nonzero fee with a zero recipient
+  DoSes every ERC20-output swap (`safeTransfer` to `address(0)` reverts) or silently burns native
+  fees. Turning the fee off with a zero recipient stays valid.
+- The constructor now reverts `ZeroAddress` for any zero venue/WDOGE address.
+- `guardian == address(0)` remains a **valid intentional state** (disables guardian-triggered
+  pause; owner can still pause/unpause) — no zero-check there, by design.
 
 ## 5. Permit2 must be deployed on DogeOS before the router
 **Status: open — deploy phase (critical-path).**

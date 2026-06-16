@@ -51,8 +51,10 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         return DogeSwapRouter.Settlement({buyToken: buyToken, minOut: minOut, recipient: to});
     }
 
-    function _noop() internal pure returns (DogeSwapRouter.Settlement memory) {
-        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+    // Settles to a real recipient (zero/self recipients now revert). Permit-only programs have no
+    // `tin` delta so this pays nothing; a program that pulls `tin` settles it out to `recipient`.
+    function _noop() internal view returns (DogeSwapRouter.Settlement memory) {
+        return DogeSwapRouter.Settlement({buyToken: address(tin), minOut: 0, recipient: recipient});
     }
 
     /// @dev Build a freshly-signed Permit2 PermitSingle for `tin` at `nonce` and its signature.
@@ -186,6 +188,32 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         assertEq(tout.balanceOf(address(router)), 0, "no residual tout in router");
     }
 
+    // M-02: minOut binds the recipient's ACTUAL receipt, not the router's gross delta. A minOut
+    // set between the recipient's FoT net and the router's gross must revert (the old router-side
+    // check would have let it pass and shorted the recipient).
+    function test_feeOnTransfer_minOut_boundToRecipientReceipt_reverts() public {
+        tout.setFeeBps(100); // 1% FoT on transfer
+
+        (bytes memory pc, bytes[] memory pi) = _pullProgram(uint160(100e18));
+        bytes memory v3In = _v3Input(address(tin), address(tout), uint24(500), Constants.CONTRACT_BALANCE, 0);
+
+        bytes memory commands = abi.encodePacked(pc, bytes1(0x03)); // ..., V3_SWAP
+        bytes[] memory inputs = new bytes[](3);
+        inputs[0] = pi[0];
+        inputs[1] = pi[1];
+        inputs[2] = v3In;
+
+        uint256 gross = (100e18 * 9950) / 10_000;            // 99.5e18 router delta
+        uint256 net = gross - (gross * 100) / 10_000;        // recipient nets after 1% FoT
+        uint256 minOut = (gross + net) / 2;                  // strictly between net and gross
+
+        vm.prank(user);
+        vm.expectRevert(DogeSwapRouter.MinOutNotMet.selector);
+        router.execute(
+            commands, inputs, _settlement(address(tout), minOut, recipient), block.timestamp + 1 hours
+        );
+    }
+
     // 5. Live Permit2 allowance: a bare TRANSFER_FROM (no new signature) works within the window.
     function test_permit2_liveAllowance_bareTransferFrom_succeeds() public {
         // execute #1: establish a 200e18 allowance via PERMIT2_PERMIT (nonce 0), no-op settlement.
@@ -209,8 +237,10 @@ contract RouterEdgesTest is Test, DeployPermit2, PermitSignature {
         vm.prank(user);
         router.execute(tfCmd, tfInputs, _noop(), block.timestamp + 1 hours);
 
-        assertEq(tin.balanceOf(address(router)), 100e18, "router pulled 100e18 with no new signature");
+        // bare transferFrom (no new signature) pulled 100e18 from the caller; it settles out to recipient.
+        assertEq(tin.balanceOf(recipient), 100e18, "router pulled 100e18 with no new signature, settled out");
         assertEq(tin.balanceOf(user), 900e18, "user debited 100e18");
+        assertEq(tin.balanceOf(address(router)), 0, "router holds nothing after settlement");
     }
 
     // 6. Expired Permit2 allowance: a bare TRANSFER_FROM after expiration reverts.

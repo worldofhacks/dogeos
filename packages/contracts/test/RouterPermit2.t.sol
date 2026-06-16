@@ -16,6 +16,7 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
     MockERC20 internal token;
 
     address internal owner = makeAddr("owner");
+    address internal recipient = makeAddr("recipient");
     address internal user;
     uint256 internal userPk;
 
@@ -49,8 +50,11 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         });
     }
 
-    function _noop() internal pure returns (DogeSwapRouter.Settlement memory) {
-        return DogeSwapRouter.Settlement({buyToken: address(0), minOut: 0, recipient: address(0)});
+    // Settles to a real recipient (zero/self recipients now revert). With no buyToken delta
+    // (e.g. a permit-only program) it pays nothing — a true no-op — but for a program that pulls
+    // `token`, the pulled delta settles out to `recipient`.
+    function _noop() internal view returns (DogeSwapRouter.Settlement memory) {
+        return DogeSwapRouter.Settlement({buyToken: address(token), minOut: 0, recipient: recipient});
     }
 
     function _sign(IAllowanceTransfer.PermitSingle memory p) internal view returns (bytes memory) {
@@ -70,8 +74,10 @@ contract RouterPermit2Test is Test, DeployPermit2, PermitSignature {
         vm.prank(user);
         router.execute(commands, inputs, _noop(), block.timestamp + 1 hours);
 
-        assertEq(token.balanceOf(address(router)), 100e18, "router pulled 100e18");
+        // pull targets msg.sender (user); the pulled 100e18 settles out to the recipient.
+        assertEq(token.balanceOf(recipient), 100e18, "pulled 100e18 settled to recipient");
         assertEq(token.balanceOf(user), 900e18, "user debited 100e18");
+        assertEq(token.balanceOf(address(router)), 0, "router holds nothing after settlement");
     }
 
     // 2. CRITICAL FIX PROOF: a third party cannot drain a victim's live Permit2 allowance.

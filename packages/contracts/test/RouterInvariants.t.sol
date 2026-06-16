@@ -174,7 +174,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
 
         vm.prank(user);
         vm.expectRevert(); // Pausable: EnforcedPause
-        router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp + 1);
+        router.execute(commands, inputs, _settlement(address(tin), 0, user), block.timestamp + 1);
 
         assertEq(tin.balanceOf(user), userBefore, "I6: paused execute changed state");
         assertEq(tin.balanceOf(address(router)), 0, "I6: paused execute pulled funds");
@@ -188,7 +188,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
         vm.warp(1_000);
         vm.prank(user);
         vm.expectRevert(DogeSwapRouter.DeadlineExpired.selector);
-        router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp - 1);
+        router.execute(commands, inputs, _settlement(address(tin), 0, user), block.timestamp - 1);
 
         assertEq(tin.balanceOf(user), userBefore, "I6: expired execute changed state");
         assertEq(tin.balanceOf(address(router)), 0, "I6: expired execute pulled funds");
@@ -221,7 +221,7 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
         uint256 userBefore = tin.balanceOf(user);
         vm.prank(user);
         vm.expectRevert(DogeSwapRouter.NotionalCapExceeded.selector);
-        router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp + 1);
+        router.execute(commands, inputs, _settlement(address(tin), 0, user), block.timestamp + 1);
 
         assertEq(tin.balanceOf(user), userBefore, "I8: capped execute changed state");
         assertEq(tin.balanceOf(address(router)), 0, "I8: capped execute pulled funds");
@@ -234,8 +234,10 @@ contract RouterInvariantsTest is Test, DeployPermit2, PermitSignature {
 
         (bytes memory commands, bytes[] memory inputs) = _pullProgram(uint160(120 ether));
         vm.prank(user);
-        router.execute(commands, inputs, _settlement(address(0), 0, address(0)), block.timestamp + 1);
+        // at-cap pull succeeds (boundary inclusive); buyToken == tin so the pulled 120 settles back
+        // out to the recipient and nothing is stranded in the router (no-settlement bypass removed).
+        router.execute(commands, inputs, _settlement(address(tin), 0, user), block.timestamp + 1);
 
-        assertEq(tin.balanceOf(address(router)), 120 ether, "I8: at-cap pull did not settle");
+        assertEq(tin.balanceOf(address(router)), 0, "I8: at-cap pull settled, nothing stranded");
     }
 }
