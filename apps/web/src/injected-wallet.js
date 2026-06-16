@@ -268,6 +268,41 @@ async function resolveInjectedProvider(globalObject = defaultWindow(), walletPre
   return looseProvider;
 }
 
+// Fast probe: is an injected EVM (EIP-1193) wallet available right now, or does one announce within
+// `timeoutMs`? Used to decide whether to take the lightweight injected fast-path (connect MyDoge /
+// MetaMask directly) instead of loading the heavy DogeOS Connect Kit chunk. Resolves true as soon as
+// any provider with a `request` method is known (window.ethereum or an EIP-6963 announcement).
+export async function detectInjectedProvider(globalObject = defaultWindow(), { timeoutMs = 500 } = {}) {
+  if (!globalObject) return false;
+  if (requestProviderEntries(globalObject).length > 0) return true;
+  if (!globalObject.addEventListener || !globalObject.dispatchEvent) return false;
+
+  return new Promise((resolve) => {
+    let done = false;
+    let timeoutId;
+
+    function finish(result) {
+      if (done) return;
+      done = true;
+      if (timeoutId) (globalObject.clearTimeout ?? clearTimeout)(timeoutId);
+      globalObject.removeEventListener?.(EIP6963_ANNOUNCE_EVENT, handleAnnouncement);
+      resolve(result);
+    }
+
+    function handleAnnouncement(event) {
+      rememberEip6963Provider(globalObject, event?.detail);
+      if (event?.detail?.provider?.request) finish(true);
+    }
+
+    globalObject.addEventListener(EIP6963_ANNOUNCE_EVENT, handleAnnouncement);
+    timeoutId = (globalObject.setTimeout ?? setTimeout)(
+      () => finish(requestProviderEntries(globalObject).length > 0),
+      timeoutMs,
+    );
+    globalObject.dispatchEvent(createEip6963RequestEvent(globalObject));
+  });
+}
+
 function firstErrorCode(error) {
   return error?.code ?? error?.data?.originalError?.code ?? error?.data?.code;
 }
