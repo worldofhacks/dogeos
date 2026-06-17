@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import "./sdk-browser-globals.js";
@@ -53,24 +53,29 @@ function InjectedWalletBridge() {
 }
 
 function DogeOSSdkWalletRoot() {
-  // When no clientId is provisioned the DogeOS Connect Kit cannot mount, so we
-  // keep the EIP-6963 injected bridge as the graceful fallback (MyDoge still
-  // connects via window.ethereum — see useWallet.connect()). With a clientId we
-  // mount the SDK provider and the Connect Kit modal becomes the primary chooser
-  // for all wallets (and unlocks mobile MyDoge via WalletConnect).
-  //
-  // To provision the clientId set DOGEOS_CLIENT_ID (or VITE_DOGEOS_CLIENT_ID) in
-  // .env / the environment. It is read at runtime in packages/web/src/server.mjs
-  // and at build time in vite.config.mjs, then surfaced via sdkConfig.js
-  // (dogeConfig.clientId) / window.DOGEOS_AGGREGATOR_CONFIG.dogeosClientId.
-  if (!dogeConfig.clientId) {
-    noticeInjectedFallbackOnce();
-    return <InjectedWalletBridge />;
-  }
+  // HYBRID: mount the lightweight injected EIP-6963 bridge by default so a browser wallet
+  // (MyDoge / MetaMask) connects INSTANTLY and never loads the ~13.7MB Connect Kit chunk.
+  // The app's own look-alike modal (ConnectKitModal.jsx) is the chooser. Swap to the real SDK
+  // Connect Kit only on demand — when the user picks email / social / WalletConnect, which
+  // genuinely need the SDK — via the `dogeos:load-sdk-social` event (useWallet.startSocial()).
+  // No clientId => injected only (the SDK can't mount), same graceful fallback as before.
+  const [mode, setMode] = useState("injected");
+
+  useEffect(() => {
+    if (!dogeConfig.clientId) {
+      noticeInjectedFallbackOnce();
+      return undefined;
+    }
+    const onLoadSdk = () => setMode("sdk");
+    window.addEventListener("dogeos:load-sdk-social", onLoadSdk);
+    return () => window.removeEventListener("dogeos:load-sdk-social", onLoadSdk);
+  }, []);
+
+  if (mode === "injected") return <InjectedWalletBridge />;
 
   return (
     <React.Suspense fallback={null}>
-      <DogeOSSdkWalletProvider />
+      <DogeOSSdkWalletProvider openOnReady />
     </React.Suspense>
   );
 }

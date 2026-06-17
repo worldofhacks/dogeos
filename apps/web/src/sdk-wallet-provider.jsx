@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getChains,
   getConnectors,
@@ -62,9 +62,18 @@ function isEvmAddress(value) {
   return /^0x[0-9a-f]{40}$/i.test(String(value ?? ""));
 }
 
-function DogeOSSdkWalletBridge() {
+function DogeOSSdkWalletBridge({ openOnReady = false }) {
   const wallet = useWalletConnect();
   const account = useAccount();
+  // When the provider was lazy-mounted because the user asked for email/social/WalletConnect,
+  // auto-open the real Connect Kit modal once the SDK is ready (one-shot).
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!openOnReady || autoOpenedRef.current) return;
+    if (typeof wallet.openModal !== "function" || wallet.isConnected) return;
+    autoOpenedRef.current = true;
+    wallet.openModal();
+  }, [openOnReady, wallet.openModal, wallet.isConnected]);
   const { connectors, currentProvider: connectorCurrentProvider } = useConnectors();
   const [injectedFallback, setInjectedFallback] = useState(null);
   const connectorEvmProvider = connectors ? connectors.evm?.provider : null;
@@ -270,7 +279,7 @@ function DogeOSSdkWalletBridge() {
   return null;
 }
 
-export default function DogeOSSdkWalletProvider() {
+export default function DogeOSSdkWalletProvider({ openOnReady = false }) {
   const [chains, setChains] = useState(() => dogeConfig.chains);
   // Connectors MUST be sourced from getConnectors() (see sdkConfig.js); until
   // resolved we pass dogeConfig.connectors (undefined) so the SDK loads its own.
@@ -313,7 +322,7 @@ export default function DogeOSSdkWalletProvider() {
 
   return (
     <WalletConnectProvider config={config}>
-      <DogeOSSdkWalletBridge />
+      <DogeOSSdkWalletBridge openOnReady={openOnReady} />
     </WalletConnectProvider>
   );
 }

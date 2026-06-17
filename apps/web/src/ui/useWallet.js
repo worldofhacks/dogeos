@@ -36,6 +36,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { showToast } from "./Toast.jsx";
+import { dogeConfig } from "../sdkConfig.js";
+
+const LOAD_SDK_SOCIAL_EVENT = "dogeos:load-sdk-social";
 
 const INJECTED_HELP =
   "MyDoge not detected. Install MyDoge to connect.";
@@ -177,6 +180,10 @@ export function useWallet() {
   // without this the button stayed clickable during the multi-second chunk load
   // and a second click stacked another connect attempt.
   const [preparing, setPreparing] = useState(false);
+  // Hybrid look-alike Connect modal (clientId path): opens instantly, lists detected browser
+  // wallets for the fast injected connect, and hands off to the real SDK for email/social/WC.
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [detectedWallets, setDetectedWallets] = useState([]);
 
   // Subscribe to bridge updates + warm the lazy loader on mount.
   useEffect(() => {
@@ -215,55 +222,46 @@ export function useWallet() {
   const connect = useCallback(
     async (preference) => {
       if (state.address) return;
-      // Mark the button busy for the WHOLE flow — most importantly the lazy SDK
-      // chunk load below — so it reads "connecting" and stays disabled instead
-      // of inviting a second click that doubles the wait.
       setPreparing(true);
       try {
         let wallet;
         try {
           wallet = await loadSdkWallet();
         } catch (error) {
-          showToast(error?.message || INJECTED_HELP, "err");
-          return;
+          // With a clientId we still open the look-alike modal (it offers email/social even
+          // when no browser wallet is present); without one this is a hard failure.
+          if (!dogeConfig.clientId) {
+            showToast(error?.message || INJECTED_HELP, "err");
+            return;
+          }
+          wallet = null;
         }
-        if (!wallet?.openModal) {
-          showToast("DogeOS SDK wallet is still loading. Try again in a moment.", "err");
-          return;
-        }
-        if (wallet.isConnected?.()) {
-          // The bridge is already connected but this hook instance missed the
-          // event (fresh mount). Resync local state instead of silently doing
-          // nothing — a dead connect button with no feedback is unrecoverable.
-          // Prefer the live getters (ground truth) over the cached publish.
+
+        if (wallet?.isConnected?.()) {
+          // The bridge is already connected but this hook instance missed the event (fresh
+          // mount). Resync from the live getters instead of doing nothing.
           const known = bridgeSnapshot() ?? knownWalletState();
           if (known?.address) {
             setState(known);
             return;
           }
-          // The bridge claims connected but yields no address — fall through to
-          // the normal connect flow rather than silently doing nothing.
         }
 
-        // SDK mode (clientId set): the Connect Kit modal is the chooser. No
-        // per-wallet preference — openModal() presents the full wallet list.
-        if (!isInjectedBridge(wallet, state.walletSource)) {
-          try {
-            await wallet.openModal();
-          } catch (error) {
-            showToast(error?.message || "Wallet connection failed.", "err");
-          }
+        // HYBRID (clientId set): open our instant look-alike Connect modal. Browser wallets
+        // connect via the injected bridge (no SDK chunk); email/social/WC hand off to the SDK.
+        if (dogeConfig.clientId) {
+          setDetectedWallets(wallet?.listInjectedWallets?.() ?? []);
+          setConnectModalOpen(true);
           return;
         }
 
-        // Injected mode (no clientId). The bridge lists SUPPORTED wallets
-        // (MyDoge, MetaMask, Phantom, Rainbow) — plus a lone unknown wallet when
-        // it's the only thing installed. Pick the preference:
-        //   • explicit preference (from the chooser) wins;
-        //   • >1 supported wallet present → show the minimal chooser;
-        //   • exactly 1 listed → connect that wallet directly;
-        //   • 0 listed → attempt MyDoge, which yields the clear "MyDoge not
-        //     detected" help toast since nothing usable answered EIP-6963.
+        if (!wallet?.openModal) {
+          showToast("DogeOS SDK wallet is still loading. Try again in a moment.", "err");
+          return;
+        }
+
+        // No clientId: injected-only flow. Default to MyDoge; show the minimal chooser when
+        // several supported wallets are present.
         const explicit = typeof preference === "string" && preference;
         let target = explicit || DEFAULT_INJECTED_PREFERENCE;
         if (!explicit) {
@@ -273,11 +271,6 @@ export function useWallet() {
             return;
           }
           if (wallets.length === 1) {
-            // Single listed wallet: connect it directly so a lone non-MyDoge
-            // wallet still connects instead of erroring with "MyDoge not
-            // detected". An empty preference ("" — lone unrecognised brand)
-            // means "the only injected provider", which the bridge's generic
-            // resolver handles.
             target = wallets[0].preference;
           }
         }
@@ -286,8 +279,33 @@ export function useWallet() {
         setPreparing(false);
       }
     },
-    [state.address, state.walletSource, runInjectedConnect],
+    [state.address, runInjectedConnect],
   );
+
+  // Hybrid modal: connect a chosen browser wallet via the injected bridge (no SDK chunk).
+  const pickWallet = useCallback(
+    async (preference) => {
+      setConnectModalOpen(false);
+      const wallet = sdkWallet();
+      if (!wallet?.openModal) {
+        showToast(INJECTED_HELP, "err");
+        return;
+      }
+      await runInjectedConnect(wallet, preference || DEFAULT_INJECTED_PREFERENCE).catch(() => {});
+    },
+    [runInjectedConnect],
+  );
+
+  // Hybrid modal: hand off to the real SDK Connect Kit (lazy-loaded) for email / social /
+  // WalletConnect — the genuinely SDK-only paths. sdk-wallet.jsx swaps in the SDK provider,
+  // which auto-opens its modal (openOnReady).
+  const startSocial = useCallback(() => {
+    setConnectModalOpen(false);
+    showToast("Loading sign-in options…", "ok");
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(LOAD_SDK_SOCIAL_EVENT));
+  }, []);
+
+  const closeConnectModal = useCallback(() => setConnectModalOpen(false), []);
 
   // Resolve the chooser: connect the user's explicitly selected injected wallet.
   // The preference is passed through as-is; the chooser only lists supported
@@ -347,5 +365,11 @@ export function useWallet() {
     chooser,
     chooseWallet,
     cancelChooser,
+    // Hybrid look-alike Connect modal (clientId path). Shell renders <ConnectKitModal>.
+    connectModalOpen,
+    detectedWallets,
+    pickWallet,
+    startSocial,
+    closeConnectModal,
   };
 }
