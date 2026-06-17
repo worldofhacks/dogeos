@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -6,6 +9,8 @@ import {
   createWebRequestListener,
   startAggregatorWebServer,
 } from "../src/server.mjs";
+
+const stubApi = async () => new Response("{}", { headers: { "content-type": "application/json" } });
 
 // Pin the static root to the authored React source so the shell assertions are
 // deterministic whether or not a (possibly stale) Vite `dist/` build is present.
@@ -277,4 +282,23 @@ test("startAggregatorWebServer binds a local HTTP server", async () => {
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+test("content-hashed /assets/ files are cached immutable; index.html and runtime-config stay no-store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dogeweb-cache-"));
+  await mkdir(join(root, "assets"), { recursive: true });
+  await writeFile(join(root, "assets", "app-abc123.js"), "console.log(1)");
+  await writeFile(join(root, "index.html"), "<!doctype html><html></html>");
+
+  const listener = createWebRequestListener({ apiHandle: stubApi, staticRoot: root });
+
+  const asset = await collectResponse(listener, incomingRequest({ url: "/assets/app-abc123.js" }));
+  assert.equal(asset.statusCode, 200);
+  assert.match(asset.headers["cache-control"], /public, max-age=31536000, immutable/);
+
+  const html = await collectResponse(listener, incomingRequest({ url: "/" }));
+  assert.equal(html.headers["cache-control"], "no-store");
+
+  const cfg = await collectResponse(listener, incomingRequest({ url: "/runtime-config.js" }));
+  assert.equal(cfg.headers["cache-control"], "no-store");
 });

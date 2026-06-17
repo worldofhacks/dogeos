@@ -123,10 +123,16 @@ async function serveStatic({ pathname, staticRoot }) {
 
   try {
     const body = await readFile(filePath);
+    // Files under /assets/ are content-hashed by Vite (immutable): cache them hard so the
+    // browser reuses the (large) SDK chunk across visits AND so the idle `<link rel=prefetch>`
+    // can actually be STORED — `no-store` was discarding the prefetched bytes and forcing the
+    // SDK import to re-download. index.html / runtime-config.js must stay fresh (no-store): they
+    // reference the hashed assets and carry the runtime clientId.
+    const immutable = pathname.startsWith("/assets/");
     return new Response(body, {
       status: 200,
       headers: {
-        "cache-control": "no-store",
+        "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-store",
         "content-type": CONTENT_TYPES[extname(filePath)] ?? "application/octet-stream",
       },
     });
