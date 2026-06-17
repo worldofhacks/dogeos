@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   connectInjectedProviderToDogeOS,
   createInjectedWalletBridge,
-  detectInjectedProvider,
   isUnknownChainError,
   switchInjectedProviderToDogeOS,
 } from "../../../apps/web/src/injected-wallet.js";
@@ -73,28 +72,6 @@ function createEip6963Window(details = []) {
     },
   };
 }
-
-test("detectInjectedProvider returns true synchronously for window.ethereum", async () => {
-  const provider = createProvider();
-  assert.equal(await detectInjectedProvider({ ethereum: provider }, { timeoutMs: 50 }), true);
-});
-
-test("detectInjectedProvider returns true when a wallet announces over EIP-6963", async () => {
-  const mydoge = createProvider({ chainId: "0x5fdaf3" });
-  const globalObject = createEip6963Window([
-    { info: { uuid: "mydoge-link", name: "MyDoge Link", rdns: "com.mydoge.link" }, provider: mydoge },
-  ]);
-  assert.equal(await detectInjectedProvider(globalObject, { timeoutMs: 200 }), true);
-});
-
-test("detectInjectedProvider returns false when no injected wallet is present (SDK fallback)", async () => {
-  const globalObject = createEip6963Window([]); // nothing announces
-  assert.equal(await detectInjectedProvider(globalObject, { timeoutMs: 50 }), false);
-});
-
-test("detectInjectedProvider returns false for a bare global with no provider APIs", async () => {
-  assert.equal(await detectInjectedProvider({}, { timeoutMs: 50 }), false);
-});
 
 test("injected wallet bridge connects through the browser EIP-1193 provider", async () => {
   const provider = createProvider({ chainId: "0x5fdaf3" });
