@@ -73,6 +73,8 @@ function DogeOSSdkWalletBridge({ openOnReady = false }) {
     if (typeof wallet.openModal !== "function" || wallet.isConnected) return;
     autoOpenedRef.current = true;
     wallet.openModal();
+    // Tell the look-alike modal the real SDK Connect Kit is up so it can drop its loading state.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("dogeos:sdk-modal-ready"));
   }, [openOnReady, wallet.openModal, wallet.isConnected]);
   const { connectors, currentProvider: connectorCurrentProvider } = useConnectors();
   const [injectedFallback, setInjectedFallback] = useState(null);

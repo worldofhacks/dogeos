@@ -14,7 +14,7 @@ import ActivityView from "./ActivityView.jsx";
 import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
 import WalletChooser from "./WalletChooser.jsx";
-import ConnectKitModal from "./ConnectKitModal.jsx";
+import ConnectKitModal, { Spinner } from "./ConnectKitModal.jsx";
 import { chainIdMatchesDogeos } from "../lib/execute.js";
 
 const NAV_ITEMS = [
@@ -176,7 +176,14 @@ export default function Shell() {
         boxShadow: theme.dark ? "none" : "0 2px 0 rgba(0,0,0,0.16)",
       }}
     >
-      {wallet.isConnecting ? "connecting" : "connect"}
+      {wallet.isConnecting ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <Spinner size={14} color={theme.onAccent} />
+          connecting
+        </span>
+      ) : (
+        "connect"
+      )}
     </button>
   );
 
@@ -216,6 +223,7 @@ export default function Shell() {
       />
       <ConnectKitModal
         open={wallet.connectModalOpen}
+        loading={wallet.socialLoading}
         wallets={wallet.detectedWallets}
         onClose={() => wallet.closeConnectModal()}
         onPickWallet={(preference) => wallet.pickWallet(preference)}

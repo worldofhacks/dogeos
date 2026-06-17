@@ -33,6 +33,18 @@ function GoogleLogo() {
   );
 }
 
+// Self-contained SMIL spinner (no global CSS / keyframes needed).
+export function Spinner({ size = 18, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block" }}>
+      <circle cx="12" cy="12" r="9" stroke={color} strokeOpacity="0.22" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke={color} strokeWidth="3" strokeLinecap="round">
+        <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.7s" repeatCount="indefinite" />
+      </path>
+    </svg>
+  );
+}
+
 function SocialButton({ label, icon, onClick }) {
   const [hover, setHover] = useState(false);
   return (
@@ -65,7 +77,7 @@ function SocialButton({ label, icon, onClick }) {
   );
 }
 
-export default function ConnectKitModal({ open, wallets = [], onClose, onPickWallet, onStartSocial }) {
+export default function ConnectKitModal({ open, loading = false, wallets = [], onClose, onPickWallet, onStartSocial }) {
   const [view, setView] = useState("home"); // "home" (social) | "wallets"
   const [email, setEmail] = useState("");
   if (!open) return null;
@@ -110,28 +122,30 @@ export default function ConnectKitModal({ open, wallets = [], onClose, onPickWal
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 22px 6px" }}>
           <span style={{ fontWeight: 700, fontSize: 19, color: "#101014" }}>
-            {view === "home" ? "Log in or sign up" : "Connect a wallet"}
+            {loading ? "Opening sign-in…" : view === "home" ? "Log in or sign up" : "Connect a wallet"}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <button
-              className="tap"
-              onClick={() => setView(view === "home" ? "wallets" : "home")}
-              style={{
-                border: "none",
-                background: "transparent",
-                color: TEAL,
-                cursor: "pointer",
-                fontFamily: "'Space Grotesk',sans-serif",
-                fontWeight: 600,
-                fontSize: 13.5,
-                display: "flex",
-                alignItems: "center",
-                gap: 3,
-                padding: 0,
-              }}
-            >
-              {view === "home" ? "Or connect a wallet ›" : "‹ Back"}
-            </button>
+            {!loading && (
+              <button
+                className="tap"
+                onClick={() => setView(view === "home" ? "wallets" : "home")}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: TEAL,
+                  cursor: "pointer",
+                  fontFamily: "'Space Grotesk',sans-serif",
+                  fontWeight: 600,
+                  fontSize: 13.5,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: 0,
+                }}
+              >
+                {view === "home" ? "Or connect a wallet ›" : "‹ Back"}
+              </button>
+            )}
             <button
               className="tap"
               onClick={onClose}
@@ -143,6 +157,12 @@ export default function ConnectKitModal({ open, wallets = [], onClose, onPickWal
           </div>
         </div>
 
+        {loading ? (
+          <div style={{ padding: "28px 22px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+            <span style={{ color: TEAL }}><Spinner size={34} /></span>
+            <span style={{ color: "#6a6a72", fontSize: 14.5 }}>Loading sign-in options…</span>
+          </div>
+        ) : (
         <div style={{ padding: "16px 22px 18px" }}>
           {view === "home" ? (
             <>
@@ -280,6 +300,7 @@ export default function ConnectKitModal({ open, wallets = [], onClose, onPickWal
             <div style={{ color: "#b6b6bc", fontSize: 12, marginTop: 9 }}>Powered by DogeOS</div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

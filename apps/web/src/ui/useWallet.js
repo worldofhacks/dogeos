@@ -184,6 +184,9 @@ export function useWallet() {
   // wallets for the fast injected connect, and hands off to the real SDK for email/social/WC.
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [detectedWallets, setDetectedWallets] = useState([]);
+  // True while the email/social handoff is loading the SDK Connect Kit — the look-alike modal
+  // stays open showing a spinner until the real SDK modal opens.
+  const [socialLoading, setSocialLoading] = useState(false);
 
   // Subscribe to bridge updates + warm the lazy loader on mount.
   useEffect(() => {
@@ -297,15 +300,29 @@ export function useWallet() {
   );
 
   // Hybrid modal: hand off to the real SDK Connect Kit (lazy-loaded) for email / social /
-  // WalletConnect — the genuinely SDK-only paths. sdk-wallet.jsx swaps in the SDK provider,
-  // which auto-opens its modal (openOnReady).
+  // WalletConnect — the genuinely SDK-only paths. Keep the look-alike open showing a spinner;
+  // sdk-wallet.jsx swaps in the SDK provider, which auto-opens its modal and fires
+  // `dogeos:sdk-modal-ready` (see the effect below) so we can drop the loading state.
   const startSocial = useCallback(() => {
-    setConnectModalOpen(false);
-    showToast("Loading sign-in options…", "ok");
+    setSocialLoading(true);
     if (typeof window !== "undefined") window.dispatchEvent(new Event(LOAD_SDK_SOCIAL_EVENT));
   }, []);
 
-  const closeConnectModal = useCallback(() => setConnectModalOpen(false), []);
+  // The real SDK Connect Kit modal opened — close our loading look-alike behind it.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    function onSdkModalReady() {
+      setSocialLoading(false);
+      setConnectModalOpen(false);
+    }
+    window.addEventListener("dogeos:sdk-modal-ready", onSdkModalReady);
+    return () => window.removeEventListener("dogeos:sdk-modal-ready", onSdkModalReady);
+  }, []);
+
+  const closeConnectModal = useCallback(() => {
+    setSocialLoading(false);
+    setConnectModalOpen(false);
+  }, []);
 
   // Resolve the chooser: connect the user's explicitly selected injected wallet.
   // The preference is passed through as-is; the chooser only lists supported
@@ -368,6 +385,7 @@ export function useWallet() {
     // Hybrid look-alike Connect modal (clientId path). Shell renders <ConnectKitModal>.
     connectModalOpen,
     detectedWallets,
+    socialLoading,
     pickWallet,
     startSocial,
     closeConnectModal,

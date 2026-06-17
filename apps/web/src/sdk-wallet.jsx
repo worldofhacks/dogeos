@@ -68,7 +68,30 @@ function DogeOSSdkWalletRoot() {
     }
     const onLoadSdk = () => setMode("sdk");
     window.addEventListener("dogeos:load-sdk-social", onLoadSdk);
-    return () => window.removeEventListener("dogeos:load-sdk-social", onLoadSdk);
+
+    // Background-warm the SDK Connect Kit module on idle so the email/social handoff is smooth:
+    // download + parse the heavy chunk while the user reads the page (off the first-paint path).
+    // It only PRE-LOADS the module — React.lazy reuses it, so the later mount is fast and never
+    // opens the modal on its own. Skipped on Save-Data connections.
+    let warmHandle;
+    const saveData =
+      typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData;
+    if (!saveData) {
+      const warm = () => {
+        import("./sdk-wallet-provider.jsx").catch(() => {});
+      };
+      warmHandle = window.requestIdleCallback
+        ? window.requestIdleCallback(warm, { timeout: 4000 })
+        : window.setTimeout(warm, 2500);
+    }
+
+    return () => {
+      window.removeEventListener("dogeos:load-sdk-social", onLoadSdk);
+      if (warmHandle != null) {
+        if (window.cancelIdleCallback) window.cancelIdleCallback(warmHandle);
+        else window.clearTimeout(warmHandle);
+      }
+    };
   }, []);
 
   if (mode === "injected") return <InjectedWalletBridge />;
