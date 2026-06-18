@@ -305,7 +305,12 @@ export function useWallet() {
   // `dogeos:sdk-modal-ready` (see the effect below) so we can drop the loading state.
   const startSocial = useCallback(() => {
     setSocialLoading(true);
-    if (typeof window !== "undefined") window.dispatchEvent(new Event(LOAD_SDK_SOCIAL_EVENT));
+    if (typeof window !== "undefined") {
+      // Flag set BEFORE dispatch so the SDK bridge opens its modal even if it mounts slightly
+      // after the event (click-before-idle-premount). When pre-mounted, the event opens it instantly.
+      window.__dogeosSocialPending = true;
+      window.dispatchEvent(new Event(LOAD_SDK_SOCIAL_EVENT));
+    }
   }, []);
 
   // The real SDK Connect Kit modal opened — close our loading look-alike behind it.

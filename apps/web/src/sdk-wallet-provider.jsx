@@ -62,20 +62,26 @@ function isEvmAddress(value) {
   return /^0x[0-9a-f]{40}$/i.test(String(value ?? ""));
 }
 
-function DogeOSSdkWalletBridge({ openOnReady = false }) {
+function DogeOSSdkWalletBridge({ standby = false }) {
   const wallet = useWalletConnect();
   const account = useAccount();
-  // When the provider was lazy-mounted because the user asked for email/social/WalletConnect,
-  // auto-open the real Connect Kit modal once the SDK is ready (one-shot).
-  const autoOpenedRef = useRef(false);
+  // The SDK is pre-mounted in standby; open its (already-initialized) modal when the user reaches
+  // the email / social / WalletConnect path — no mounting or re-init happens then, it just opens.
+  // Handles both the pre-mounted case (the event) and the click-before-ready case (the
+  // `__dogeosSocialPending` flag set by useWallet.startSocial()).
   useEffect(() => {
-    if (!openOnReady || autoOpenedRef.current) return;
-    if (typeof wallet.openModal !== "function" || wallet.isConnected) return;
-    autoOpenedRef.current = true;
-    wallet.openModal();
-    // Tell the look-alike modal the real SDK Connect Kit is up so it can drop its loading state.
-    if (typeof window !== "undefined") window.dispatchEvent(new Event("dogeos:sdk-modal-ready"));
-  }, [openOnReady, wallet.openModal, wallet.isConnected]);
+    if (typeof window === "undefined") return undefined;
+    function openForSocial() {
+      if (typeof wallet.openModal !== "function" || wallet.isConnected) return;
+      wallet.openModal();
+      window.__dogeosSocialPending = false;
+      // Tell the look-alike modal the real Connect Kit is up so it can drop its loading state.
+      window.dispatchEvent(new Event("dogeos:sdk-modal-ready"));
+    }
+    if (window.__dogeosSocialPending) openForSocial();
+    window.addEventListener("dogeos:load-sdk-social", openForSocial);
+    return () => window.removeEventListener("dogeos:load-sdk-social", openForSocial);
+  }, [wallet.openModal, wallet.isConnected]);
   const { connectors, currentProvider: connectorCurrentProvider } = useConnectors();
   const [injectedFallback, setInjectedFallback] = useState(null);
   const connectorEvmProvider = connectors ? connectors.evm?.provider : null;
@@ -132,6 +138,10 @@ function DogeOSSdkWalletBridge({ openOnReady = false }) {
   }, [wallet.openModal]);
 
   useEffect(() => {
+    // In standby (pre-mounted but not the active wallet), don't grab the global wallet handle or
+    // publish state — the injected bridge owns the wallet until the user actually connects THROUGH
+    // the SDK (social / WalletConnect), at which point isConnected flips and we take over.
+    if (standby && !isConnected) return undefined;
     const bridge = {
       openModal: openDogeosWalletModal,
       disconnect: async () => {
@@ -181,6 +191,7 @@ function DogeOSSdkWalletBridge({ openOnReady = false }) {
     walletError,
     walletLabel,
     walletSource,
+    standby,
   ]);
 
   useEffect(() => {
@@ -281,7 +292,7 @@ function DogeOSSdkWalletBridge({ openOnReady = false }) {
   return null;
 }
 
-export default function DogeOSSdkWalletProvider({ openOnReady = false }) {
+export default function DogeOSSdkWalletProvider({ standby = false }) {
   const [chains, setChains] = useState(() => dogeConfig.chains);
   // Connectors MUST be sourced from getConnectors() (see sdkConfig.js); until
   // resolved we pass dogeConfig.connectors (undefined) so the SDK loads its own.
@@ -324,7 +335,7 @@ export default function DogeOSSdkWalletProvider({ openOnReady = false }) {
 
   return (
     <WalletConnectProvider config={config}>
-      <DogeOSSdkWalletBridge openOnReady={openOnReady} />
+      <DogeOSSdkWalletBridge standby={standby} />
     </WalletConnectProvider>
   );
 }

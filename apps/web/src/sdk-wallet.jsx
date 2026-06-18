@@ -53,53 +53,54 @@ function InjectedWalletBridge() {
 }
 
 function DogeOSSdkWalletRoot() {
-  // HYBRID: mount the lightweight injected EIP-6963 bridge by default so a browser wallet
-  // (MyDoge / MetaMask) connects INSTANTLY and never loads the ~13.7MB Connect Kit chunk.
-  // The app's own look-alike modal (ConnectKitModal.jsx) is the chooser. Swap to the real SDK
-  // Connect Kit only on demand — when the user picks email / social / WalletConnect, which
-  // genuinely need the SDK — via the `dogeos:load-sdk-social` event (useWallet.startSocial()).
+  // HYBRID: the lightweight injected EIP-6963 bridge is always mounted and owns the wallet by
+  // default, so a browser wallet (MyDoge / MetaMask) connects INSTANTLY via the look-alike modal
+  // (ConnectKitModal.jsx) with no SDK chunk. Separately, when a clientId is set, we PRE-MOUNT the
+  // real SDK Connect Kit in the background on idle in `standby` (it fully initializes — chains,
+  // WalletConnect, embedded wallet — but does NOT grab the active wallet or open its modal). So
+  // when the user picks email / social / WalletConnect, the handoff just OPENS an already-ready
+  // modal instead of mounting + re-initializing the SDK (which read as a "reload"). The SDK only
+  // becomes the active wallet once the user actually connects through it.
   // No clientId => injected only (the SDK can't mount), same graceful fallback as before.
-  const [mode, setMode] = useState("injected");
+  const [sdkMounted, setSdkMounted] = useState(false);
 
   useEffect(() => {
     if (!dogeConfig.clientId) {
       noticeInjectedFallbackOnce();
       return undefined;
     }
-    const onLoadSdk = () => setMode("sdk");
-    window.addEventListener("dogeos:load-sdk-social", onLoadSdk);
-
-    // Background-warm the SDK Connect Kit module on idle so the email/social handoff is smooth:
-    // download + parse the heavy chunk while the user reads the page (off the first-paint path).
-    // It only PRE-LOADS the module — React.lazy reuses it, so the later mount is fast and never
-    // opens the modal on its own. Skipped on Save-Data connections.
-    let warmHandle;
+    // Pre-mount the SDK in the background on idle (off the first-paint path). Skip on Save-Data.
+    let handle;
     const saveData =
       typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData;
+    const mountSdk = () => setSdkMounted(true);
     if (!saveData) {
-      const warm = () => {
-        import("./sdk-wallet-provider.jsx").catch(() => {});
-      };
-      warmHandle = window.requestIdleCallback
-        ? window.requestIdleCallback(warm, { timeout: 4000 })
-        : window.setTimeout(warm, 2500);
+      handle = window.requestIdleCallback
+        ? window.requestIdleCallback(mountSdk, { timeout: 4000 })
+        : window.setTimeout(mountSdk, 2500);
     }
+    // If the user reaches the social path before idle fired, mount the SDK immediately.
+    const onLoadSdk = () => setSdkMounted(true);
+    window.addEventListener("dogeos:load-sdk-social", onLoadSdk);
 
     return () => {
       window.removeEventListener("dogeos:load-sdk-social", onLoadSdk);
-      if (warmHandle != null) {
-        if (window.cancelIdleCallback) window.cancelIdleCallback(warmHandle);
-        else window.clearTimeout(warmHandle);
+      if (handle != null) {
+        if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
+        else window.clearTimeout(handle);
       }
     };
   }, []);
 
-  if (mode === "injected") return <InjectedWalletBridge />;
-
   return (
-    <React.Suspense fallback={null}>
-      <DogeOSSdkWalletProvider openOnReady />
-    </React.Suspense>
+    <>
+      <InjectedWalletBridge />
+      {dogeConfig.clientId && sdkMounted && (
+        <React.Suspense fallback={null}>
+          <DogeOSSdkWalletProvider standby />
+        </React.Suspense>
+      )}
+    </>
   );
 }
 
