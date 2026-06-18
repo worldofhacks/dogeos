@@ -14,7 +14,7 @@ import ActivityView from "./ActivityView.jsx";
 import SettingsView from "./SettingsView.jsx";
 import { ToastHost } from "./Toast.jsx";
 import WalletChooser from "./WalletChooser.jsx";
-import ConnectKitModal, { Spinner } from "./ConnectKitModal.jsx";
+import Spinner from "./Spinner.jsx";
 import { chainIdMatchesDogeos } from "../lib/execute.js";
 
 const NAV_ITEMS = [
@@ -220,14 +220,6 @@ export default function Shell() {
         chooser={wallet.chooser}
         onChoose={(preference) => wallet.chooseWallet(preference)}
         onCancel={() => wallet.cancelChooser()}
-      />
-      <ConnectKitModal
-        open={wallet.connectModalOpen}
-        loading={wallet.socialLoading}
-        wallets={wallet.detectedWallets}
-        onClose={() => wallet.closeConnectModal()}
-        onPickWallet={(preference) => wallet.pickWallet(preference)}
-        onStartSocial={() => wallet.startSocial()}
       />
     </>
   );

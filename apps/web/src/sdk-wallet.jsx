@@ -53,15 +53,10 @@ function InjectedWalletBridge() {
 }
 
 function DogeOSSdkWalletRoot() {
-  // HYBRID: the lightweight injected EIP-6963 bridge is always mounted and owns the wallet by
-  // default, so a browser wallet (MyDoge / MetaMask) connects INSTANTLY via the look-alike modal
-  // (ConnectKitModal.jsx) with no SDK chunk. Separately, when a clientId is set, we PRE-MOUNT the
-  // real SDK Connect Kit in the background on idle in `standby` (it fully initializes — chains,
-  // WalletConnect, embedded wallet — but does NOT grab the active wallet or open its modal). So
-  // when the user picks email / social / WalletConnect, the handoff just OPENS an already-ready
-  // modal instead of mounting + re-initializing the SDK (which read as a "reload"). The SDK only
-  // becomes the active wallet once the user actually connects through it.
-  // No clientId => injected only (the SDK can't mount), same graceful fallback as before.
+  // SDK-only: with a clientId the real DogeOS Connect Kit is the single chooser for ALL connections
+  // (MyDoge, MetaMask, WalletConnect, email/Google/X). It is PRE-MOUNTED in the background on idle so
+  // it is fully initialized and the Connect modal opens instantly — no mount/re-init on click. No
+  // clientId => the injected EIP-6963 bridge fallback (the SDK can't mount without one).
   const [sdkMounted, setSdkMounted] = useState(false);
 
   useEffect(() => {
@@ -77,14 +72,14 @@ function DogeOSSdkWalletRoot() {
     if (!saveData) {
       handle = window.requestIdleCallback
         ? window.requestIdleCallback(mountSdk, { timeout: 4000 })
-        : window.setTimeout(mountSdk, 2500);
+        : window.setTimeout(mountSdk, 2000);
     }
-    // If the user reaches the social path before idle fired, mount the SDK immediately.
-    const onLoadSdk = () => setSdkMounted(true);
-    window.addEventListener("dogeos:load-sdk-social", onLoadSdk);
+    // Mount immediately if the user reaches Connect before idle fired (useWallet warms via this event).
+    const onIntent = () => setSdkMounted(true);
+    window.addEventListener("dogeos:load-sdk-wallet", onIntent);
 
     return () => {
-      window.removeEventListener("dogeos:load-sdk-social", onLoadSdk);
+      window.removeEventListener("dogeos:load-sdk-wallet", onIntent);
       if (handle != null) {
         if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
         else window.clearTimeout(handle);
@@ -92,15 +87,13 @@ function DogeOSSdkWalletRoot() {
     };
   }, []);
 
+  if (!dogeConfig.clientId) return <InjectedWalletBridge />;
+  if (!sdkMounted) return null;
+
   return (
-    <>
-      <InjectedWalletBridge />
-      {dogeConfig.clientId && sdkMounted && (
-        <React.Suspense fallback={null}>
-          <DogeOSSdkWalletProvider standby />
-        </React.Suspense>
-      )}
-    </>
+    <React.Suspense fallback={null}>
+      <DogeOSSdkWalletProvider />
+    </React.Suspense>
   );
 }
 
