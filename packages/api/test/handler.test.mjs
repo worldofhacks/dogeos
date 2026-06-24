@@ -65,6 +65,40 @@ test("GET /sources and /tokens expose UI metadata without executable custom venu
   );
 });
 
+test("GET /tokens appends the non-official index after the official list, marked verified:false", async () => {
+  const indexed = [
+    { address: "0x" + "a".repeat(40), symbol: "MUCH", name: "Much Token", decimals: 18, venues: ["muchfi-v3"], verified: false },
+    { address: "0x" + "b".repeat(40), symbol: "ZZZ", name: "Zee", decimals: 6, venues: ["barkswap-algebra"], verified: false },
+  ];
+  const handle = createAggregatorApiHandler({ nowMs: () => now, tokensProvider: async () => indexed });
+
+  const body = await (await handle(new Request("https://aggregator.local/tokens"))).json();
+
+  // Official tokens come first, in registry order, then the indexed ones.
+  assert.deepEqual(
+    body.data.slice(0, OFFICIAL_DOGEOS_TOKENS.length).map((t) => t.symbol),
+    OFFICIAL_DOGEOS_TOKENS.map((t) => t.symbol),
+  );
+  assert.deepEqual(body.data.slice(OFFICIAL_DOGEOS_TOKENS.length).map((t) => t.symbol), ["MUCH", "ZZZ"]);
+  // The official entries are NOT forced to verified:false; the appended ones ARE.
+  assert.equal(body.data.slice(OFFICIAL_DOGEOS_TOKENS.length).every((t) => t.verified === false), true);
+});
+
+test("GET /tokens still serves the official list when the index provider throws", async () => {
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    tokensProvider: async () => {
+      throw new Error("rpc down");
+    },
+  });
+
+  const response = await handle(new Request("https://aggregator.local/tokens"));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.data.map((t) => t.symbol), OFFICIAL_DOGEOS_TOKENS.map((t) => t.symbol));
+});
+
 test("GET /chain-status exposes DogeOS RPC, gas, block, and fee-oracle metadata", async () => {
   let providerCalled = false;
   const handle = createAggregatorApiHandler({

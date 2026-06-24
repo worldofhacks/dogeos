@@ -90,6 +90,9 @@ export function startAggregatorApiServer({
   quoteCandidateProvider,
   outputWeiPerFeeWei,
   calldataBuilder,
+  // Forwarded to the live handler: warm the non-official token index at startup.
+  // Default off so tests asserting exact RPC call sequences aren't perturbed.
+  warmTokenIndex = false,
 } = {}) {
   const resolvedHandle =
     handle ??
@@ -100,6 +103,7 @@ export function startAggregatorApiServer({
       quoteCandidateProvider,
       outputWeiPerFeeWei,
       calldataBuilder,
+      warmTokenIndex,
     });
   const server = applyServerTimeouts(createServer(createNodeRequestListener({ handle: resolvedHandle })));
 
@@ -113,7 +117,9 @@ export function startAggregatorApiServer({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = await startAggregatorApiServer();
+  // Real process start: warm the non-official token index so the first /tokens
+  // request is instant rather than paying the cold enumerate+metadata cost.
+  const server = await startAggregatorApiServer({ warmTokenIndex: true });
   const address = server.address();
   const host = address.address === "127.0.0.1" ? "localhost" : address.address;
 

@@ -490,6 +490,10 @@ export function createAggregatorApiHandler({
   activityProvider = fetchBlockscoutAddressTransactions,
   tokenScanProvider,
   trendingTokensProvider,
+  // Full non-official token index appended after the curated official list on
+  // GET /tokens. Each entry carries verified:false so the UI badges it "not
+  // official". Optional — when unset, /tokens returns only the official tokens.
+  tokensProvider,
   chainStatusProvider = defaultChainStatus,
   calldataBuilder = () => {
     throw new Error("No calldata builder configured.");
@@ -570,9 +574,20 @@ export function createAggregatorApiHandler({
     }
 
     if (request.method === "GET" && url.pathname === "/tokens") {
+      // Official curated list first, then the indexed non-official tokens
+      // (verified:false). The index is best-effort: if it fails we still serve
+      // the official list so the catalog/picker never breaks.
+      let discovered = [];
+      if (tokensProvider) {
+        try {
+          discovered = await tokensProvider();
+        } catch {
+          discovered = [];
+        }
+      }
       return jsonResponse({
         chainId: DOGEOS_CHAIN.id,
-        data: OFFICIAL_DOGEOS_TOKENS,
+        data: [...OFFICIAL_DOGEOS_TOKENS, ...discovered],
       });
     }
 

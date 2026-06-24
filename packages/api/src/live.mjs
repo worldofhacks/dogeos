@@ -6,6 +6,7 @@ import { createDogeosDataFinalityFeeProvider } from "../../aggregator/src/fees/l
 import { createTokenMetadataReader } from "../../aggregator/src/discovery/tokenMetadata.mjs";
 import { scanVenuePools } from "../../aggregator/src/discovery/poolScan.mjs";
 import { createDiscoverableTokensProvider } from "../../aggregator/src/discovery/discoverableTokens.mjs";
+import { createTokenIndexProvider } from "../../aggregator/src/discovery/tokenIndex.mjs";
 import { listSources } from "../../aggregator/src/sources/registry.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
@@ -174,6 +175,10 @@ export function createLiveAggregatorApiHandler({
   approvalPlanner,
   balanceVerifier,
   refreshSwapQuoteBeforeBuild = true,
+  // Build the full non-official token index once at startup so the first GET
+  // /tokens is instant. Off by default — only the real server process sets it,
+  // so tests that assert on exact RPC call sequences aren't perturbed.
+  warmTokenIndex = false,
 } = {}) {
   const client = createJsonRpcClient({ rpcUrl, fetchFn });
   const verifyChain = createChainVerifier(client, DOGEOS_CHAIN.id);
@@ -298,6 +303,19 @@ export function createLiveAggregatorApiHandler({
     }
   };
 
+  // Full non-official token index for GET /tokens (see wiring below). When
+  // warmTokenIndex is set (real server start), build it once now (fire-and-forget)
+  // so the primary token list is instant instead of paying the ~7s enumerate+
+  // metadata cost on the first request.
+  const tokensProvider = createTokenIndexProvider({
+    client,
+    nowMs,
+    sources: listSources().filter((source) => source.factory && source.status !== "disabled"),
+    baseTokens: OFFICIAL_DOGEOS_TOKENS,
+    officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
+  });
+  if (warmTokenIndex) tokensProvider().catch(() => {});
+
   return createAggregatorApiHandler({
     nowMs,
     preQuoteVerifier: verifyChain,
@@ -382,6 +400,12 @@ export function createLiveAggregatorApiHandler({
         }
       },
     }),
+    // Full non-official token index for GET /tokens: every token with a live pool
+    // against an official token across all factory venues (incl. watchlist),
+    // enriched with on-chain ERC-20 metadata and marked verified:false so the UI
+    // shows it "not official". No quote/liquidity gate (unlike trending) — auto-
+    // generated faucet spam and duplicate symbols are collapsed inside the provider.
+    tokensProvider,
     chainStatusProvider:
       createLiveChainStatusProvider({
         client,
