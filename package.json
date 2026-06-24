@@ -10,7 +10,8 @@
     "start:web": "npm run build:web && node --env-file-if-exists=.env --env-file-if-exists=.env.local packages/web/src/server.mjs",
     "create:venue-abi": "node scripts/create-venue-abi-artifact.mjs",
     "verify:sources": "node scripts/verify-dogeos-sources.mjs",
-    "discover:liquidity": "node scripts/discover-dogeos-liquidity.mjs"
+    "discover:liquidity": "node scripts/discover-dogeos-liquidity.mjs",
+    "scan:pools": "node scripts/scan-dogeos-pools.mjs --summary"
   },
   "dependencies": {
     "@dogeos/dogeos-sdk": "3.2.0",
