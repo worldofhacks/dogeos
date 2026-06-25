@@ -290,7 +290,7 @@ export function useWallet() {
 
   const cancelChooser = useCallback(() => setChooser(null), []);
 
-  // Ask the wallet to switch to DogeOS Chikyu. Resolves false when the wallet
+  // Ask the wallet to switch to DogeOS Chikyū. Resolves false when the wallet
   // refuses (user rejection / unsupported), so callers can surface a toast.
   // The bridge republishes chainId after a successful switch, which resyncs
   // every hook instance.

@@ -271,6 +271,7 @@ export function createLiveV2QuoteCandidateProvider({
 
             const routeDataFinalityFeeWei = await resolveDataFinalityFeeWei(dataFinalityFeeWei, {
               chainId,
+              quoteMode,
               sellToken,
               buyToken,
               amountIn: quoteMode === "exactOutput" ? preview.amountIn : amountIn,

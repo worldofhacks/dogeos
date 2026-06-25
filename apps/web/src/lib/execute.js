@@ -81,17 +81,71 @@ function formatDogeWei(value) {
 /* ---------- error-message mapping (ported from app.js) ---------- */
 function rawMessage(error, fallback = "Request failed.") {
   if (typeof error === "string") return error;
-  return error?.shortMessage ?? error?.message ?? fallback;
+  // Some providers bury the real RPC reason in nested fields (data.message /
+  // data.originalError.message / cause.message). Fold them in so message-based
+  // detection (e.g. nonce desync) still matches.
+  return (
+    error?.shortMessage ??
+    error?.message ??
+    error?.data?.message ??
+    error?.data?.originalError?.message ??
+    error?.cause?.message ??
+    fallback
+  );
+}
+
+// On DogeOS testnet, MetaMask caches a per-account nonce. After a chain reset or
+// a dropped/replaced tx, it can submit with a stale nonce and the RPC rejects
+// with a "nonce too high/low" / "invalid nonce" / "Expected nonce to be N"
+// message. The only user-side fix is to reset the account in MetaMask
+// (Settings > Advanced > Reset account). Match ONLY those explicit wallet-nonce
+// phrases — never an on-chain revert (notably Permit2's `InvalidNonce()`, which
+// is a stale-permit problem with a different remedy, nor "replacement
+// transaction underpriced", which is a gas-tip problem handled separately).
+export function isNonceDesyncError(error) {
+  const message = rawMessage(error, "");
+  if (/execution reverted|custom error|invalidnonce/i.test(message)) return false;
+  return /nonce too (high|low)|invalid nonce|nonce has already been used|expected nonce to be|tx doesn't have the correct nonce|nonce mismatch/i.test(
+    message,
+  );
+}
+
+// "replacement transaction underpriced": a tx was resubmitted at an already-
+// pending nonce without a high-enough gas bump. The nonce is correct; the remedy
+// is a higher tip (the gas-speed setting), NOT an account reset.
+export function isReplacementUnderpricedError(error) {
+  return /replacement transaction underpriced/i.test(rawMessage(error, ""));
 }
 
 export function nativeDogeFundingMessage(requiredWei, availableWei) {
   return `Insufficient DOGE for DogeOS gas: need ${formatDogeWei(requiredWei)} DOGE, wallet has ${formatDogeWei(availableWei)} DOGE. Faucet: ${DOGEOS_FAUCET_URL}`;
 }
 
+// User-facing guidance for the MetaMask nonce-desync class. The wallet's cached
+// nonce no longer matches the chain — resetting the account clears it.
+export const NONCE_DESYNC_MESSAGE =
+  "Your wallet's transaction nonce is out of sync with DogeOS testnet. In MetaMask, open Settings > Advanced > Clear activity / Reset account, then reconnect and try the swap again. (This is safe — it only clears local transaction history, not your funds.)";
+
+// Guidance for "replacement transaction underpriced" — a previous tx is still
+// pending at this nonce; the fix is a higher gas tip, not an account reset.
+export const REPLACEMENT_UNDERPRICED_MESSAGE =
+  "A previous transaction is still pending at this nonce. Raise the gas speed (set it to Fast in settings) and try again, or wait for the pending transaction to confirm.";
+
 // Map raw provider / router errors to friendly text. Covers native-DOGE funding
 // (faucet link), the documented router reverts, and generic fallbacks.
 export function transactionErrorMessage(error) {
   const message = rawMessage(error, "Transaction could not be built.");
+
+  // Nonce desync (MetaMask cached nonce vs chain) — surface the reset guidance
+  // BEFORE the funding/router/cancel branches so it isn't lost to the generic
+  // fallback or a misleading timeout message.
+  if (isNonceDesyncError(error)) {
+    return NONCE_DESYNC_MESSAGE;
+  }
+  // A stuck-pending tx at this nonce: point at the gas-speed lever, not a reset.
+  if (isReplacementUnderpricedError(error)) {
+    return REPLACEMENT_UNDERPRICED_MESSAGE;
+  }
 
   const nativeMatch = message.match(
     /Insufficient native DOGE balance:\s*required\s*(\d+),\s*available\s*(\d+)/i,

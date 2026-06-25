@@ -3,7 +3,7 @@ const runtimeConfig = typeof window === "undefined" ? {} : window.DOGEOS_AGGREGA
 
 export const DOGEOS_CHIKYU_TESTNET = {
   id: 6_281_971,
-  name: "DogeOS Chikyu Testnet",
+  name: "DogeOS Chikyū Testnet",
   nativeCurrency: { name: "DOGE", symbol: "DOGE", decimals: 18 },
   rpcUrls: { default: { http: ["https://rpc.testnet.dogeos.com/"] } },
   blockExplorers: {

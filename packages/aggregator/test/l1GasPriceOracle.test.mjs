@@ -8,11 +8,14 @@ import {
   decodeUint256Result,
   encodeGetL1FeeCall,
   estimatedSwapPayloadForFee,
+  swapPayloadForFee,
 } from "../src/fees/l1GasPriceOracle.mjs";
 
 function word(value) {
   return BigInt(value).toString(16).padStart(64, "0");
 }
+
+const payloadBytes = (hex) => (hex.length - 2) / 2;
 
 test("encodeGetL1FeeCall ABI-encodes dynamic bytes for DogeOS L1GasPriceOracle", () => {
   assert.equal(GET_L1_FEE_SELECTOR, "0x49948e0e");
@@ -32,6 +35,32 @@ test("estimatedSwapPayloadForFee uses calldata-size-aware protocol payloads", ()
   assert.equal((estimatedSwapPayloadForFee({ protocolType: "v3" }).length - 2) / 2, 228);
   assert.equal((estimatedSwapPayloadForFee({ protocolType: "algebra" }).length - 2) / 2, 260);
   assert.equal(estimatedSwapPayloadForFee({ protocolType: "unknown" }), "0x");
+});
+
+test("swapPayloadForFee charges the real router-program length, not the direct-venue size", () => {
+  // Direct-venue: router off / not executable -> 228-260B (the historical sizes).
+  assert.equal(payloadBytes(swapPayloadForFee({ protocolType: "v3", routerExecutable: false })), 228);
+  assert.equal(payloadBytes(swapPayloadForFee({ protocolType: "v2", routerMode: "off", routerExecutable: true })), 260);
+
+  // exactOutput stays direct-venue even under router mode "all" (router is exact-input only).
+  assert.equal(
+    payloadBytes(swapPayloadForFee({ protocolType: "v3", quoteMode: "exactOutput", routerMode: "all", routerExecutable: true })),
+    228,
+  );
+
+  // Router-executable exactInput single venue -> a 1-leg router program (~644B),
+  // ~2.8x the old v3 size — this is the under-count the audit flagged.
+  assert.equal(
+    payloadBytes(swapPayloadForFee({ protocolType: "v3", quoteMode: "exactInput", routerMode: "all", routerExecutable: true })),
+    644,
+  );
+
+  // A split is ONE combined router program (~900B for 2 legs), NOT 2x a per-leg size.
+  assert.equal(payloadBytes(swapPayloadForFee({ routeType: "split", legCount: 2 })), 900);
+  assert.equal(payloadBytes(swapPayloadForFee({ routeType: "split", legCount: 3 })), 1156);
+
+  // Unknown protocol with no router execution yields the empty (skip) payload.
+  assert.equal(swapPayloadForFee({ protocolType: "unknown", routerExecutable: false }), "0x");
 });
 
 test("createDogeosDataFinalityFeeProvider bounds retained cache entries", async () => {

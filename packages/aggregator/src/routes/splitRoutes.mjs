@@ -114,6 +114,26 @@ export function composeSplitCandidate({ legs, routerAddress, input, nowMs = () =
   };
 }
 
+// A split executes as ONE DogeSwapRouter program (single Permit2 pull + per-leg
+// swap commands + one settlement), so its data/finality fee is the L1 fee of
+// that single combined program — NOT the sum of the per-leg direct-venue fees
+// composeSplitCandidate falls back to. Returns null when no oracle is wired (so
+// the caller keeps the summed fallback) or on oracle failure.
+async function combinedSplitDataFinalityFeeWei(dataFinalityFeeProvider, { legs, input }) {
+  if (typeof dataFinalityFeeProvider !== "function") return null;
+  try {
+    return await dataFinalityFeeProvider({
+      routeType: "split",
+      legCount: legs.length,
+      quoteMode: "exactInput",
+      sellToken: input.sellToken,
+      buyToken: input.buyToken,
+    });
+  } catch {
+    return null;
+  }
+}
+
 // Deterministic refresh for an already-accepted split: re-quote the EXACT
 // locked legs (same venues, same per-leg amountIn) instead of re-running the
 // optimizer. The optimizer is marginal — re-running it on a refresh often
@@ -123,6 +143,7 @@ export function composeSplitCandidate({ legs, routerAddress, input, nowMs = () =
 export function createSplitQuoteRefresher({
   routerAddress = null,
   directQuoteProvider,
+  dataFinalityFeeProvider,
   nowMs = () => Date.now(),
 } = {}) {
   return async function refreshSplitQuote(quote, { slippageBps = 50n } = {}) {
@@ -163,12 +184,18 @@ export function createSplitQuoteRefresher({
     );
 
     const totalAmountIn = refreshedLegs.reduce((sum, { amountIn }) => sum + amountIn, 0n);
+    const refreshInput = { sellToken: quote.sellToken, buyToken: quote.buyToken, amountIn: totalAmountIn };
     const candidate = composeSplitCandidate({
       legs: refreshedLegs,
       routerAddress,
-      input: { sellToken: quote.sellToken, buyToken: quote.buyToken, amountIn: totalAmountIn },
+      input: refreshInput,
       nowMs,
     });
+    const combinedFee = await combinedSplitDataFinalityFeeWei(dataFinalityFeeProvider, {
+      legs: refreshedLegs,
+      input: refreshInput,
+    });
+    if (combinedFee !== null) candidate.dataFinalityFeeWei = combinedFee;
 
     // Apply the accepted slippage to the freshly-summed output.
     const slippage = BigInt(slippageBps);
@@ -185,6 +212,7 @@ export function createSplitQuoteCandidateProvider({
   enabled = true,
   routerAddress = null,
   directQuoteProvider,
+  dataFinalityFeeProvider,
   splitRatiosBps = DEFAULT_SPLIT_RATIOS_BPS,
   refineStepBps = 1_250n,
   minImprovementBps = 5n,
@@ -265,6 +293,12 @@ export function createSplitQuoteCandidateProvider({
     const improvementFloor = (bestSingleOut * (BASIS_POINTS + minImprovementBps)) / BASIS_POINTS;
     if (bestOut <= improvementFloor) return [];
 
-    return [composeSplitCandidate({ legs: bestLegs, routerAddress, input, nowMs })];
+    const candidate = composeSplitCandidate({ legs: bestLegs, routerAddress, input, nowMs });
+    const combinedFee = await combinedSplitDataFinalityFeeWei(dataFinalityFeeProvider, {
+      legs: bestLegs,
+      input,
+    });
+    if (combinedFee !== null) candidate.dataFinalityFeeWei = combinedFee;
+    return [candidate];
   };
 }

@@ -6,6 +6,7 @@ import {
   listVenueContracts,
 } from "../../aggregator/src/index.mjs";
 import { SPLIT_SOURCE_ID } from "../../aggregator/src/routes/splitRoutes.mjs";
+import { MAX_SLIPPAGE_BPS } from "../../aggregator/src/quoteService.mjs";
 import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
 import { OFFICIAL_DOGEOS_TOKENS } from "../../config/src/tokens.mjs";
 
@@ -200,6 +201,14 @@ function toNonNegativeBigInt(value, fieldName) {
   return normalized;
 }
 
+function toBoundedBigInt(value, min, max, fieldName) {
+  const normalized = BigInt(value);
+  if (normalized < min || normalized > max) {
+    throw new Error(`${fieldName} must be between ${min} and ${max}.`);
+  }
+  return normalized;
+}
+
 function normalizeSourceList(value = [], fieldName) {
   if (!Array.isArray(value)) {
     throw new Error(`${fieldName} must be an array.`);
@@ -243,7 +252,7 @@ function parseQuoteRequest(body) {
       ...(quoteMode === "exactOutput"
         ? { amountOut: toPositiveBigInt(body.amountOut, "amountOut") }
         : { amountIn: toPositiveBigInt(body.amountIn, "amountIn") }),
-      slippageBps: toNonNegativeBigInt(body.slippageBps ?? 50, "slippageBps"),
+      slippageBps: toBoundedBigInt(body.slippageBps ?? 50, 0n, MAX_SLIPPAGE_BPS, "slippageBps"),
       includeSources: normalizeSourceList(body.includeSources, "includeSources"),
       excludeSources: normalizeSourceList(body.excludeSources, "excludeSources"),
     },

@@ -23,8 +23,10 @@ the Safe performs through the timelock — see section 5 below.
 ## CRITICAL — Permit2 determinism (read before deploying)
 
 The router hardcodes the canonical Permit2 address `0x000000000022D473030F116dDEE9F6B43aC78BA3`
-(`Constants.PERMIT2`). Permit2 is **ABSENT** on DogeOS testnet and **must** be deployed to exactly
-that address, or the entire stack is broken.
+(`Constants.PERMIT2`). **As of 2026-06-12 Permit2 is LIVE at that canonical address on DogeOS
+testnet** (verified via `cast code`; see `CHAIN_FACTS.md §4`) — so the deploy-if-absent step below
+is now an idempotent no-op. The determinism still matters: if you ever deploy to a fresh network
+where Permit2 is absent, it **must** land at exactly that address or the entire stack is broken.
 
 Verified facts (re-derive them yourself with the commands in "Verification" below):
 

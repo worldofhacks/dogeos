@@ -129,7 +129,7 @@ export default function Shell() {
     <button
       className="tap"
       onClick={() => wallet.disconnect()}
-      title={chipWrongChain ? "Wallet is not on DogeOS Chikyu - click to disconnect" : "Click to disconnect"}
+      title={chipWrongChain ? "Wallet is not on DogeOS Chikyū - click to disconnect" : "Click to disconnect"}
       style={{
         display: "flex",
         alignItems: "center",

@@ -23,12 +23,13 @@ export function gasTier(g) {
   return g < 1.5 ? "eco" : g <= 6 ? "normal" : "fast";
 }
 
-// Slippage UI bounds. Quick presets stop at 5%; anything higher must be typed
-// as a custom value (the "expert gate") and is hard-clamped to MAX so the UI can
-// never request a tolerance the server (50% ceiling) would reject. Kept in sync
-// with quoteService.MAX_SLIPPAGE_BPS.
+// Slippage UI bounds. Presets and the typed custom input are both capped at 5%
+// (MAX_SLIPPAGE_PERCENT) — there is no separate high-slippage tier, since >5% on
+// DogeOS's tip-ordered mempool is a sandwich gift. The custom input is hard-
+// clamped to MAX so the UI can never request a tolerance the server (500 bps
+// ceiling) would reject. Kept in sync with quoteService.MAX_SLIPPAGE_BPS.
 export const SLIPPAGE_PRESETS = [0.1, 0.5, 1, 5];
-export const MAX_SLIPPAGE_PERCENT = 50;
+export const MAX_SLIPPAGE_PERCENT = 5;
 export function clampSlippagePercent(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
@@ -75,15 +76,21 @@ export function SettingsProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({
+    () => {
+      // Clamp on read too: a slippage value persisted before the cap was lowered
+      // (e.g. a stale 50 in localStorage) must not survive past the new ceiling.
+      const slippage = clampSlippagePercent(settings.slippage);
+      return {
       ...settings,
-      slippageBps: Math.round(settings.slippage * 100),
+      slippage,
+      slippageBps: Math.round(slippage * 100),
       deadlineMs: settings.deadline * 60 * 1000,
       setSlippage: (slippage) => update({ slippage: clampSlippagePercent(slippage) }),
       setGas: (gas) => update({ gas }),
       setDeadline: (deadline) => update({ deadline }),
       setDark: (dark) => update({ dark }),
-    }),
+      };
+    },
     [settings, update],
   );
 

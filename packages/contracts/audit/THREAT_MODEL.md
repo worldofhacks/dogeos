@@ -181,7 +181,7 @@ The **TimelockController** is not yet wired. `owner` is currently whatever addre
 constructor is given; in production it MUST be an OZ `TimelockController` (min delay 24–48h;
 proposer/executor = the founder Safe), with the guarded-launch caps set in the **same broadcast**
 (router never live-and-uncapped) and the `Ownable2Step` handover asserted. The deploy script is
-**not yet written** (`script/` is empty). Permit2 must also be deployed on DogeOS (absent on
-testnet — see `CHAIN_FACTS.md §4`) before the router. These are the only open items in the threat
-model and are tracked as deploy-phase work; the on-chain logic that consumes the timelocked owner
+implemented (`script/DeployRouter.s.sol`; see `DEPLOYMENT.md`). Permit2 is **LIVE** at the canonical
+address on DogeOS testnet (verified 2026-06-12; the deploy-if-absent step is a no-op — see
+`CHAIN_FACTS.md §4`). These remaining items are tracked as deploy-phase work; the on-chain logic that consumes the timelocked owner
 (`onlyOwner` + `Ownable2Step`) is already in place and tested.

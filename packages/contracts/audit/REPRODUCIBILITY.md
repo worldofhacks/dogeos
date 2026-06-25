@@ -124,7 +124,7 @@ medusa fuzz --config medusa.json
 ### Chain-fact evidence (already recorded in `audit/CHAIN_FACTS.md`)
 ```sh
 cast chain-id --rpc-url https://rpc.testnet.dogeos.com               # 6281971
-cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url https://rpc.testnet.dogeos.com  # Permit2 (0x = absent)
+cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url https://rpc.testnet.dogeos.com  # Permit2 — LIVE at canonical addr (bytecode present; see CHAIN_FACTS.md §4)
 ```
 
 ---

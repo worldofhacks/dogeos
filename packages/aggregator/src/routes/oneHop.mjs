@@ -73,6 +73,7 @@ export function createOneHopQuoteCandidateProvider({
   enabled = false,
   viaTokens = [],
   directQuoteProvider,
+  dataFinalityFeeProvider,
 } = {}) {
   return async function oneHopQuoteCandidateProvider(input) {
     if (!enabled || typeof directQuoteProvider !== "function") return [];
@@ -114,6 +115,30 @@ export function createOneHopQuoteCandidateProvider({
       return candidates;
     }));
 
-    return candidateGroups.flat();
+    const candidates = candidateGroups.flat();
+
+    // A one-hop preview (when executable) runs as ONE DogeSwapRouter program —
+    // single Permit2 pull + two swap commands + one settlement — not two
+    // independent venue swaps. composeOneHopCandidates falls back to summing the
+    // per-leg fees, which now each carry full 1-leg router overhead (~644B), so
+    // charge a single combined 2-leg program fee (~900B) instead. Every one-hop
+    // candidate is 2-leg, so swapPayloadForFee yields one stable payload and this
+    // is a single cached oracle read regardless of candidate count.
+    if (typeof dataFinalityFeeProvider === "function" && candidates.length > 0) {
+      try {
+        const combinedFee = await dataFinalityFeeProvider({
+          routeType: "split",
+          legCount: 2,
+          quoteMode: "exactInput",
+          sellToken: input.sellToken,
+          buyToken: input.buyToken,
+        });
+        for (const candidate of candidates) candidate.dataFinalityFeeWei = combinedFee;
+      } catch {
+        // Keep the summed per-leg fallback on oracle failure.
+      }
+    }
+
+    return candidates;
   };
 }

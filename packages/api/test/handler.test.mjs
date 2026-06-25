@@ -474,6 +474,44 @@ test("POST /quote returns gas-aware quote responses with bigint values serialize
   assert.equal(body.expiresAtMs, now + 5_000);
 });
 
+test("POST /quote rejects slippage above the 5% server cap (sandwich guard)", async () => {
+  let providerCalled = false;
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    quoteCandidateProvider: async () => {
+      providerCalled = true;
+      return [];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "600", // 6% — above the 500 bps (5%) ceiling
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.error.code, "invalid-quote-request");
+  assert.equal(providerCalled, false, "rejected before any quote work");
+
+  // The boundary value (exactly 5%) is still accepted.
+  const okResponse = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "500",
+    }),
+  );
+  assert.equal(okResponse.status, 200);
+});
+
 test("POST /quote returns timing telemetry for speed monitoring", async () => {
   const timingMarks = [10, 12, 20, 25, 30];
   const handle = createAggregatorApiHandler({

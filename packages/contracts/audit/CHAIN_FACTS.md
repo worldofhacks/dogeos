@@ -95,9 +95,19 @@ $ cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url https://rpc.tes
 0x
 ```
 
-**Permit2 is ABSENT.** The canonical Permit2 address has no bytecode on DogeOS testnet.
+**UPDATE (2026-06-12): Permit2 is now LIVE at the canonical address.** The `0x`
+read above was the original pre-deploy state. A live re-read confirms bytecode is
+present at the canonical address, so the single-approval Permit2 swap path is
+functional:
 
-**Action required in Phase 5:** Deploy Permit2 deterministically via the Arachnid `CREATE2` proxy (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) **before** deploying the aggregation router.
+```
+$ cast code 0x000000000022D473030F116dDEE9F6B43aC78BA3 --rpc-url https://rpc.testnet.dogeos.com
+0x60406080...   # bytecode present
+```
+
+**No remaining action for Permit2.** The router deploy deterministically deploys
+Permit2 via the Arachnid `CREATE2` proxy (`0x4e59b44847b379578588920cA78FbF26c0B4956C`)
+**only if absent**, so now that it is present that step is an idempotent no-op.
 
 ---
 
@@ -147,7 +157,7 @@ Build:         2026-05-08T07:54:31.470926000Z
 | Transient storage allowed         | YES (EIP-1153 probe-confirmed)                            |
 | ReentrancyGuard style             | Transient (OZ v5 ReentrancyGuardTransient)               |
 | Precompiles unsupported           | RIPEMD-160, blake2f, point-eval; modexp ≤32B; SELFDESTRUCT off; no blobs — router uses none |
-| Permit2 on-chain                  | ABSENT — must deploy via Arachnid CREATE2 proxy in Phase 5 |
+| Permit2 on-chain                  | LIVE at canonical address (verified 2026-06-12; deploy-if-absent step is now a no-op) |
 | MuchFi V2 router present          | YES (0xC653e745FC613a03D156DACB924AE8e9148B18dc)          |
 | MuchFi V3 router present          | YES (0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB)          |
 | Barkswap router present           | YES (0x77147f436cE9739D2A54Ffe428DBe02b90c0205e)          |

@@ -131,8 +131,8 @@ export default function SettingsView() {
     setDark,
   } = settings;
 
-  // Custom-slippage text mirror so the input accepts free typing; presets cap
-  // at 5%, the input is the expert gate up to MAX_SLIPPAGE_PERCENT.
+  // Custom-slippage text mirror so the input accepts free typing; presets and
+  // the typed custom input are both capped at MAX_SLIPPAGE_PERCENT (5%).
   const [slipText, setSlipText] = useState(String(slippage));
   const applySlippage = (value) => {
     const clamped = clampSlippagePercent(value);
@@ -173,7 +173,7 @@ export default function SettingsView() {
             <Label
               style={{ marginTop: 3, display: "block", textTransform: "none", letterSpacing: 0, fontSize: 11.5 }}
             >
-              {`default for new swaps — the in-swap control still overrides per-trade. presets cap at 5%; type a custom value (up to ${MAX_SLIPPAGE_PERCENT}%) for volatile launches — higher = more frontrun / MEV risk`}
+              {`default for new swaps — the in-swap control still overrides per-trade. capped at ${MAX_SLIPPAGE_PERCENT}% — higher tolerances are a frontrun / MEV gift on DogeOS's public mempool`}
             </Label>
           </div>
           <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>

@@ -8,7 +8,7 @@ import {
 
 const dogeosChain = {
   id: 6_281_971,
-  name: "DogeOS Chikyu Testnet",
+  name: "DogeOS Chikyū Testnet",
   rpcUrls: { default: { http: ["https://rpc.testnet.dogeos.com/"] } },
 };
 
@@ -49,7 +49,7 @@ test("SDK chain switch fails with an actionable DogeOS chain message when the SD
 
   await assert.rejects(
     () => switchDogeosSdkAccountToChain(account, dogeosChain),
-    /DogeOS Chikyu Testnet \(6281971\) was not accepted/,
+    /DogeOS Chikyū Testnet \(6281971\) was not accepted/,
   );
 });
 
@@ -222,6 +222,6 @@ test("SDK wallet modal maps unsupported-chain errors to an actionable DogeOS mes
           throw new Error("Chain Id not supported");
         },
       }),
-    /DogeOS Chikyu Testnet \(6281971\) was not accepted/,
+    /DogeOS Chikyū Testnet \(6281971\) was not accepted/,
   );
 });

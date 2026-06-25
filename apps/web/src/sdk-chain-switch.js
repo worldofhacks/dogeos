@@ -5,13 +5,13 @@ import {
 } from "./injected-wallet.js";
 
 function chainLabel(chainInfo) {
-  const name = chainInfo?.name || "DogeOS Chikyu Testnet";
+  const name = chainInfo?.name || "DogeOS Chikyū Testnet";
   const id = chainInfo?.id ?? 6_281_971;
   return `${name} (${id})`;
 }
 
 export function dogeosSdkSwitchFailureMessage(chainInfo) {
-  return `${chainLabel(chainInfo)} was not accepted by the connected wallet. Add DogeOS Chikyu Testnet with RPC https://rpc.testnet.dogeos.com and chain ID 6281971, then connect again.`;
+  return `${chainLabel(chainInfo)} was not accepted by the connected wallet. Add DogeOS Chikyū Testnet with RPC https://rpc.testnet.dogeos.com and chain ID 6281971, then connect again.`;
 }
 
 async function tryInjectedDogeosSwitch(globalObject) {

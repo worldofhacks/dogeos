@@ -16,8 +16,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTheme } from "./theme.js";
 import { Label, TokenIcon, fmt, haptic, useIsMobile } from "./primitives.jsx";
 import { decorateToken } from "../lib/tokens.js";
-import { quoteTtlSeconds } from "../lib/quote.js";
+import { quoteTtlSeconds, priceImpactPercent } from "../lib/quote.js";
 import { DOGEOS_FAUCET_URL } from "../lib/execute.js";
+import { DOGEOS_BLOCKSCOUT_URL } from "../lib/api.js";
 import { useSwapExecution } from "./useSwapExecution.js";
 
 function dpFor(n) {
@@ -445,6 +446,23 @@ export default function SwapFlow({
                   <Label style={{ marginTop: 5 }}>
                     received ~{fmt(exec.recv, dpFor(exec.recv))} {get?.symbol ?? ""} (est.)
                   </Label>
+                  {exec.hash && (
+                    <a
+                      href={`${DOGEOS_BLOCKSCOUT_URL}/tx/${exec.hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-block",
+                        marginTop: 10,
+                        color: th.accent,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        textDecoration: "underline",
+                      }}
+                    >
+                      view on Blockscout ↗
+                    </a>
+                  )}
                 </div>
               </div>
             ) : stage === "error" ? (
@@ -542,6 +560,11 @@ export default function SwapFlow({
               >
                 {[
                   ["venue", venue || "—"],
+                  ["price impact", (() => {
+                    const pct = priceImpactPercent(bestRoute);
+                    if (pct === null) return "—";
+                    return pct < 0.01 ? "<0.01%" : `${pct.toFixed(2)}%`;
+                  })()],
                   ["slippage", slippage.toFixed(1) + "%"],
                   [
                     "min received",
@@ -566,7 +589,7 @@ export default function SwapFlow({
             )}
 
             {/* ----- high-slippage warning band ----- */}
-            {stage === "review" && slippage > 5 && (
+            {stage === "review" && slippage >= 3 && (
               <div
                 style={{
                   display: "flex",
@@ -574,8 +597,8 @@ export default function SwapFlow({
                   gap: 9,
                   padding: "10px 12px",
                   borderRadius: 9,
-                  background: slippage > 20 ? "rgba(255,77,46,0.08)" : "rgba(255,207,46,0.12)",
-                  border: `1px solid ${(slippage > 20 ? th.chartDown : th.gold)}55`,
+                  background: "rgba(255,207,46,0.12)",
+                  border: `1px solid ${th.gold}55`,
                 }}
               >
                 <span
@@ -583,7 +606,7 @@ export default function SwapFlow({
                     width: 7,
                     height: 7,
                     borderRadius: "50%",
-                    background: slippage > 20 ? th.chartDown : th.gold,
+                    background: th.gold,
                     marginTop: 5,
                     flexShrink: 0,
                   }}
@@ -592,11 +615,11 @@ export default function SwapFlow({
                   <span
                     className="te-label"
                     style={{
-                      color: slippage > 20 ? th.chartDown : th.gold,
+                      color: th.gold,
                       letterSpacing: "0.1em",
                     }}
                   >
-                    {slippage > 20 ? "gas-war mode · " : "high slippage · "}
+                    {"high slippage · "}
                   </span>
                   you could receive as little as{" "}
                   <b style={{ color: th.ink }}>

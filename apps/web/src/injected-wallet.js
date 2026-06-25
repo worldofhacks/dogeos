@@ -2,7 +2,7 @@ const DOGEOS_CHAIN_ID = 6_281_971;
 const DOGEOS_CHAIN_ID_HEX = `0x${DOGEOS_CHAIN_ID.toString(16)}`;
 const DOGEOS_CHAIN_PARAMS = Object.freeze({
   chainId: DOGEOS_CHAIN_ID_HEX,
-  chainName: "DogeOS Chikyu Testnet",
+  chainName: "DogeOS Chikyū Testnet",
   nativeCurrency: { name: "DOGE", symbol: "DOGE", decimals: 18 },
   rpcUrls: ["https://rpc.testnet.dogeos.com"],
   blockExplorerUrls: ["https://blockscout.testnet.dogeos.com"],
@@ -539,7 +539,7 @@ export function createInjectedWalletBridge({
         if (!chainIdMatchesDogeOS(chainId)) {
           const switched = await switchToDogeOS({ walletPreference });
           if (!switched) {
-            throw new Error("Switch wallet to DogeOS Chikyu Testnet before connecting.");
+            throw new Error("Switch wallet to DogeOS Chikyū Testnet before connecting.");
           }
         }
         // Persist the user's choice so reloads reconnect THIS wallet. When

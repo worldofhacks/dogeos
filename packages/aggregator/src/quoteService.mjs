@@ -2,12 +2,13 @@ import { chooseBestDirectRoute } from "./routes/direct.mjs";
 import { estimateDogeosFee, scoreExactOutputQuote, scoreQuote } from "./fees/dogeosFeeEstimator.mjs";
 
 const BASIS_POINTS = 10_000n;
-// Absolute server-side slippage ceiling (50%). The UI presets cap at 5% and
-// require a typed custom value above that (expert gate); this is the hard
-// backstop that keeps a buggy/hostile client from requesting the near-100%
-// tolerances that are a guaranteed sandwich on DogeOS's public, tip-ordered
-// mempool.
-const MAX_SLIPPAGE_BPS = 5_000n;
+// Absolute server-side slippage ceiling (5% = 500 bps). The UI presets and the
+// typed custom input both cap at 5%; this is the hard backstop that keeps a
+// buggy/hostile client from requesting the sandwich-grade tolerances that are a
+// guaranteed loss on DogeOS's public, tip-ordered mempool. Exported so the API
+// handler enforces the same bound up front. Kept in sync with
+// useSettings.MAX_SLIPPAGE_PERCENT.
+export const MAX_SLIPPAGE_BPS = 500n;
 
 function normalizeSourceSet(sourceIds = []) {
   return new Set(sourceIds);
@@ -147,7 +148,7 @@ function sortedRejectedPreviews(routes) {
 function normalizeSlippageBps(slippageBps) {
   const normalized = BigInt(slippageBps);
   if (normalized < 0n || normalized > MAX_SLIPPAGE_BPS) {
-    throw new RangeError(`slippageBps must be between 0 and ${MAX_SLIPPAGE_BPS} (50%)`);
+    throw new RangeError(`slippageBps must be between 0 and ${MAX_SLIPPAGE_BPS} (5%)`);
   }
   return normalized;
 }

@@ -2,7 +2,7 @@ import { createJsonRpcClient } from "../../dogeos-rpc/src/index.mjs";
 import {
   createLiveConcentratedLiquidityQuoterOutputProvider,
 } from "../../aggregator/src/discovery/concentratedLiquidityPools.mjs";
-import { createDogeosDataFinalityFeeProvider } from "../../aggregator/src/fees/l1GasPriceOracle.mjs";
+import { createDogeosDataFinalityFeeProvider, swapPayloadForFee } from "../../aggregator/src/fees/l1GasPriceOracle.mjs";
 import { createTokenMetadataReader } from "../../aggregator/src/discovery/tokenMetadata.mjs";
 import { scanVenuePools } from "../../aggregator/src/discovery/poolScan.mjs";
 import { createDiscoverableTokensProvider } from "../../aggregator/src/discovery/discoverableTokens.mjs";
@@ -190,6 +190,16 @@ export function createLiveAggregatorApiHandler({
     dataFinalityFeeWei ??
     createDogeosDataFinalityFeeProvider({
       client,
+      // Charge the REAL calldata length at quote time: with router mode "all" a
+      // bare venue exactInput quote executes as a DogeSwapRouter program (~644B),
+      // not the direct-venue ~228-260B — and a split is ONE combined program, not
+      // the sum of per-leg venue calldata. Mirrors resolvedSwapDataFinalityFeeWei.
+      payloadProvider: (input) =>
+        swapPayloadForFee({
+          ...input,
+          routerMode: dogeSwapRouterMode,
+          routerExecutable: Boolean(dogeSwapRouterAddress),
+        }),
       onProviderError: warnDataFinalityFeeError,
     });
   const resolvedSwapDataFinalityFeeWei =
@@ -237,11 +247,17 @@ export function createLiveAggregatorApiHandler({
     enabled: oneHopEnabled,
     viaTokens: oneHopViaTokens,
     directQuoteProvider: directQuoteCandidateProvider,
+    // A one-hop runs as ONE router program; charge its combined-program
+    // data/finality fee rather than the sum of per-leg router-overhead fees.
+    dataFinalityFeeProvider: resolvedDataFinalityFeeWei,
   });
   const splitQuoteRefresher = dogeSwapRouterAddress
     ? createSplitQuoteRefresher({
         routerAddress: dogeSwapRouterAddress,
         directQuoteProvider: directQuoteCandidateProvider,
+        // A split executes as ONE router program; charge its combined-program
+        // data/finality fee rather than the sum of per-leg venue fees.
+        dataFinalityFeeProvider: resolvedDataFinalityFeeWei,
         nowMs,
       })
     : undefined;
@@ -249,6 +265,7 @@ export function createLiveAggregatorApiHandler({
     enabled: splitEnabled,
     routerAddress: dogeSwapRouterAddress,
     directQuoteProvider: directQuoteCandidateProvider,
+    dataFinalityFeeProvider: resolvedDataFinalityFeeWei,
     // In "all" mode single-venue swaps pay the same router overhead as a
     // split, so any strict output improvement is real — keep just a 1bp
     // anti-flap epsilon. In split-only mode the split carries extra gas vs a

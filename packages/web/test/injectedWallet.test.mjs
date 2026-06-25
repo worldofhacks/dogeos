@@ -484,7 +484,7 @@ test("injected wallet bridge adds DogeOS when the wallet does not know the chain
 
   const addChainCall = provider.calls.find((call) => call.method === "wallet_addEthereumChain");
   assert.equal(addChainCall.params[0].chainId, "0x5fdaf3");
-  assert.equal(addChainCall.params[0].chainName, "DogeOS Chikyu Testnet");
+  assert.equal(addChainCall.params[0].chainName, "DogeOS Chikyū Testnet");
   assert.deepEqual(addChainCall.params[0].rpcUrls, ["https://rpc.testnet.dogeos.com"]);
   assert.equal(states.at(-1).chainId, "0x5fdaf3");
 });

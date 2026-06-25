@@ -249,11 +249,20 @@ export default function SwapView({
 
   // ---- live balances (real, via wallet provider eth_call) ----
   const balanceTokens = useMemo(() => [pay, get].filter(Boolean), [pay, get]);
-  const { balances, refresh: refreshBalances } = useTokenBalances({
+  const { balances, nativeBalance, refresh: refreshBalances } = useTokenBalances({
     owner: wallet.address,
     chainId: wallet.chainId,
     tokens: balanceTokens,
   });
+
+  // Native-DOGE (gas) balance for display. Native DOGE is NOT a swappable input
+  // here (the catalog has no native token and the router requires an ERC-20
+  // sellToken), so this is informational: it lets users see their gas balance
+  // and understand WDOGE != native DOGE. nativeCurrency.decimals = 18.
+  const nativeDogeNum = useMemo(() => {
+    if (!wallet.address || !nativeBalance) return 0;
+    return unitsToNumber(nativeBalance, 18);
+  }, [nativeBalance, wallet.address]);
 
   const payBalNum = useMemo(() => {
     if (!pay || !wallet.address) return 0;
@@ -340,7 +349,7 @@ export default function SwapView({
   const onConnect = () => wallet.connect();
   const onSwitchChain = async () => {
     const switched = await wallet.switchChain();
-    if (!switched) showToast("Switch your wallet to DogeOS Chikyu Testnet to swap.", "err");
+    if (!switched) showToast("Switch your wallet to DogeOS Chikyū Testnet to swap.", "err");
   };
   const reviewable = connected && !wrongChain && amt > 0 && !overBal && hasResult;
 
@@ -393,6 +402,11 @@ export default function SwapView({
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
             <span style={{ width: 15, height: 15, background: th.accent, borderRadius: 3 }} />
             <span style={{ fontWeight: 700, fontSize: 15 }}>swap</span>
+            {connected && nativeBalance ? (
+              <Label color={th.mute} style={{ marginLeft: 4 }}>
+                {compact(nativeDogeNum)} Ð gas
+              </Label>
+            ) : null}
           </div>
           {/* chart toggle — wide desktop docks a panel beside the swap; narrow
               viewports open the slide-up popout (no room to dock). */}
@@ -717,8 +731,9 @@ export default function SwapView({
                 setPayAmt(v <= 0 ? "" : String(+(payBalNum * v / 100).toFixed(dp)));
               }}
             />
-            {/* slippage: quick presets cap at 5%; higher is a typed custom
-                value (expert gate), clamped to the server's 50% ceiling. */}
+            {/* slippage: presets and the typed custom input are both capped at
+                5% (MAX_SLIPPAGE_PERCENT) — the server enforces the same 500-bps
+                ceiling, since >5% on DogeOS's tip-ordered mempool is a sandwich gift. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <Label color={th.mute}>slippage</Label>
@@ -727,7 +742,7 @@ export default function SwapView({
                   style={{
                     fontSize: 12.5,
                     fontWeight: 600,
-                    color: slippage > 20 ? th.chartDown : slippage > 5 ? th.gold : th.ink,
+                    color: slippage >= 3 ? th.chartDown : slippage >= 1 ? th.gold : th.ink,
                   }}
                 >
                   {Number.isInteger(slippage) ? slippage : Number(slippage.toFixed(2))}%
@@ -811,10 +826,9 @@ export default function SwapView({
               </div>
             </div>
           </div>
-          {slippage > 5 &&
+          {slippage >= 3 &&
             (() => {
-              const extreme = slippage > 20;
-              const c = extreme ? th.chartDown : th.gold;
+              const c = th.gold;
               return (
                 <div
                   style={{
@@ -824,11 +838,7 @@ export default function SwapView({
                     margin: "0 20px 14px",
                     padding: "10px 12px",
                     borderRadius: 9,
-                    background: th.dark
-                      ? "rgba(255,77,46,0.08)"
-                      : extreme
-                        ? "rgba(255,77,46,0.07)"
-                        : "rgba(255,207,46,0.12)",
+                    background: "rgba(255,207,46,0.12)",
                     border: `1px solid ${c}55`,
                   }}
                 >
@@ -837,12 +847,12 @@ export default function SwapView({
                   />
                   <div>
                     <div className="te-label" style={{ color: c, letterSpacing: "0.12em" }}>
-                      {extreme ? "gas-war mode" : "high slippage"}
+                      high slippage
                     </div>
                     <div style={{ fontSize: 11.5, color: th.inkSoft, marginTop: 3, lineHeight: 1.4 }}>
-                      {extreme
-                        ? "accepts almost any fill price. use only to win a contested launch — you may be sandwiched for much loss."
-                        : "tx can fill up to " + slippage.toFixed(0) + "% worse than quoted. raises frontrun / MEV risk."}
+                      {"tx can fill up to " +
+                        slippage.toFixed(1) +
+                        "% worse than quoted. raises frontrun / MEV risk on DogeOS's public mempool."}
                     </div>
                   </div>
                 </div>

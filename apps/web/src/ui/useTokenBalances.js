@@ -28,10 +28,22 @@ async function readBalance(provider, owner, token) {
   return decodeUint256Result(result, `${token.symbol} balance`);
 }
 
+// Native-DOGE balance via eth_getBalance (the chain's nativeCurrency — used for
+// gas). Returns a base-units (wei) decimal string, normalized off the hex
+// quantity the node returns.
+async function readNativeBalance(provider, owner) {
+  const result = await provider.request({
+    method: "eth_getBalance",
+    params: [owner, "latest"],
+  });
+  return BigInt(result ?? "0x0").toString();
+}
+
 // `tokens` is the (de-duplicated) list to read — typically [sellToken, buyToken].
 // Returns { balances: { [lcAddress]: unitsString }, errors, refresh, loading }.
 export function useTokenBalances({ owner, chainId, tokens }) {
   const [balances, setBalances] = useState({});
+  const [nativeBalance, setNativeBalance] = useState(""); // native-DOGE wei units string
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const seqRef = useRef(0);
@@ -55,9 +67,10 @@ export function useTokenBalances({ owner, chainId, tokens }) {
 
   const refresh = useCallback(async () => {
     const provider = sdkProvider();
-    if (!owner || !provider?.request || unique.length === 0) {
+    if (!owner || !provider?.request) {
       seqRef.current += 1;
       setBalances({});
+      setNativeBalance("");
       setErrors({});
       setLoading(false);
       return;
@@ -66,18 +79,22 @@ export function useTokenBalances({ owner, chainId, tokens }) {
     const seq = ++seqRef.current;
     setLoading(true);
 
-    const results = await Promise.all(
-      unique.map(async (token) => {
-        const key = walletBalanceKey(token.address);
-        try {
-          return { key, balance: await readBalance(provider, owner, token) };
-        } catch (error) {
-          return { key, error: error?.message ?? "Balance unavailable." };
-        }
-      }),
-    );
+    const [results, nativeResult] = await Promise.all([
+      Promise.all(
+        unique.map(async (token) => {
+          const key = walletBalanceKey(token.address);
+          try {
+            return { key, balance: await readBalance(provider, owner, token) };
+          } catch (error) {
+            return { key, error: error?.message ?? "Balance unavailable." };
+          }
+        }),
+      ),
+      readNativeBalance(provider, owner).catch(() => null),
+    ]);
 
     if (seq !== seqRef.current) return;
+    setNativeBalance(nativeResult ?? "");
 
     const nextBalances = {};
     const nextErrors = {};
@@ -96,5 +113,5 @@ export function useTokenBalances({ owner, chainId, tokens }) {
     refresh();
   }, [refresh]);
 
-  return { balances, errors, loading, refresh };
+  return { balances, nativeBalance, errors, loading, refresh };
 }

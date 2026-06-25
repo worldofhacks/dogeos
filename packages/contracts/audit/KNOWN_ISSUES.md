@@ -55,13 +55,14 @@ arbitrary-token risk. On-chain safety does not depend on a token allowlist (bala
 - `guardian == address(0)` remains a **valid intentional state** (disables guardian-triggered
   pause; owner can still pause/unpause) — no zero-check there, by design.
 
-## 5. Permit2 must be deployed on DogeOS before the router
-**Status: open — deploy phase (critical-path).**
-`CHAIN_FACTS.md §4` records that canonical Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`)
-is **absent** on DogeOS testnet (`eth_getCode` → `0x`). The router's entire pull path depends on
-it. Phase 5 must deploy canonical Permit2 deterministically via the Arachnid CREATE2 proxy
-(`0x4e59b44847b379578588920cA78FbF26c0B4956C`) **before** deploying the router, and verify on
-Blockscout.
+## 5. Permit2 on DogeOS — RESOLVED (live at canonical address)
+**Status: resolved (2026-06-12).**
+Canonical Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) is now **LIVE** on DogeOS
+testnet — a live `eth_getCode` returns bytecode (see `CHAIN_FACTS.md §4`). The original
+finding recorded it absent (`0x`) in the pre-deploy state; the router deploy deterministically
+deploys Permit2 via the Arachnid CREATE2 proxy (`0x4e59b44847b379578588920cA78FbF26c0B4956C`)
+only if absent, so it has since landed at the canonical address and the single-approval pull
+path is functional. No further action.
 
 ## 6. MyDoge EIP-712 typed-data gate (Task 0.3) still open
 **Status: open — de-risking gate.**

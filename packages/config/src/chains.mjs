@@ -1,9 +1,9 @@
 export const DOGEOS_CHAIN = {
   id: 6_281_971,
   idHex: "0x5fdaf3",
-  name: "DogeOS Chikyu Testnet",
+  name: "DogeOS Chikyū Testnet",
   nativeCurrency: {
-    name: "DogeOS DOGE",
+    name: "DOGE",
     symbol: "DOGE",
     decimals: 18,
   },
