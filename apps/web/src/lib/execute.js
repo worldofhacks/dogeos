@@ -117,6 +117,20 @@ export function isReplacementUnderpricedError(error) {
   return /replacement transaction underpriced/i.test(rawMessage(error, ""));
 }
 
+// Permit2 AllowanceTransfer reverts InvalidNonce() (selector 0x756688fe) when the
+// bundled permit's ordered nonce was already consumed — almost always a front-
+// runner who replayed the user's signed permit (it rides in the swap tx's public
+// calldata), applying the allowance and advancing the nonce. The allowance the
+// user signed is now LIVE on-chain, so re-submitting succeeds: the approval
+// planner re-reads the live allowance and drops the permit from the program.
+// This is the user-facing half of the front-run mitigation; the immutable live
+// router can't carry the contract-side try/catch fix (H11).
+export function isPermit2NonceConsumedError(error) {
+  const message = rawMessage(error, "");
+  const data = JSON.stringify(error?.data ?? "").toLowerCase();
+  return /invalid ?nonce/i.test(message) || data.includes("756688fe");
+}
+
 export function nativeDogeFundingMessage(requiredWei, availableWei) {
   return `Insufficient DOGE for DogeOS gas: need ${formatDogeWei(requiredWei)} DOGE, wallet has ${formatDogeWei(availableWei)} DOGE. Faucet: ${DOGEOS_FAUCET_URL}`;
 }
@@ -130,6 +144,11 @@ export const NONCE_DESYNC_MESSAGE =
 // pending at this nonce; the fix is a higher gas tip, not an account reset.
 export const REPLACEMENT_UNDERPRICED_MESSAGE =
   "A previous transaction is still pending at this nonce. Raise the gas speed (set it to Fast in settings) and try again, or wait for the pending transaction to confirm.";
+
+// Guidance for a front-run / already-applied Permit2 permit (InvalidNonce). The
+// signed allowance is now live, so a re-submit just works (no re-approval).
+export const PERMIT2_NONCE_CONSUMED_MESSAGE =
+  "Your Permit2 approval was already applied (most likely by a front-running bot). This is safe — the allowance you signed is now set on-chain. Just submit the swap again; it will go through without asking you to re-approve.";
 
 // Map raw provider / router errors to friendly text. Covers native-DOGE funding
 // (faucet link), the documented router reverts, and generic fallbacks.
@@ -145,6 +164,10 @@ export function transactionErrorMessage(error) {
   // A stuck-pending tx at this nonce: point at the gas-speed lever, not a reset.
   if (isReplacementUnderpricedError(error)) {
     return REPLACEMENT_UNDERPRICED_MESSAGE;
+  }
+  // Front-run / already-applied Permit2 permit: tell the user a re-submit works.
+  if (isPermit2NonceConsumedError(error)) {
+    return PERMIT2_NONCE_CONSUMED_MESSAGE;
   }
 
   const nativeMatch = message.match(

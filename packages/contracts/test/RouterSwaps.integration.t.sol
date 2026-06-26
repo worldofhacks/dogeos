@@ -224,6 +224,54 @@ contract RouterSwapsIntegrationTest is Test, DeployPermit2, PermitSignature {
         assertEq(tin.balanceOf(address(router)), 0, "no residual tin");
     }
 
+    // 6b. FEE-EVASION FIX: declaring a non-output (here the input) token as buyToken
+    //     must NOT let the real swap output escape the protocol fee via the refund
+    //     path. The fee binds to net-positive OUTPUT deltas, not just buyToken.
+    function test_fee_notEvadableByMislabeledBuyToken() public {
+        address feeRecipient = makeAddr("feeRecipient2");
+        vm.prank(owner);
+        router.setFee(30, feeRecipient); // 0.3%
+
+        // Pull 100 tin, swap ALL tin -> tout (V2 rate 0.99 => 99 tout), but mislabel
+        // the settlement token as `tin` (zero output delta) with minOut 0. Pre-fix,
+        // out=_delta(tin)=0 => fee=0 and tout left fee-free via the refund loop.
+        (bytes memory pc, bytes[] memory pi) = _pullProgram(uint160(100e18));
+        (bytes memory commands, bytes[] memory inputs) = _assemble(
+            pc, pi, bytes1(0x02), _v2Input(Constants.CONTRACT_BALANCE, 0, address(tin), address(tout))
+        );
+
+        vm.prank(user);
+        router.execute(commands, inputs, _settlement(address(tin), 0, recipient), block.timestamp + 1 hours);
+
+        uint256 gross = 99e18;
+        uint256 fee = (gross * 30) / 10_000;
+        assertEq(tout.balanceOf(feeRecipient), fee, "fee still collected on the mislabeled output");
+        assertEq(tout.balanceOf(user), gross - fee, "trader (msg.sender) gets output minus fee via refund");
+        assertEq(tout.balanceOf(address(router)), 0, "no residual tout");
+        assertEq(tin.balanceOf(address(router)), 0, "no residual tin");
+    }
+
+    // PERMIT2 FRONT-RUN TOLERANCE: a replayed permit (nonce already consumed by a
+    // front-runner) must not brick the bundled swap — the try/catch in
+    // _permit2Permit swallows the InvalidNonce and the pull/swap still complete.
+    function test_permit2_frontRunNonce_swapStillSucceeds() public {
+        (bytes memory pc, bytes[] memory pi) = _pullProgram(uint160(100e18));
+        (bytes memory commands, bytes[] memory inputs) = _assemble(
+            pc, pi, bytes1(0x02), _v2Input(Constants.CONTRACT_BALANCE, 0, address(tin), address(tout))
+        );
+
+        // Attacker front-runs by replaying the user's signed permit directly to
+        // Permit2, advancing the user's ordered nonce 0->1 and setting the allowance.
+        (IAllowanceTransfer.PermitSingle memory p, bytes memory sig) = _permitSingle(uint160(100e18));
+        IAllowanceTransfer(address(permit2)).permit(user, p, sig);
+
+        // The bundled PERMIT2_PERMIT now reverts InvalidNonce internally, but the
+        // swap proceeds and completes (pre-fix this whole execute reverted).
+        vm.prank(user);
+        router.execute(commands, inputs, _settlement(address(tout), 98e18, recipient), block.timestamp + 1 hours);
+        assertEq(tout.balanceOf(recipient), 99e18, "swap completes despite the front-run permit");
+    }
+
     // 7. Split across V3 (60 explicit) + V2 (remaining via CONTRACT_BALANCE).
     function test_split_v3_plus_v2() public {
         (bytes memory pc, bytes[] memory pi) = _pullProgram(uint160(100e18));

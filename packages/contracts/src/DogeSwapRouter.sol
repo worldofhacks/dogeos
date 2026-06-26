@@ -241,8 +241,17 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
         (IAllowanceTransfer.PermitSingle memory p, bytes memory sig) =
             abi.decode(input, (IAllowanceTransfer.PermitSingle, bytes));
         if (p.spender != address(this)) revert InvalidSpender();
+        // Tolerate a permit that no longer applies — chiefly a front-runner who
+        // replayed this signed permit from public calldata, advancing the user's
+        // ordered Permit2 nonce so `permit` reverts InvalidNonce. The front-run
+        // already SET the allowance the user signed (spender == this router), so
+        // swallowing the revert lets the bundled swap proceed instead of bricking
+        // it. If the permit failed for any other reason (bad sig / expired) the
+        // allowance is not in place and the subsequent PERMIT2_TRANSFER_FROM
+        // reverts on insufficient allowance, so the swap still fails closed.
+        // Mirrors UniversalRouter's allow-revert permit handling.
         // slither-disable-next-line calls-loop
-        PERMIT2.permit(msg.sender, p, sig); // canonical Permit2; per-command call is intended, guarded by nonReentrant
+        try PERMIT2.permit(msg.sender, p, sig) {} catch {} // canonical Permit2; per-command call is intended, guarded by nonReentrant
     }
     function _permit2TransferFrom(bytes calldata input, Ledger memory L) internal {
         (address token, uint160 amount) = abi.decode(input, (address, uint160));
@@ -328,11 +337,24 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
         // router-side check would not bind I2 for them. Reverting here rolls back the payouts above.
         uint256 received = _payReceived(s.buyToken, s.recipient, out);
         if (received < s.minOut) revert MinOutNotMet();
-        for (uint256 i; i < L.count; ++i) {           // refund leftover input deltas to caller
+        for (uint256 i; i < L.count; ++i) {           // refund leftover deltas to caller
             address t = L.tokens[i];
             if (t == s.buyToken) continue;
             uint256 d = _delta(L, t);
-            if (d != 0) _pay(t, msg.sender, d);
+            if (d == 0) continue;
+            // A net-positive delta on a token that was NEVER pulled as input this
+            // call (L.pulled[i] == 0) is swap OUTPUT the caller did not declare as
+            // `buyToken`. Tax it like the buyToken so the protocol fee can't be
+            // evaded by mislabeling the settlement token (e.g. declaring a zero-
+            // delta input token as buyToken and collecting the real output here
+            // fee-free). True unspent INPUT dust (pulled > 0) is the caller's own
+            // funds and is refunded untaxed. feeRecipient is nonzero whenever
+            // feeBps != 0 (setFee couples them), so the fee payment is safe.
+            if (feeBps != 0 && L.pulled[i] == 0) {
+                uint256 outputFee = (d * feeBps) / Constants.BPS_DENOMINATOR;
+                if (outputFee != 0) { _pay(t, feeRecipient, outputFee); d -= outputFee; }
+            }
+            _pay(t, msg.sender, d);
         }
     }
     /// @dev Pay `amount` of `t` to `to` and return the amount `to` ACTUALLY received (its measured

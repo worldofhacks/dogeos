@@ -52,6 +52,39 @@ is later wrapped or settled/refunded as native — closing the raw-`msg.value`-a
 `ZeroAddress` revert if any of WDOGE / V2 / V3 / Algebra is `address(0)` (guardian `0` stays
 valid). Test: `DogeSwapRouter.t.sol::test_constructor_revertsOnZeroVenue`.
 
+---
+
+## Second-pass hardening (2026-06-26, deep adversarial re-audit)
+
+A follow-up multi-agent audit (8 vuln classes, every finding adversarially verified) found the
+audited source otherwise clean; two genuinely-undisclosed, low/medium issues were fixed. Both were
+also present on the immutable deployed router (which cannot be patched — next deploy only). `forge
+test` = **60 passed / 0 failed** (incl. the 6 invariants at 25,600 calls each).
+
+### H10 — Protocol fee binds to the real output, not just the declared `buyToken`
+`_settle` previously taxed only `_delta(buyToken)`, so a caller could mislabel the settlement token
+(declare a zero-delta input/intermediate token as `buyToken`, `minOut: 0`) and collect the real
+swap output **fee-free** via the refund-to-`msg.sender` loop. The fee is now also applied to every
+net-positive OUTPUT delta in the refund loop — i.e. any token the call did NOT pull as input
+(`L.pulled[i] == 0`); genuine unspent INPUT dust (`pulled > 0`) is still refunded untaxed. This
+makes the protocol fee unavoidable regardless of the command program. **Refines** `INVARIANTS.md
+I4` (the old bound was one-sided, fee ≤ cap; the fee was never asserted to bind the full economic
+output). Impact was protocol-revenue-only (no user funds at risk) and latent at `feeBps == 0`. Test:
+`RouterSwaps.integration.t.sol::test_fee_notEvadableByMislabeledBuyToken`.
+
+### H11 — `PERMIT2_PERMIT` tolerates an already-applied (front-run) permit
+`_permit2Permit` wraps `PERMIT2.permit(...)` in `try/catch` (UniversalRouter allow-revert pattern).
+The signed permit rides in public calldata; a front-runner could replay it directly to Permit2,
+advancing the user's ordered nonce so the bundled permit reverts `InvalidNonce` and bricked the
+whole swap (griefing DoS, gas burn, no theft). Since the front-run already SET the allowance the
+user signed (spender == this router), swallowing the revert lets the swap proceed; an genuinely
+insufficient allowance still fails closed at the subsequent `PERMIT2_TRANSFER_FROM`. The
+`p.spender == address(this)` check remains a hard revert. **Extends** `THREAT_MODEL.md #10` (which
+covered third-party replay + expiry but not self-nonce pre-consumption). Test:
+`RouterSwaps.integration.t.sol::test_permit2_frontRunNonce_swapStillSucceeds`. Complementary
+UI mitigation (emit a bare `PERMIT2_TRANSFER_FROM` when a live allowance already exists) ships
+separately for the un-patchable live router.
+
 ## Deploy script (`script/DeployRouter.s.sol`)
 
 ### H7 — Ship paused (was finding N2)
