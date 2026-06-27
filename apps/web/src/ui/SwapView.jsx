@@ -49,7 +49,7 @@ import {
   bestVsNextPercent,
   networkFeeDoge,
   routeGasUnits,
-  quoteTtlSeconds,
+  refreshCycleSeconds,
 } from "../lib/quote.js";
 
 // Decimal places that scale with magnitude (mirrors the design's fmt usage).
@@ -630,7 +630,7 @@ export default function SwapView({
                         strokeLinecap="round"
                         strokeDasharray={2 * Math.PI * 6.5}
                         strokeDashoffset={
-                          2 * Math.PI * 6.5 * (1 - Math.max(0, Math.min(1, (secondsLeft ?? 0) / quoteTtlSeconds(quote))))
+                          2 * Math.PI * 6.5 * (1 - Math.max(0, Math.min(1, (secondsLeft ?? 0) / refreshCycleSeconds())))
                         }
                         style={{ transition: "stroke-dashoffset 1s linear" }}
                       />

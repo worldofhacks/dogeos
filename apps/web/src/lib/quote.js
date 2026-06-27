@@ -16,21 +16,23 @@ export const QUOTE_DEBOUNCE_MS = 250;
 export const QUOTE_POLL_MS = 10_000;
 
 /* ---------- timing ---------- */
-// Seconds until the quote expires (drives the countdown ring). Null when the
-// backend didn't return an expiry (treated as "live").
-export function quoteExpiresInSeconds(quote, nowMs = Date.now()) {
-  if (!quote?.expiresAtMs) return null;
-  return Math.max(0, Math.ceil((Number(quote.expiresAtMs) - nowMs) / 1000));
+// The auto-refresh cadence in seconds. The swap panel's freshness countdown +
+// ring are anchored to THIS (not the server quote TTL, ~5s) so "refresh in Ns"
+// reaches 0 exactly when the next poll re-quotes — the server TTL is shorter
+// than the poll, which used to strand the countdown sitting at 0.
+export function refreshCycleSeconds() {
+  return Math.round(QUOTE_POLL_MS / 1000);
 }
 
-// Full lifetime of the quote in seconds (for sizing the countdown ring). Falls
-// back to the poll interval when the backend doesn't expose a route ttlMs.
+// Real server-side validity of the quote in seconds, from the best route's
+// ttlMs — the review screen counts this down and blocks once a quote actually
+// goes stale. Falls back to the refresh cadence when the backend omits a ttlMs.
 export function quoteTtlSeconds(quote) {
   const ttlMs = quote?.best?.ttlMs;
   if (ttlMs !== undefined && ttlMs !== null && Number(ttlMs) > 0) {
     return Math.max(1, Math.round(Number(ttlMs) / 1000));
   }
-  return Math.round(QUOTE_POLL_MS / 1000);
+  return refreshCycleSeconds();
 }
 
 /* ---------- route extraction ---------- */

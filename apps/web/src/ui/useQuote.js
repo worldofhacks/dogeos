@@ -8,8 +8,10 @@
 //                than the latest issued id) are dropped so a slow earlier request
 //                can never clobber a newer one.
 //   • abort:    each new request aborts the in-flight one via AbortController.
-//   • expiry:   a 1s ticker recomputes seconds-to-expiry from expiresAtMs so the
-//                countdown ring stays honest even if a poll is late.
+//   • countdown: a 1s ticker counts down to the NEXT scheduled poll (QUOTE_POLL_MS
+//                after each quote resolves), so "refresh in Ns" reaches 0 exactly
+//                when the auto-refresh fires. (It used to track the server quote
+//                TTL, ~5s — shorter than the poll — so it sat stranded at 0.)
 //
 // Inputs are the *resolved* sell/buy tokens, the decimal amount string, and
 // slippage in bps. When the amount is empty/zero we clear the quote and idle.
@@ -21,7 +23,6 @@ import {
   QUOTE_DEBOUNCE_MS,
   QUOTE_POLL_MS,
   buildQuoteBody,
-  quoteExpiresInSeconds,
 } from "../lib/quote.js";
 
 const IDLE = { quote: null, status: "idle", error: "" };
@@ -38,6 +39,9 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
   const controllerRef = useRef(null);
   const debounceRef = useRef(null);
   const pollRef = useRef(null);
+  // Wall-clock time of the next scheduled auto-refresh (poll). The countdown is
+  // derived from this so it reaches 0 exactly when the re-quote fires.
+  const nextRefreshAtRef = useRef(null);
 
   const amountStr = String(amount ?? "").trim();
   const amountNum = Number.parseFloat(amountStr) || 0;
@@ -112,7 +116,7 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
 
       setQuote(next);
       setStatus("ready");
-      setSecondsLeft(quoteExpiresInSeconds(next));
+      // secondsLeft is (re)armed in the finally below, anchored to the next poll.
     } catch (err) {
       if (err?.name === "AbortError") return;
       if (seq !== seqRef.current) return;
@@ -121,9 +125,12 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
       setError(err?.message ?? "Quote failed.");
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
-      // Only the latest request schedules the next poll tick.
+      // Only the latest request schedules the next poll tick. Anchor the
+      // countdown to that poll so "refresh in Ns" hits 0 when the re-quote fires.
       if (seq === seqRef.current && hasAmount) {
         if (pollRef.current) clearTimeout(pollRef.current);
+        nextRefreshAtRef.current = Date.now() + QUOTE_POLL_MS;
+        setSecondsLeft(Math.max(0, Math.ceil((nextRefreshAtRef.current - Date.now()) / 1000)));
         pollRef.current = setTimeout(() => runQuote(), QUOTE_POLL_MS);
       }
     }
@@ -144,6 +151,7 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
     if (!sellToken || !buyToken || !hasAmount) {
       // bump the seq so any in-flight response is ignored, then idle.
       seqRef.current += 1;
+      nextRefreshAtRef.current = null;
       setQuote(null);
       setStatus("idle");
       setError("");
@@ -166,13 +174,14 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputsKey]);
 
-  // 1s expiry ticker — keeps the countdown ring accurate between polls.
+  // 1s ticker — counts down to the next scheduled poll so the countdown reaches
+  // 0 exactly when the auto-refresh fires (re-armed on each fresh quote).
   useEffect(() => {
-    if (status !== "ready" || !quote?.expiresAtMs) {
+    if (status !== "ready" || !nextRefreshAtRef.current) {
       return undefined;
     }
     const id = setInterval(() => {
-      setSecondsLeft(quoteExpiresInSeconds(quote));
+      setSecondsLeft(Math.max(0, Math.ceil((nextRefreshAtRef.current - Date.now()) / 1000)));
     }, 1000);
     return () => clearInterval(id);
   }, [status, quote]);
