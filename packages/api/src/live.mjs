@@ -327,9 +327,40 @@ export function createLiveAggregatorApiHandler({
   const tokensProvider = createTokenIndexProvider({
     client,
     nowMs,
-    sources: listSources().filter((source) => source.factory && source.status !== "disabled"),
+    // Only venues we can EXECUTE through — a token whose only pool is on a
+    // non-executable/watchlist venue (e.g. SuchSwap) can't be routed, so it must
+    // not be indexed as a tradeable token.
+    sources: listSources().filter((source) => source.verification?.execution === true),
     baseTokens: OFFICIAL_DOGEOS_TOKENS,
     officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
+    // Live routability gate: index a non-official token only if a real quote
+    // (token -> WDOGE) routes through an executable venue. Drops dust/drained
+    // pools that pass the on-chain liveness check but can't actually be traded,
+    // so the catalog never shows a "no-route" token.
+    routeProbe: async ({ address, decimals }) => {
+      try {
+        // Probe a SMALL amount (~0.01 token): genuinely dead/drained pools return
+        // no-route at any size, while a real-but-shallow pool still routes here —
+        // so we drop only the untradeable tokens, not shallow ones a user can
+        // still trade in small size. (A larger probe would hide real tokens.)
+        const oneToken = 10n ** BigInt(decimals);
+        const amountIn = oneToken / 100n > 0n ? oneToken / 100n : 1n;
+        const candidates = await directQuoteCandidateProvider({
+          chainId: DOGEOS_CHAIN.id,
+          quoteMode: "exactInput",
+          sellToken: address,
+          buyToken: OFFICIAL_DOGEOS_TOKENS.find((t) => t.symbol === "WDOGE")?.address,
+          amountIn,
+          includeSources: [],
+          excludeSources: [],
+        });
+        return (candidates ?? []).some(
+          (c) => c.status === "active" && BigInt(c.amountOut ?? 0n) > 0n,
+        );
+      } catch {
+        return false;
+      }
+    },
   });
   if (warmTokenIndex) tokensProvider().catch(() => {});
 

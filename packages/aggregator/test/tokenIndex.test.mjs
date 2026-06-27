@@ -143,6 +143,22 @@ test("token index caches within the TTL (one enumeration per window) and single-
   assert.deepEqual(a.map((t) => t.symbol), c.map((t) => t.symbol));
 });
 
+test("token index drops tokens that fail the route probe (no-route tokens hidden)", async () => {
+  const { client } = makeClient();
+  const provider = createTokenIndexProvider({
+    client,
+    sources: SOURCES,
+    baseTokens: [{ symbol: "WDOGE", address: WDOGE }],
+    officialAddresses: [WDOGE],
+    nowMs: () => 1000,
+    // ABC routes; MUCH (and its dup) do not — so only ABC should be indexed.
+    routeProbe: async ({ address }) => address.toLowerCase() === ABC.toLowerCase(),
+  });
+
+  const tokens = await provider();
+  assert.deepEqual(tokens.map((t) => t.symbol), ["ABC"]);
+});
+
 test("token index returns [] when no venue has a factory", async () => {
   const { client } = makeClient();
   const provider = createTokenIndexProvider({
