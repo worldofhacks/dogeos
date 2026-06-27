@@ -611,7 +611,7 @@ export default function SwapView({
                         borderRadius: "50%",
                         border: `2px solid ${th.hair}`,
                         borderTopColor: th.accent,
-                        animation: "spin 0.8s linear infinite",
+                        animation: "ds-spin 0.8s linear infinite",
                       }}
                     />
                     <Label color={th.accent}>scanning {venueCount || 0} venues…</Label>

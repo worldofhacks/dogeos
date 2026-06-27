@@ -75,20 +75,27 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
   .lift:hover { transform: translateY(-1px); }
 }
 
-/* keyframes */
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.shimmer { background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
-@keyframes riseIn { from { transform: translateY(10px); } to { transform: translateY(0); } }
-@keyframes scaleIn { from { transform: translateY(8px) scale(0.97); } to { transform: translateY(0) scale(1); } }
-@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-@keyframes popIn { 0% { transform: scale(0.5); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+/* keyframes
+   NOTE: namespaced with a `ds-` prefix on purpose. The @dogeos/dogeos-sdk
+   wallet-provider CSS (pre-mounted on idle) ships its OWN `@keyframes shimmer`
+   ({ to { transform: translate(200%) } }) and `@keyframes spin`. CSS resolves an
+   animation-name to the LAST-defined keyframes of that name across all loaded
+   stylesheets, so generic names would let the SDK hijack ours — its `shimmer`
+   slid every skeleton ~2× its width to the right (out of its box, under the
+   token icon). Private names keep our animations ours regardless of load order. */
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@keyframes ds-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.shimmer { background-size: 200% 100%; animation: ds-shimmer 1.3s linear infinite; }
+@keyframes ds-riseIn { from { transform: translateY(10px); } to { transform: translateY(0); } }
+@keyframes ds-scaleIn { from { transform: translateY(8px) scale(0.97); } to { transform: translateY(0) scale(1); } }
+@keyframes ds-sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes ds-popIn { 0% { transform: scale(0.5); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
 
 /* entrance animations are transform-only so content is NEVER left invisible if a frame stalls */
-.anim-rise { animation: riseIn var(--t-med) var(--ease-out); }
-.anim-scale { animation: scaleIn var(--t-med) var(--ease-out); }
-.anim-sheet { animation: sheetUp var(--t-slow) var(--ease-out); }
-.anim-pop { animation: popIn 0.5s var(--ease-spring); }
+.anim-rise { animation: ds-riseIn var(--t-med) var(--ease-out); }
+.anim-scale { animation: ds-scaleIn var(--t-med) var(--ease-out); }
+.anim-sheet { animation: ds-sheetUp var(--t-slow) var(--ease-out); }
+.anim-pop { animation: ds-popIn 0.5s var(--ease-spring); }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 9px; height: 9px; }

@@ -220,7 +220,7 @@ function Spinner({ th, size = 26, track }) {
         borderRadius: "50%",
         border: `3px solid ${track ?? th.hair}`,
         borderTopColor: th.accent,
-        animation: "spin 0.9s linear infinite",
+        animation: "ds-spin 0.9s linear infinite",
         flexShrink: 0,
       }}
     />
@@ -693,7 +693,7 @@ export default function SwapFlow({
                           borderRadius: "50%",
                           border: "2px solid rgba(0,0,0,0.25)",
                           borderTopColor: "#1c1c1c",
-                          animation: "spin 0.8s linear infinite",
+                          animation: "ds-spin 0.8s linear infinite",
                         }}
                       />{" "}
                       refreshing…
