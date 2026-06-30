@@ -7,6 +7,11 @@ import { createTokenMetadataReader } from "../../aggregator/src/discovery/tokenM
 import { scanVenuePools } from "../../aggregator/src/discovery/poolScan.mjs";
 import { createDiscoverableTokensProvider } from "../../aggregator/src/discovery/discoverableTokens.mjs";
 import { createTokenIndexProvider } from "../../aggregator/src/discovery/tokenIndex.mjs";
+import {
+  createRoundTripProbe,
+  readBaseLiquidity,
+  MIN_BASE_LIQUIDITY_WEI,
+} from "../../aggregator/src/discovery/routability.mjs";
 import { listSources } from "../../aggregator/src/sources/registry.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
@@ -324,6 +329,41 @@ export function createLiveAggregatorApiHandler({
   // warmTokenIndex is set (real server start), build it once now (fire-and-forget)
   // so the primary token list is instant instead of paying the ~7s enumerate+
   // metadata cost on the first request.
+  const wdogeAddress = OFFICIAL_DOGEOS_TOKENS.find((t) => t.symbol === "WDOGE")?.address;
+  // Shared best-active-candidate quote probe (works both directions) over the
+  // live direct-route provider — used by the trending list AND the /tokens index
+  // round-trip gate.
+  const sharedQuoteProbe = async ({ sellToken, buyToken, amountIn }) => {
+    try {
+      const candidates = await directQuoteCandidateProvider({
+        chainId: DOGEOS_CHAIN.id,
+        quoteMode: "exactInput",
+        sellToken,
+        buyToken,
+        amountIn: BigInt(amountIn),
+        includeSources: [],
+        excludeSources: [],
+      });
+      const active = (candidates ?? []).filter(
+        (c) => c.status === "active" && BigInt(c.amountOut ?? 0n) > 0n,
+      );
+      if (active.length === 0) return { ok: false };
+      const best = active.reduce((a, b) => (BigInt(b.amountOut) > BigInt(a.amountOut) ? b : a));
+      return { ok: true, amountOut: best.amountOut, priceImpactBps: Number(best.priceImpactBps ?? 0) };
+    } catch {
+      return { ok: false };
+    }
+  };
+  // /tokens routability gate: cheap min-base-liquidity floor (drop dust/drained
+  // pools) then a base-anchored buy-then-sell round trip (drop honeypots /
+  // sell-blockers / punitive fee-on-transfer tokens) — a one-way quote can't.
+  const tokenIndexRoundTrip = createRoundTripProbe({ quoteProbe: sharedQuoteProbe, base: wdogeAddress });
+  const tokenIndexRouteProbe = async ({ address, pools }) => {
+    const liquidity = await readBaseLiquidity({ client, base: wdogeAddress, pools: pools ?? [] });
+    if (liquidity < MIN_BASE_LIQUIDITY_WEI) return false;
+    return tokenIndexRoundTrip(address);
+  };
+
   const tokensProvider = createTokenIndexProvider({
     client,
     nowMs,
@@ -333,34 +373,7 @@ export function createLiveAggregatorApiHandler({
     sources: listSources().filter((source) => source.verification?.execution === true),
     baseTokens: OFFICIAL_DOGEOS_TOKENS,
     officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
-    // Live routability gate: index a non-official token only if a real quote
-    // (token -> WDOGE) routes through an executable venue. Drops dust/drained
-    // pools that pass the on-chain liveness check but can't actually be traded,
-    // so the catalog never shows a "no-route" token.
-    routeProbe: async ({ address, decimals }) => {
-      try {
-        // Probe a SMALL amount (~0.01 token): genuinely dead/drained pools return
-        // no-route at any size, while a real-but-shallow pool still routes here —
-        // so we drop only the untradeable tokens, not shallow ones a user can
-        // still trade in small size. (A larger probe would hide real tokens.)
-        const oneToken = 10n ** BigInt(decimals);
-        const amountIn = oneToken / 100n > 0n ? oneToken / 100n : 1n;
-        const candidates = await directQuoteCandidateProvider({
-          chainId: DOGEOS_CHAIN.id,
-          quoteMode: "exactInput",
-          sellToken: address,
-          buyToken: OFFICIAL_DOGEOS_TOKENS.find((t) => t.symbol === "WDOGE")?.address,
-          amountIn,
-          includeSources: [],
-          excludeSources: [],
-        });
-        return (candidates ?? []).some(
-          (c) => c.status === "active" && BigInt(c.amountOut ?? 0n) > 0n,
-        );
-      } catch {
-        return false;
-      }
-    },
+    routeProbe: tokenIndexRouteProbe,
   });
   if (warmTokenIndex) tokensProvider().catch(() => {});
 
@@ -422,31 +435,7 @@ export function createLiveAggregatorApiHandler({
       minBaseLiquidity: 10n ** 17n,
       // Round-trip tradeability gate: reject honeypots / drained pools by
       // quoting both directions through the live direct-route provider.
-      quoteProbe: async ({ sellToken, buyToken, amountIn }) => {
-        try {
-          const candidates = await directQuoteCandidateProvider({
-            chainId: DOGEOS_CHAIN.id,
-            quoteMode: "exactInput",
-            sellToken,
-            buyToken,
-            amountIn: BigInt(amountIn),
-            includeSources: [],
-            excludeSources: [],
-          });
-          const active = (candidates ?? []).filter(
-            (c) => c.status === "active" && BigInt(c.amountOut ?? 0n) > 0n,
-          );
-          if (active.length === 0) return { ok: false };
-          const best = active.reduce((a, b) => (BigInt(b.amountOut) > BigInt(a.amountOut) ? b : a));
-          return {
-            ok: true,
-            amountOut: best.amountOut,
-            priceImpactBps: Number(best.priceImpactBps ?? 0),
-          };
-        } catch {
-          return { ok: false };
-        }
-      },
+      quoteProbe: sharedQuoteProbe,
     }),
     // Full non-official token index for GET /tokens: every token with a live pool
     // against an official token across all factory venues (incl. watchlist),
