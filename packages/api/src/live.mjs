@@ -363,6 +363,25 @@ export function createLiveAggregatorApiHandler({
     if (liquidity < MIN_BASE_LIQUIDITY_WEI) return false;
     return tokenIndexRoundTrip(address);
   };
+  // Trust signals for ranking + tier badge: base-liquidity depth + explorer
+  // holders (age is derived from firstPoolBlock inside the index).
+  const fetchHolders = async (tokenAddress) => {
+    try {
+      const res = await fetchFn(`${DOGEOS_CHAIN.blockscoutBaseUrl}/api/v2/tokens/${tokenAddress}`);
+      if (!res.ok) return 0;
+      const body = await res.json();
+      return Number(body.holders_count ?? body.holders ?? 0) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const tokenIndexSignalProvider = async ({ address, pools }) => {
+    const [liquidityWei, holders] = await Promise.all([
+      readBaseLiquidity({ client, base: wdogeAddress, pools: pools ?? [] }),
+      fetchHolders(address.toLowerCase()),
+    ]);
+    return { liquidityWei, holders };
+  };
 
   const tokensProvider = createTokenIndexProvider({
     client,
@@ -374,6 +393,7 @@ export function createLiveAggregatorApiHandler({
     baseTokens: OFFICIAL_DOGEOS_TOKENS,
     officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
     routeProbe: tokenIndexRouteProbe,
+    signalProvider: tokenIndexSignalProvider,
   });
   if (warmTokenIndex) tokensProvider().catch(() => {});
 

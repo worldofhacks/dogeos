@@ -95,17 +95,19 @@ async function enumeratePoolsFromLogs({ client, source, fromBlock = "0x0", toBlo
       const token0 = topicAddress(log.topics?.[1]);
       const token1 = topicAddress(log.topics?.[2]);
       if (!token0 || !token1) return null;
+      // Block the pool-creation event landed in — the token's "age" signal.
+      const creationBlock = log.blockNumber != null ? Number(BigInt(log.blockNumber)) : null;
       if (source.protocolType === "v3") {
         // fee is indexed topic[3]; pool is the last data word (after tickSpacing).
         const feeTier = log.topics?.[3] ? Number(BigInt(log.topics[3])) : undefined;
         const poolAddress = dataWordAddress(log.data, 1);
         if (!poolAddress) return null;
-        return { poolAddress, token0, token1, feeTier, protocolType: "v3" };
+        return { poolAddress, token0, token1, feeTier, creationBlock, protocolType: "v3" };
       }
       // Algebra: pool is the single data word.
       const poolAddress = dataWordAddress(log.data, 0);
       if (!poolAddress) return null;
-      return { poolAddress, token0, token1, protocolType: "algebra" };
+      return { poolAddress, token0, token1, creationBlock, protocolType: "algebra" };
     })
     .filter(Boolean);
 }
@@ -185,14 +187,25 @@ export async function enumerateTradeableTokens({
     const entry = tokens.get(other) ?? { address: other, venues: new Set(), bases: new Set(), pools: [] };
     entry.venues.add(pool.sourceId);
     entry.bases.add(baseSide);
-    entry.pools.push({ sourceId: pool.sourceId, poolAddress: pool.poolAddress, base: baseSide });
+    entry.pools.push({
+      sourceId: pool.sourceId,
+      poolAddress: pool.poolAddress,
+      base: baseSide,
+      creationBlock: pool.creationBlock ?? null,
+    });
     tokens.set(other, entry);
   });
 
-  return [...tokens.values()].map((entry) => ({
-    address: entry.address,
-    venues: [...entry.venues],
-    bases: [...entry.bases],
-    pools: entry.pools,
-  }));
+  return [...tokens.values()].map((entry) => {
+    // Token "age" = its earliest pool-creation block (null for v2-only tokens,
+    // whose allPairs path carries no block).
+    const blocks = entry.pools.map((p) => p.creationBlock).filter((b) => b != null);
+    return {
+      address: entry.address,
+      venues: [...entry.venues],
+      bases: [...entry.bases],
+      pools: entry.pools,
+      firstPoolBlock: blocks.length ? Math.min(...blocks) : null,
+    };
+  });
 }

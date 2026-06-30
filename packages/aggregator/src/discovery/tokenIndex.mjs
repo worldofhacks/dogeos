@@ -12,6 +12,7 @@
 
 import { enumerateTradeableTokens } from "./venuePoolEnumeration.mjs";
 import { createTokenMetadataReader } from "./tokenMetadata.mjs";
+import { computeTrustScore, trustTier } from "./trustScore.mjs";
 
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // metadata for the whole index is RPC-heavy
 const DEFAULT_CONCURRENCY = 8; // bound metadata reads so we don't flood the testnet RPC
@@ -58,6 +59,11 @@ export function createTokenIndexProvider({
   // passes (a real round-trip quote + min-liquidity). Off => no gating (raw pool
   // membership), which the unit tests rely on.
   routeProbe,
+  // Optional trust-signal reader: signalProvider(token) -> { liquidityWei, holders }.
+  // When wired, each surviving token gets a 0-100 trustScore + low/med/high
+  // trustTier and the index is ranked by score (desc). NEVER flips `verified`.
+  // Off => alphabetical order (what the unit tests assert).
+  signalProvider,
   nowMs = () => Date.now(),
 } = {}) {
   const officialSet = new Set(officialAddresses.map(lower));
@@ -90,6 +96,7 @@ export function createTokenIndexProvider({
           venues: token.venues,
           pools: token.pools,
           bases: token.bases,
+          firstPoolBlock: token.firstPoolBlock ?? null,
         };
       })
     ).filter(Boolean);
@@ -104,6 +111,11 @@ export function createTokenIndexProvider({
       if (existing) {
         existing.venues = [...new Set([...(existing.venues ?? []), ...(c.venues ?? [])])];
         existing.pools = [...(existing.pools ?? []), ...(c.pools ?? [])];
+        // Keep the EARLIEST creation block across the merged redeploys (age).
+        if (c.firstPoolBlock != null) {
+          existing.firstPoolBlock =
+            existing.firstPoolBlock != null ? Math.min(existing.firstPoolBlock, c.firstPoolBlock) : c.firstPoolBlock;
+        }
       } else {
         byKey.set(key, c);
       }
@@ -126,20 +138,48 @@ export function createTokenIndexProvider({
       survivors = deduped.filter((_, i) => flags[i]);
     }
 
+    const baseEntry = (c) => ({
+      address: c.address,
+      symbol: c.symbol,
+      name: c.name,
+      decimals: c.decimals,
+      venues: [...new Set(c.venues ?? [])],
+      // The "not official" marker the UI keys off (apps/web/src/lib/tokens.js
+      // tokenVerified). MUST be explicit false — a non-empty provenance string
+      // would otherwise read as verified.
+      verified: false,
+      discovered: true,
+    });
+
+    // No trust signals wired -> keep the alphabetical order (what tests assert).
+    if (!signalProvider) {
+      return survivors.map(baseEntry).sort((a, b) => a.symbol.localeCompare(b.symbol));
+    }
+
+    // Trust score: read liquidity depth + holders per survivor, derive age from
+    // the current head, and rank by score (desc). Never flips `verified`.
+    const head = await Promise.resolve(client.getBlockNumber?.())
+      .then((b) => (b != null ? Number(b) : null))
+      .catch(() => null);
+    const signals = await mapLimit(survivors, probeConcurrency, async (c) => {
+      try {
+        return await signalProvider(c);
+      } catch {
+        return {};
+      }
+    });
+
     return survivors
-      .map((c) => ({
-        address: c.address,
-        symbol: c.symbol,
-        name: c.name,
-        decimals: c.decimals,
-        venues: [...new Set(c.venues ?? [])],
-        // The "not official" marker the UI keys off (apps/web/src/lib/tokens.js
-        // tokenVerified). MUST be explicit false — a non-empty provenance string
-        // would otherwise read as verified.
-        verified: false,
-        discovered: true,
-      }))
-      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+      .map((c, i) => {
+        const sig = signals[i] ?? {};
+        const liquidityWdoge =
+          sig.liquidityWei != null ? Number(BigInt(sig.liquidityWei) / 10n ** 16n) / 100 : 0; // wei -> WDOGE
+        const ageBlocks =
+          head != null && c.firstPoolBlock != null ? Math.max(0, head - c.firstPoolBlock) : 0;
+        const trustScore = computeTrustScore({ liquidityWdoge, holders: sig.holders ?? 0, ageBlocks });
+        return { ...baseEntry(c), holders: sig.holders ?? 0, trustScore, trustTier: trustTier(trustScore) };
+      })
+      .sort((a, b) => b.trustScore - a.trustScore || a.symbol.localeCompare(b.symbol));
   }
 
   return async function tokenIndex() {

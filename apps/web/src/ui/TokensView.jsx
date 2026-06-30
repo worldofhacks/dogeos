@@ -16,7 +16,13 @@ import { Label, TokenIcon, compact, useIsMobile } from "./primitives.jsx";
 import { useWallet } from "./useWallet.js";
 import { useTokenBalances } from "./useTokenBalances.js";
 import { getTokens } from "../lib/api.js";
-import { decorateToken, filterTokens, compactAddress } from "../lib/tokens.js";
+import {
+  decorateToken,
+  filterTokens,
+  compactAddress,
+  trustTierLabel,
+  trustTierColorKey,
+} from "../lib/tokens.js";
 import { unitsToNumber, walletBalanceKey } from "../lib/units.js";
 
 export default function TokensView({ onTrade }) {
@@ -175,8 +181,11 @@ export default function TokensView({ onTrade }) {
                         ✓
                       </span>
                     ) : (
-                      <span title="unverified — trade with care" style={{ color: th.chartDown, fontSize: 10 }}>
-                        ⚠
+                      <span
+                        title={`unverified · ${trustTierLabel(deco.trustTier)} trust — DYOR`}
+                        style={{ color: th[trustTierColorKey(deco.trustTier)], fontSize: 10 }}
+                      >
+                        {!deco.trustTier || deco.trustTier === "low" ? "⚠" : "◆"}
                       </span>
                     )}
                     <Label color={th.mute} style={{ fontSize: 9 }}>

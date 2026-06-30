@@ -55,6 +55,16 @@ export function decorateToken(token) {
   };
 }
 
+// Graduated trust tier for non-official tokens (server-derived: liquidity depth
+// + holders + age). Drives a badge/colour ONLY — it never makes a token verified.
+export function trustTierLabel(tier) {
+  return tier === "high" ? "high" : tier === "med" ? "medium" : "low";
+}
+// Theme colour key for a tier (high=up/green, med=gold, low/unknown=down/red).
+export function trustTierColorKey(tier) {
+  return tier === "high" ? "chartUp" : tier === "med" ? "gold" : "chartDown";
+}
+
 export function tokenSearchText(token) {
   return `${token.symbol} ${token.name ?? ""} ${token.address}`.toLowerCase();
 }
