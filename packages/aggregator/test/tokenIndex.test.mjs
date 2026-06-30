@@ -179,6 +179,30 @@ test("token index drops tokens whose deployer is flagged (guilt by association)"
   assert.deepEqual(tokens.map((t) => t.symbol), ["ABC"]);
 });
 
+test("token index serves STALE data on cache expiry and rebuilds in the background (SWR)", async () => {
+  let clock = 1000;
+  const { client, counts } = makeClient();
+  const provider = createTokenIndexProvider({
+    client,
+    sources: SOURCES,
+    baseTokens: [{ symbol: "WDOGE", address: WDOGE }],
+    officialAddresses: [WDOGE],
+    cacheTtlMs: 100,
+    nowMs: () => clock,
+  });
+
+  const first = await provider(); // cold build
+  assert.equal(counts.getLogs, 1);
+  assert.ok(first.length > 0);
+
+  clock += 200; // expire the cache
+  const stale = await provider(); // SWR: must return the OLD set instantly, not block on a rebuild
+  assert.deepEqual(stale.map((t) => t.symbol), first.map((t) => t.symbol), "served the stale set");
+
+  await new Promise((resolve) => setImmediate(resolve)); // let the background rebuild start
+  assert.equal(counts.getLogs, 2, "a rebuild was kicked off in the background");
+});
+
 test("token index returns [] when no venue has a factory", async () => {
   const { client } = makeClient();
   const provider = createTokenIndexProvider({

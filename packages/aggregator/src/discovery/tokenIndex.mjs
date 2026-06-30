@@ -205,20 +205,28 @@ export function createTokenIndexProvider({
 
   return async function tokenIndex() {
     const now = nowMs();
+    // Fresh cache -> serve it.
     if (cache.data && now - cache.at <= cacheTtlMs) return cache.data;
-    if (inflight) return inflight;
-    inflight = build()
-      .then((data) => {
-        cache = { at: nowMs(), data };
-        return data;
-      })
-      .finally(() => {
-        inflight = null;
-      });
-    try {
-      return await inflight;
-    } catch {
-      return cache.data ?? []; // never break /tokens — fall back to last good / empty
+
+    // Stale or cold -> kick off a single-flight rebuild (the build is RPC-heavy:
+    // enumerate + metadata + round-trip probes + holders/creator lookups, ~15s+).
+    if (!inflight) {
+      inflight = build()
+        .then((data) => {
+          cache = { at: nowMs(), data };
+          return data;
+        })
+        .catch(() => cache.data ?? [])
+        .finally(() => {
+          inflight = null;
+        });
     }
+
+    // STALE-WHILE-REVALIDATE: if we have a last-known set, serve it INSTANTLY and
+    // let the rebuild finish in the background — so /tokens never blocks a user on
+    // the 15-min cache refresh. Only the very first build (no data yet) has nothing
+    // to serve, so it awaits; the startup warm pays that one-time cost, not a user.
+    if (cache.data) return cache.data;
+    return inflight;
   };
 }
