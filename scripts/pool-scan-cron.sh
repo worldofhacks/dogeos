@@ -10,10 +10,14 @@ OUT="${DOGEOS_POOL_SCAN_DIR:-/home/actlabs/dogeos-pool-scans}"
 mkdir -p "$OUT"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 
-# Scan: diff vs the previous baseline, save this run as latest.json. Full JSON -> latest.json
-# (via --save), human summary -> stderr -> the per-run summary file + journald.
+# Scan: INCREMENTAL via --cursor (scans only newly-confirmed blocks; the prior
+# accumulated pool set rides on baseline.json's `pools[]`, treating the last
+# reorg-depth blocks as unconfirmed). Diff vs the previous baseline, save this
+# run as latest.json. Full JSON -> latest.json (via --save), human summary ->
+# stderr -> the per-run summary file + journald.
 node "$REPO/scripts/scan-dogeos-pools.mjs" \
   --summary \
+  --cursor "$OUT/cursor.json" \
   --baseline "$OUT/baseline.json" \
   --save "$OUT/latest.json" \
   1>/dev/null 2>"$OUT/summary-$TS.txt"

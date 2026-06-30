@@ -70,14 +70,24 @@ function pinnedPoolAddresses(sources = listSources()) {
   return set;
 }
 
-async function getLogs(factoryAddress, topic0, fetchFn) {
-  const url = `${BLOCKSCOUT}/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest&address=${factoryAddress}&topic0=${topic0}`;
+async function getLogs(factoryAddress, topic0, fetchFn, fromBlock = 0, toBlock = "latest") {
+  const url = `${BLOCKSCOUT}/api?module=logs&action=getLogs&fromBlock=${fromBlock}&toBlock=${toBlock}&address=${factoryAddress}&topic0=${topic0}`;
   const res = await fetchFn(url);
   if (!res.ok) throw new Error(`getLogs HTTP ${res.status} for ${factoryAddress}`);
   const body = await res.json();
   // Blockscout returns status "0" + "No logs found" for empty result sets.
   if (body.status !== "1") return [];
   return Array.isArray(body.result) ? body.result : [];
+}
+
+// Current head block via Blockscout's eth_block_number proxy. Injectable for tests.
+export async function fetchHeadBlock(fetchFn = fetch) {
+  const url = `${BLOCKSCOUT}/api?module=block&action=eth_block_number`;
+  const res = await fetchFn(url);
+  if (!res.ok) throw new Error(`eth_block_number HTTP ${res.status}`);
+  const body = await res.json();
+  const hex = body.result ?? body.jsonrpc?.result ?? null;
+  return hex ? parseInt(hex, 16) : null;
 }
 
 function decodePool(factory, log) {
@@ -105,35 +115,77 @@ function decodePool(factory, log) {
     pair: `${label(token0, s0)}/${label(token1, s1)}`,
     feeTier,
     officialCount, // 2 = official pair, 1 = official+non-official, 0 = neither
+    // Block the pool-creation event landed in (used to dedupe accumulated pools
+    // and, later, to compute token "age"). null if the log carried no blockNumber.
+    creationBlock: log.blockNumber != null ? parseInt(log.blockNumber, 16) : null,
   };
 }
 
-export async function scanDogeosPools({ fetchFn = fetch, sources = listSources() } = {}) {
+// Scan factory pool-creation logs in [fromBlock..toBlock], MERGE the decoded
+// pools with `priorPools` (the accumulated set persisted between runs), and
+// classify the merged set. With the defaults (fromBlock=0, toBlock="latest",
+// priorPools=[]) this is the original full genesis enumeration; pass a cursor
+// range + priorPools to scan only newly-created pools incrementally. Returns the
+// usual report PLUS `pools` = the merged accumulated set to persist.
+export async function scanDogeosPools({
+  fetchFn = fetch,
+  sources = listSources(),
+  fromBlock = 0,
+  toBlock = "latest",
+  priorPools = [],
+} = {}) {
   const factories = factoriesToScan(sources);
   const pinned = pinnedPoolAddresses(sources);
-  const allPools = [];
-  const factoryStats = [];
   const errors = [];
 
-  for (const factory of factories) {
-    try {
-      const logs = await getLogs(factory.factory, POOL_EVENT[factory.protocolType].topic0, fetchFn);
-      const pools = logs.map((log) => decodePool(factory, log)).filter(Boolean);
-      allPools.push(...pools);
-      factoryStats.push({
-        sourceId: factory.sourceId,
-        displayName: factory.displayName,
-        protocolType: factory.protocolType,
-        factory: lc(factory.factory),
-        status: factory.status,
-        poolCount: pools.length,
-        officialPairCount: pools.filter((p) => p.officialCount === 2).length,
-        officialTokenCount: pools.filter((p) => p.officialCount === 1).length,
-      });
-    } catch (error) {
-      errors.push({ sourceId: factory.sourceId, factory: lc(factory.factory), message: error?.message ?? String(error) });
+  // Caught up: a numeric range with from > to means there are no new confirmed
+  // blocks this cycle — skip the network entirely and just re-classify priorPools.
+  const emptyRange = Number.isInteger(fromBlock) && Number.isInteger(toBlock) && fromBlock > toBlock;
+
+  const newPools = [];
+  if (!emptyRange) {
+    for (const factory of factories) {
+      try {
+        const logs = await getLogs(factory.factory, POOL_EVENT[factory.protocolType].topic0, fetchFn, fromBlock, toBlock);
+        newPools.push(...logs.map((log) => decodePool(factory, log)).filter(Boolean));
+      } catch (error) {
+        errors.push({ sourceId: factory.sourceId, factory: lc(factory.factory), message: error?.message ?? String(error) });
+      }
     }
   }
+
+  // Merge accumulated + newly-seen pools, deduped by pool address (newer wins).
+  const byPool = new Map();
+  for (const p of priorPools) byPool.set(lc(p.pool), p);
+  for (const p of newPools) byPool.set(lc(p.pool), p);
+  const allPools = [...byPool.values()];
+
+  // Per-factory stats from the MERGED set; seed every scanned factory at 0 so the
+  // report still lists factories that currently have no pools.
+  const factoryMeta = new Map(factories.map((f) => [`${f.sourceId}:${lc(f.factory)}`, f]));
+  const statsByKey = new Map();
+  for (const f of factories) {
+    statsByKey.set(`${f.sourceId}:${lc(f.factory)}`, {
+      sourceId: f.sourceId, displayName: f.displayName, protocolType: f.protocolType,
+      factory: lc(f.factory), status: f.status, poolCount: 0, officialPairCount: 0, officialTokenCount: 0,
+    });
+  }
+  for (const p of allPools) {
+    const key = `${p.sourceId}:${lc(p.factory)}`;
+    let st = statsByKey.get(key);
+    if (!st) {
+      const meta = factoryMeta.get(key);
+      st = {
+        sourceId: p.sourceId, displayName: p.displayName, protocolType: p.protocolType,
+        factory: lc(p.factory), status: meta?.status ?? "unknown", poolCount: 0, officialPairCount: 0, officialTokenCount: 0,
+      };
+      statsByKey.set(key, st);
+    }
+    st.poolCount += 1;
+    if (p.officialCount === 2) st.officialPairCount += 1;
+    if (p.officialCount === 1) st.officialTokenCount += 1;
+  }
+  const factoryStats = [...statsByKey.values()];
 
   const officialPairPools = allPools
     .filter((p) => p.officialCount === 2)
@@ -164,6 +216,9 @@ export async function scanDogeosPools({ fetchFn = fetch, sources = listSources()
     missingOfficialPairPools,
     emergingTokens,
     errors,
+    // The full accumulated pool set (merged prior + new). Persist this as the
+    // next run's priorPools so the scan never re-enumerates from genesis.
+    pools: allPools,
   };
 }
 
@@ -196,13 +251,50 @@ function parseArgs(argv) {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : null;
   };
-  return { summary: argv.includes("--summary"), baseline: get("--baseline"), save: get("--save") };
+  return {
+    summary: argv.includes("--summary"),
+    baseline: get("--baseline"),
+    save: get("--save"),
+    // --cursor FILE enables incremental scanning: read {lastScanned}, scan only
+    // [lastScanned+1 .. head-reorgDepth], reusing the baseline's accumulated
+    // `pools` as priorPools. --reorg-depth defaults to the chain's documented max.
+    cursor: get("--cursor"),
+    reorgDepth: get("--reorg-depth"),
+  };
 }
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const report = await scanDogeosPools();
   const baseline = opts.baseline && existsSync(opts.baseline) ? JSON.parse(readFileSync(opts.baseline, "utf8")) : null;
+
+  // Incremental mode (--cursor): scan only newly-confirmed blocks and merge with
+  // the prior accumulated pool set (carried on baseline.pools). Reorg-safe: we
+  // only ever commit pools at blocks <= head - reorgDepth (>= the chain's max
+  // reorg depth), so a committed pool can't be reorged out.
+  let scanOpts = {};
+  let nextCursor = null;
+  if (opts.cursor) {
+    const cursorState = existsSync(opts.cursor) ? JSON.parse(readFileSync(opts.cursor, "utf8")) : { lastScanned: 0 };
+    const priorPools = Array.isArray(baseline?.pools) ? baseline.pools : [];
+    const head = await fetchHeadBlock().catch(() => null);
+    if (head != null) {
+      const reorgDepth = opts.reorgDepth != null ? Number(opts.reorgDepth) : (DOGEOS_CHAIN.documentedMaxReorgDepth ?? 17);
+      const safeHead = Math.max(0, head - reorgDepth);
+      const lastScanned = Number(cursorState.lastScanned ?? 0);
+      const fromBlock = lastScanned > 0 ? lastScanned + 1 : 0;
+      scanOpts = { fromBlock, toBlock: safeHead, priorPools };
+      nextCursor = { lastScanned: safeHead, head, reorgDepth };
+    } else {
+      // Head unavailable — fall back to a full re-scan and DON'T advance the cursor.
+      scanOpts = { priorPools };
+    }
+  }
+
+  const report = await scanDogeosPools(scanOpts);
+
+  if (opts.cursor && nextCursor) {
+    writeFileSync(opts.cursor, JSON.stringify({ ...nextCursor, updatedAt: report.checkedAt }, null, 2));
+  }
 
   console.log(JSON.stringify(report, null, 2));
   if (opts.summary) console.error("\n" + summarize(report, baseline) + "\n");
