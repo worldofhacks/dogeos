@@ -99,6 +99,36 @@ test("GET /tokens still serves the official list when the index provider throws"
   assert.deepEqual(body.data.map((t) => t.symbol), OFFICIAL_DOGEOS_TOKENS.map((t) => t.symbol));
 });
 
+test("GET /tokenlist returns a versioned Token Lists view and bumps on change", async () => {
+  let indexed = [
+    { address: "0x" + "a".repeat(40), symbol: "MUCH", name: "Much", decimals: 18, venues: ["muchfi-v3"], verified: false, trustScore: 60, trustTier: "med" },
+  ];
+  const handle = createAggregatorApiHandler({ nowMs: () => now, tokensProvider: async () => indexed });
+  const get = async () => (await handle(new Request("https://aggregator.local/tokenlist"))).json();
+
+  const l1 = await get();
+  assert.equal(l1.name, "DogeSwap");
+  assert.equal(typeof l1.timestamp, "string");
+  assert.deepEqual(l1.version, { major: 1, minor: 1, patch: 0 }); // first content -> minor bump
+  // official tagged default, discovered tagged import; required fields present.
+  assert.equal(l1.tokens.slice(0, OFFICIAL_DOGEOS_TOKENS.length).every((t) => t.tags.includes("default")), true);
+  const much = l1.tokens.find((t) => t.symbol === "MUCH");
+  assert.deepEqual(much.tags, ["import"]);
+  assert.equal(much.chainId, DOGEOS_CHAIN.id);
+  assert.equal(much.decimals, 18);
+  assert.equal(much.extensions.trustScore, 60);
+
+  assert.deepEqual((await get()).version, l1.version, "unchanged set -> same version");
+
+  indexed = [...indexed, { address: "0x" + "b".repeat(40), symbol: "ZZZ", name: "Zee", decimals: 6, verified: false }];
+  assert.equal((await get()).version.minor, 2, "added token -> minor bump");
+
+  indexed = indexed.map((t) => (t.symbol === "ZZZ" ? { ...t, trustScore: 99 } : t));
+  const l4 = await get();
+  assert.equal(l4.version.minor, 2);
+  assert.equal(l4.version.patch, 1, "metadata-only change -> patch bump");
+});
+
 test("GET /chain-status exposes DogeOS RPC, gas, block, and fee-oracle metadata", async () => {
   let providerCalled = false;
   const handle = createAggregatorApiHandler({

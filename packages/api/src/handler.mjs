@@ -467,6 +467,37 @@ function mergeVenueVerification(venues, verificationSnapshot) {
   }));
 }
 
+// FNV-1a string hash (no crypto dep) — detects Token List content changes.
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+// Map a token (official or indexed) to a Uniswap "Token Lists" entry. `tier`
+// "default" (official) vs "import" (discovered/unverified) goes in `tags`;
+// trust score/venues ride in non-standard `extensions`.
+function toTokenListEntry(token, tier) {
+  const logo = token.logo ?? token.iconUrl ?? token.icon_url ?? null;
+  const extensions = {};
+  if (token.trustScore != null) extensions.trustScore = token.trustScore;
+  if (token.trustTier) extensions.trustTier = token.trustTier;
+  if (Array.isArray(token.venues) && token.venues.length) extensions.venues = token.venues;
+  return {
+    chainId: DOGEOS_CHAIN.id,
+    address: token.address,
+    name: token.name,
+    symbol: token.symbol,
+    decimals: token.decimals,
+    tags: [tier],
+    ...(logo ? { logoURI: logo } : {}),
+    ...(Object.keys(extensions).length ? { extensions } : {}),
+  };
+}
+
 export function createAggregatorApiHandler({
   nowMs = () => Date.now(),
   preQuoteVerifier = async () => {},
@@ -566,6 +597,11 @@ export function createAggregatorApiHandler({
     });
   }
 
+  // GET /tokenlist semver state (in-memory, monotonic within a server lifetime):
+  // minor bump when the address set changes, patch on metadata-only changes. The
+  // timestamp is the authoritative freshness signal.
+  const tokenListState = { version: { major: 1, minor: 0, patch: 0 }, addressKey: null, contentHash: null };
+
   return async function handleAggregatorRequest(request) {
     const url = new URL(request.url);
 
@@ -597,6 +633,48 @@ export function createAggregatorApiHandler({
       return jsonResponse({
         chainId: DOGEOS_CHAIN.id,
         data: [...OFFICIAL_DOGEOS_TOKENS, ...discovered],
+      });
+    }
+
+    // Portable, versioned Uniswap "Token Lists" view of the catalog — official
+    // tokens tagged `default`, discovered/unverified tagged `import`. Semver lets
+    // a subscriber cheaply detect changes; timestamp signals freshness.
+    if (request.method === "GET" && url.pathname === "/tokenlist") {
+      let discovered = [];
+      if (tokensProvider) {
+        try {
+          discovered = await tokensProvider();
+        } catch {
+          discovered = [];
+        }
+      }
+      const tokens = [
+        ...OFFICIAL_DOGEOS_TOKENS.map((t) => toTokenListEntry(t, "default")),
+        ...discovered.map((t) => toTokenListEntry(t, "import")),
+      ];
+      // Bump the version when content changed: minor if the address set changed
+      // (token added/removed), else patch (metadata/score only).
+      const addressKey = tokens.map((t) => String(t.address).toLowerCase()).sort().join(",");
+      const contentHash = fnv1a(JSON.stringify(tokens));
+      if (contentHash !== tokenListState.contentHash) {
+        if (addressKey !== tokenListState.addressKey) {
+          tokenListState.version = { ...tokenListState.version, minor: tokenListState.version.minor + 1, patch: 0 };
+        } else {
+          tokenListState.version = { ...tokenListState.version, patch: tokenListState.version.patch + 1 };
+        }
+        tokenListState.addressKey = addressKey;
+        tokenListState.contentHash = contentHash;
+      }
+      return jsonResponse({
+        name: "DogeSwap",
+        timestamp: new Date(nowMs()).toISOString(),
+        version: { ...tokenListState.version },
+        keywords: ["dogeos", "dogeswap", "aggregator"],
+        tags: {
+          default: { name: "Official", description: "Curated, official DogeOS tokens." },
+          import: { name: "Discovered", description: "Unverified tokens discovered from on-chain pools — trade with care." },
+        },
+        tokens,
       });
     }
 
