@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createTokenIndexProvider } from "../src/discovery/tokenIndex.mjs";
+import { createCreatorReputation } from "../src/discovery/creatorReputation.mjs";
 
 const V3_TOPIC = "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118";
 const WDOGE = "0xf6bdb158a5ddf77f1b83bc9074f6a472c58d78ae";
@@ -153,6 +154,25 @@ test("token index drops tokens that fail the route probe (no-route tokens hidden
     nowMs: () => 1000,
     // ABC routes; MUCH (and its dup) do not — so only ABC should be indexed.
     routeProbe: async ({ address }) => address.toLowerCase() === ABC.toLowerCase(),
+  });
+
+  const tokens = await provider();
+  assert.deepEqual(tokens.map((t) => t.symbol), ["ABC"]);
+});
+
+test("token index drops tokens whose deployer is flagged (guilt by association)", async () => {
+  const { client } = makeClient();
+  const rep = createCreatorReputation({ initial: ["0xbad"] });
+  const provider = createTokenIndexProvider({
+    client,
+    sources: SOURCES,
+    baseTokens: [{ symbol: "WDOGE", address: WDOGE }],
+    officialAddresses: [WDOGE],
+    nowMs: () => 1000,
+    // MUCH and its redeploy DUP share the flagged deployer; ABC is clean.
+    deployerProvider: async (addr) =>
+      [MUCH, DUP].some((a) => a.toLowerCase() === addr.toLowerCase()) ? "0xbad" : "0xgood",
+    reputation: rep,
   });
 
   const tokens = await provider();

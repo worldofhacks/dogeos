@@ -12,6 +12,7 @@ import {
   readBaseLiquidity,
   MIN_BASE_LIQUIDITY_WEI,
 } from "../../aggregator/src/discovery/routability.mjs";
+import { createCreatorReputation } from "../../aggregator/src/discovery/creatorReputation.mjs";
 import { listSources } from "../../aggregator/src/sources/registry.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
@@ -382,6 +383,19 @@ export function createLiveAggregatorApiHandler({
     ]);
     return { liquidityWei, holders };
   };
+  // Guilt-by-association: in-memory deployer reputation (accumulates from round-
+  // trip probe failures over the server lifetime) + a Blockscout deployer lookup.
+  const deployerReputation = createCreatorReputation();
+  const fetchDeployer = async (tokenAddress) => {
+    try {
+      const res = await fetchFn(`${DOGEOS_CHAIN.blockscoutBaseUrl}/api/v2/addresses/${tokenAddress}`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      return body.creator_address_hash ? String(body.creator_address_hash).toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  };
 
   const tokensProvider = createTokenIndexProvider({
     client,
@@ -394,6 +408,8 @@ export function createLiveAggregatorApiHandler({
     officialAddresses: OFFICIAL_DOGEOS_TOKENS.map((t) => t.address),
     routeProbe: tokenIndexRouteProbe,
     signalProvider: tokenIndexSignalProvider,
+    deployerProvider: fetchDeployer,
+    reputation: deployerReputation,
   });
   if (warmTokenIndex) tokensProvider().catch(() => {});
 
