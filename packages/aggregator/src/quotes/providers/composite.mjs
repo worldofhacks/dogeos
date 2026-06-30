@@ -1,4 +1,8 @@
-const DEFAULT_PROVIDER_TIMEOUT_MS = 1_500;
+// Per-venue quote budget. The DogeOS testnet RPC normally answers a quoter
+// eth_call in ~0.7s but intermittently spikes to 2-3s (more so for large amounts
+// that cross more ticks). 1.5s was too tight — a spike timed out the ONLY venue
+// of a single-pool token and surfaced as an (incorrect) intermittent "no route".
+const DEFAULT_PROVIDER_TIMEOUT_MS = 4_000;
 // Retry a venue that TRANSIENTLY fails (timeout / RPC error) before giving up. A
 // genuine "no pool" result returns [] WITHOUT throwing, so it is never retried —
 // only thrown failures are. This stops a single slow testnet RPC call from
