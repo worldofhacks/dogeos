@@ -72,6 +72,29 @@ test("createCompositeQuoteCandidateProvider keeps healthy provider results when 
   assert.deepEqual(errors, [["barkswap", "quoter unavailable"]]);
 });
 
+test("createCompositeQuoteCandidateProvider retries a transiently-failing provider and recovers the route", async () => {
+  let attempts = 0;
+  const errors = [];
+  const provider = createCompositeQuoteCandidateProvider({
+    providers: [
+      {
+        providerId: "flaky-algebra",
+        provider: async () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error("rpc timeout"); // transient first failure
+          return [{ sourceId: "barkswap-algebra", amountOut: 99n }];
+        },
+      },
+    ],
+    onProviderError: (error, context) => errors.push([context.providerId, error.message]),
+  });
+
+  const candidates = await provider({});
+  assert.equal(attempts, 2, "failed once, retried once");
+  assert.deepEqual(candidates.map((c) => c.sourceId), ["barkswap-algebra"], "route recovered on retry");
+  assert.deepEqual(errors, [], "no error reported when the retry succeeds");
+});
+
 test("createCompositeQuoteCandidateProvider times out slow providers without blocking fast quotes", async () => {
   const errors = [];
   const provider = createCompositeQuoteCandidateProvider({
