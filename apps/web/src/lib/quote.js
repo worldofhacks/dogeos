@@ -14,6 +14,12 @@ import { unitsToDecimal, unitsToNumber } from "./units.js";
 
 export const QUOTE_DEBOUNCE_MS = 250;
 export const QUOTE_POLL_MS = 10_000;
+// When the backend answers status:"unavailable" (a transient RPC slowness, not a
+// real no-route), re-poll fast instead of the normal 10s cadence so a flicker
+// resolves into a route in ~1-2 ticks. Capped (MAX_TRANSIENT_RETRIES) so a
+// sustained outage settles back to the normal poll rather than spinning forever.
+export const QUOTE_RETRY_MS = 1_500;
+export const MAX_TRANSIENT_RETRIES = 6;
 
 /* ---------- timing ---------- */
 // The auto-refresh cadence in seconds. The swap panel's freshness countdown +

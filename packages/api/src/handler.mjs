@@ -841,8 +841,27 @@ export function createAggregatorApiHandler({
         });
         const quoteFinishedAtMs = timingNowMs();
 
+        // A transient RPC slowness must NEVER surface as a definitive "no route".
+        // When the ONLY reason there is no executable route is a timed-out /
+        // transport-faulted venue (a transient diagnostic), answer with a
+        // retryable "unavailable" so the client keeps the prior quote and
+        // re-polls quickly instead of telling the user no route exists. A genuine
+        // empty result (no pool, or an on-chain revert) carries no transient flag
+        // and stays a real, deterministic "no-route".
+        const degradedByTransient =
+          response.status === "no-route" &&
+          quoteDiagnostics.some((diagnostic) => diagnostic.transient === true);
+        const quoteResponseBody = degradedByTransient
+          ? {
+              ...response,
+              status: "unavailable",
+              retryable: true,
+              warnings: ["quote-temporarily-unavailable"],
+            }
+          : response;
+
         return jsonResponse({
-          ...response,
+          ...quoteResponseBody,
           telemetry: {
             quoteLatencyMs: elapsedMs(quoteStartedAtMs, quoteFinishedAtMs),
             preQuoteVerificationMs: elapsedMs(quoteStartedAtMs, afterPreQuoteVerificationMs),

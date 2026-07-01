@@ -22,6 +22,8 @@ import { decimalToUnits } from "../lib/units.js";
 import {
   QUOTE_DEBOUNCE_MS,
   QUOTE_POLL_MS,
+  QUOTE_RETRY_MS,
+  MAX_TRANSIENT_RETRIES,
   buildQuoteBody,
 } from "../lib/quote.js";
 
@@ -39,6 +41,9 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
   const controllerRef = useRef(null);
   const debounceRef = useRef(null);
   const pollRef = useRef(null);
+  // Consecutive transient ("unavailable") responses for the current inputs —
+  // drives the fast re-poll and is reset on success or any input change.
+  const transientRetriesRef = useRef(0);
   // Wall-clock time of the next scheduled auto-refresh (poll). The countdown is
   // derived from this so it reaches 0 exactly when the re-quote fires.
   const nextRefreshAtRef = useRef(null);
@@ -94,6 +99,8 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
     controllerRef.current = controller;
     setStatus("scanning");
     setError("");
+    // Default to the normal poll cadence; a transient response shortens it below.
+    let nextPollDelayMs = QUOTE_POLL_MS;
 
     try {
       const body = buildQuoteBody({
@@ -114,8 +121,21 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
       // Drop stale responses (a newer request was issued meanwhile).
       if (seq !== seqRef.current) return;
 
-      setQuote(next);
-      setStatus("ready");
+      if (next?.status === "unavailable") {
+        // Transient backend slowness (a slow RPC), NOT a real no-route. Do NOT
+        // replace a prior good quote or render "no route" — stay in the scanning
+        // state and re-poll quickly so the route appears as soon as the RPC
+        // recovers. Cap the fast retries so a sustained outage falls back to the
+        // normal poll instead of hammering the backend forever.
+        transientRetriesRef.current += 1;
+        nextPollDelayMs =
+          transientRetriesRef.current <= MAX_TRANSIENT_RETRIES ? QUOTE_RETRY_MS : QUOTE_POLL_MS;
+        setStatus("scanning");
+      } else {
+        transientRetriesRef.current = 0;
+        setQuote(next);
+        setStatus("ready");
+      }
       // secondsLeft is (re)armed in the finally below, anchored to the next poll.
     } catch (err) {
       if (err?.name === "AbortError") return;
@@ -129,9 +149,9 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
       // countdown to that poll so "refresh in Ns" hits 0 when the re-quote fires.
       if (seq === seqRef.current && hasAmount) {
         if (pollRef.current) clearTimeout(pollRef.current);
-        nextRefreshAtRef.current = Date.now() + QUOTE_POLL_MS;
+        nextRefreshAtRef.current = Date.now() + nextPollDelayMs;
         setSecondsLeft(Math.max(0, Math.ceil((nextRefreshAtRef.current - Date.now()) / 1000)));
-        pollRef.current = setTimeout(() => runQuote(), QUOTE_POLL_MS);
+        pollRef.current = setTimeout(() => runQuote(), nextPollDelayMs);
       }
     }
   }, [chainId, sellToken, buyToken, hasAmount, amountStr, slippageBps, abortInFlight]);
@@ -147,6 +167,8 @@ export function useQuote({ chainId, sellToken, buyToken, amount, slippageBps }) 
   useEffect(() => {
     clearTimers();
     abortInFlight();
+    // New inputs — forget any transient-retry streak from the previous pair.
+    transientRetriesRef.current = 0;
 
     if (!sellToken || !buyToken || !hasAmount) {
       // bump the seq so any in-flight response is ignored, then idle.

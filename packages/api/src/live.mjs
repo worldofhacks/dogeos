@@ -15,6 +15,7 @@ import {
 import { createCreatorReputation } from "../../aggregator/src/discovery/creatorReputation.mjs";
 import { listSources } from "../../aggregator/src/sources/registry.mjs";
 import { createLiveV2QuoteCandidateProvider } from "../../aggregator/src/discovery/v2Pools.mjs";
+import { isTransientError } from "../../aggregator/src/quotes/sourceQuoteRunner.mjs";
 import { createCompositeQuoteCandidateProvider } from "../../aggregator/src/quotes/providers/composite.mjs";
 import {
   createVerifiedConcentratedLiquidityQuoteCandidateProvider,
@@ -79,6 +80,14 @@ function createRequestBlockNumberProvider(client) {
     let blockNumberPromise = blockNumberByInput.get(input);
     if (!blockNumberPromise) {
       blockNumberPromise = client.getBlockNumber();
+      // A REJECTED (transient) block-number read must not stay cached for the
+      // life of the request — otherwise a retry reuses the same rejection and
+      // the route is lost. Drop it on failure so the next read re-issues the call.
+      blockNumberPromise.catch(() => {
+        if (blockNumberByInput.get(input) === blockNumberPromise) {
+          blockNumberByInput.delete(input);
+        }
+      });
       blockNumberByInput.set(input, blockNumberPromise);
     }
 
@@ -137,15 +146,19 @@ function recordQuoteProviderError(error, { providerId, input } = {}) {
   appendQuoteDiagnostic(input, {
     type: "provider-error",
     providerId,
+    transient: isTransientError(error),
     message: errorMessage(error),
   });
 }
 
-function recordQuoteSourceError(error, { sourceId, protocolType, input } = {}) {
+function recordQuoteSourceError(error, { sourceId, protocolType, input, transient } = {}) {
   appendQuoteDiagnostic(input, {
     type: "source-error",
     sourceId,
     protocolType,
+    // Classified by the source runner: a transient (timeout / RPC fault) miss
+    // must NOT be reported to the user as a definitive no-route.
+    transient: transient === true,
     message: errorMessage(error),
   });
 }

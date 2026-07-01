@@ -437,18 +437,21 @@ test("createLiveAggregatorApiHandler times out stalled live quote providers", as
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.status, "no-route");
-  assert.deepEqual(body.warnings, ["no-executable-route"]);
-  // The stalled provider is timed out (after the transient retry), not blocked,
-  // and surfaces both a provider-error and a source-error diagnostic. (Counts
-  // scale with the composite retry, so assert the types are present, not exact N.)
-  assert.ok(body.telemetry.sourceErrorCount >= 2);
-  const errorTypes = new Set(body.telemetry.sourceErrors.map((entry) => entry.type));
-  assert.ok(errorTypes.has("provider-error") && errorTypes.has("source-error"));
+  // A stalled / timed-out venue is a TRANSIENT failure, NOT a real no-route. The
+  // handler must answer with a retryable "unavailable" so the client keeps the
+  // prior quote and re-polls quickly instead of telling the user no route exists.
+  assert.equal(body.status, "unavailable");
+  assert.equal(body.retryable, true);
+  assert.deepEqual(body.warnings, ["quote-temporarily-unavailable"]);
+  // The stall is surfaced as a TRANSIENT diagnostic (never swallowed into a
+  // silent no-route), and the concentrated-liquidity timeout is reported as such.
+  assert.ok(body.telemetry.sourceErrorCount >= 1);
+  assert.ok(body.telemetry.sourceErrors.some((entry) => entry.transient === true));
   const concentratedLiquidityError = body.telemetry.sourceErrors.find(
     (entry) => entry.providerId === "concentrated-liquidity",
   );
   assert.match(concentratedLiquidityError.message, /timed out/);
+  assert.equal(concentratedLiquidityError.transient, true);
   assert.equal(
     rpc.calls.some((call) => call.method === "eth_gasPrice"),
     true,

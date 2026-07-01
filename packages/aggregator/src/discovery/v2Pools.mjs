@@ -2,6 +2,7 @@ import { quoteV2ExactInput, quoteV2ExactOutput } from "../quotes/adapters/v2.mjs
 import { listSources } from "../sources/registry.mjs";
 import { filterSourcesByRequest, filterSourcesByTokenPair } from "../sources/sourceFilters.mjs";
 import { resolveDataFinalityFeeWei } from "../fees/dataFinalityFee.mjs";
+import { DEFAULT_SOURCE_TIMEOUT_MS, runSourceQuote } from "../quotes/sourceQuoteRunner.mjs";
 
 const SELECTORS = Object.freeze({
   getPair: "0xe6a43905",
@@ -11,7 +12,6 @@ const SELECTORS = Object.freeze({
 });
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const DEFAULT_SOURCE_TIMEOUT_MS = 1_000;
 
 function normalizeAddress(address, fieldName) {
   const normalized = String(address ?? "").toLowerCase();
@@ -113,42 +113,6 @@ async function readPoolState({ client, poolAddress, blockTag }) {
       reserve1: decodeUint256Word(rawReserves, 1, "getReserves result"),
     },
   };
-}
-
-function sourceTimeoutError(sourceId, timeoutMs) {
-  return new Error(`Source ${sourceId} timed out after ${timeoutMs}ms.`);
-}
-
-function reportSourceError(onSourceError, error, context) {
-  if (typeof onSourceError !== "function") return;
-
-  try {
-    onSourceError(error, context);
-  } catch {
-    // Quote health reporting must not block healthy routes.
-  }
-}
-
-async function runSourceQuote({ source, input, timeoutMs, onSourceError, task }) {
-  let timer = null;
-
-  try {
-    return await Promise.race([
-      task(),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(sourceTimeoutError(source.sourceId, timeoutMs)), timeoutMs);
-      }),
-    ]);
-  } catch (error) {
-    reportSourceError(onSourceError, error, {
-      sourceId: source.sourceId,
-      protocolType: source.protocolType,
-      input,
-    });
-    return [];
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 export async function discoverV2Pool({ client, source, sellToken, buyToken, blockNumber, pinnedPool }) {

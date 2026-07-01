@@ -7,12 +7,12 @@ import {
 import { listSources } from "../../sources/registry.mjs";
 import { filterSourcesByRequest, filterSourcesByTokenPair } from "../../sources/sourceFilters.mjs";
 import { resolveDataFinalityFeeWei } from "../../fees/dataFinalityFee.mjs";
+import { DEFAULT_SOURCE_TIMEOUT_MS, runSourceQuote } from "../sourceQuoteRunner.mjs";
 
 const GAS_UNITS_BY_PROTOCOL = Object.freeze({
   v3: 165_000n,
   algebra: 180_000n,
 });
-const DEFAULT_SOURCE_TIMEOUT_MS = 1_000;
 
 function quoteAdapterFor(protocolType, quoteMode) {
   if (protocolType === "v3") {
@@ -24,42 +24,6 @@ function quoteAdapterFor(protocolType, quoteMode) {
       : quoteAlgebraExactInputFromQuoter;
   }
   return null;
-}
-
-function sourceTimeoutError(sourceId, timeoutMs) {
-  return new Error(`Source ${sourceId} timed out after ${timeoutMs}ms.`);
-}
-
-function reportSourceError(onSourceError, error, context) {
-  if (typeof onSourceError !== "function") return;
-
-  try {
-    onSourceError(error, context);
-  } catch {
-    // Quote health reporting must not block healthy routes.
-  }
-}
-
-async function runSourceQuote({ source, input, timeoutMs, onSourceError, task }) {
-  let timer = null;
-
-  try {
-    return await Promise.race([
-      task(),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(sourceTimeoutError(source.sourceId, timeoutMs)), timeoutMs);
-      }),
-    ]);
-  } catch (error) {
-    reportSourceError(onSourceError, error, {
-      sourceId: source.sourceId,
-      protocolType: source.protocolType,
-      input,
-    });
-    return [];
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 export function createVerifiedConcentratedLiquidityQuoteCandidateProvider({

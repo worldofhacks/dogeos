@@ -579,6 +579,78 @@ test("POST /quote returns timing telemetry for speed monitoring", async () => {
   });
 });
 
+test("POST /quote answers a TRANSIENTLY-failed venue with retryable 'unavailable', not a false 'no-route'", async () => {
+  // The reported bug: a single-pool token's only venue times out on a slow RPC
+  // and the user sees "no route", then a route on the next poll. A transient
+  // failure that leaves zero candidates must surface as a retryable "unavailable"
+  // (so the client keeps re-polling) — NEVER a definitive no-route.
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      input.quoteDiagnostics?.push({
+        type: "source-error",
+        sourceId: "barkswap-algebra",
+        transient: true,
+        message: "Source barkswap-algebra timed out after 3000ms.",
+      });
+      return [];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "unavailable");
+  assert.equal(body.retryable, true);
+  assert.deepEqual(body.warnings, ["quote-temporarily-unavailable"]);
+  assert.equal(body.best, null);
+});
+
+test("POST /quote keeps a GENUINE empty result a deterministic 'no-route'", async () => {
+  // No transient diagnostic → the pair truly has no pool / reverts → a real,
+  // stable no-route the UI should show as such.
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    gasPriceWei: () => 1n,
+    outputWeiPerFeeWei: () => 1n,
+    quoteCandidateProvider: async (input) => {
+      input.quoteDiagnostics?.push({
+        type: "source-error",
+        sourceId: "muchfi-v3",
+        transient: false,
+        message: "eth_call failed: execution reverted",
+      });
+      return [];
+    },
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(body.status, "no-route");
+  assert.equal(body.retryable, undefined);
+  assert.deepEqual(body.warnings, ["no-executable-route"]);
+});
+
 test("POST /quote resolves independent scoring providers while quote candidates are in flight", async () => {
   let releaseCandidates;
   let candidateProviderStarted;
