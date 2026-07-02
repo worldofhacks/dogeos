@@ -43,21 +43,31 @@ class SourceTimeoutError extends Error {
 // network reset, DNS, aborted socket, missing batch response). NON-transient = an
 // on-chain revert ("execution reverted") or an ABI-decode failure — that pair is
 // deterministically unroutable on this venue and must stay a real no-route.
+function isTransportErrorMessage(message) {
+  return (
+    /\btimed out\b|\btimeout\b/i.test(message) ||
+    /\bHTTP\s?(?:408|429|5\d\d)\b/i.test(message) ||
+    /\bfetch failed\b|\bnetwork\b|\bsocket\b|\bconnection\b/i.test(message) ||
+    /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|UND_ERR/i.test(message) ||
+    /missing batch response|unknown RPC error/i.test(message) ||
+    /invalid json|unexpected token .*json|non-JSON/i.test(message)
+  );
+}
+
+function isGenuineVenueErrorMessage(message) {
+  return /execution reverted|revert|must (?:be|contain)|decode|invalid|exceeds/i.test(message);
+}
+
 export function isTransientError(error) {
   if (!error) return false;
   if (error.transient === true) return true;
   if (error.name === "AbortError") return true;
   const message = String(error.message ?? error);
-  if (/execution reverted|revert|must (?:be|contain)|decode|invalid|exceeds/i.test(message)) {
+  if (isTransportErrorMessage(message)) return true;
+  if (isGenuineVenueErrorMessage(message)) {
     return false;
   }
-  return (
-    /\btimed out\b|\btimeout\b/i.test(message) ||
-    /\bHTTP\s?\d/i.test(message) ||
-    /\bfetch failed\b|\bnetwork\b|\bsocket\b|\bconnection\b/i.test(message) ||
-    /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|UND_ERR/i.test(message) ||
-    /missing batch response|unknown RPC error/i.test(message)
-  );
+  return false;
 }
 
 function reportSourceError(onSourceError, error, context) {

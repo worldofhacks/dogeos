@@ -21,6 +21,9 @@ test("isTransientError classifies timeouts and transport faults as transient", (
   assert.equal(isTransientError(new Error("Source x timed out after 3000ms.")), true);
   assert.equal(isTransientError(new Error("eth_call failed with HTTP 503.")), true);
   assert.equal(isTransientError(new Error("fetch failed")), true);
+  assert.equal(isTransientError(new Error("fetch failed: invalid JSON response body")), true);
+  assert.equal(isTransientError(new Error("HTTP 502 returned non-JSON response")), true);
+  assert.equal(isTransientError(new Error("unknown RPC error: missing batch response for decoded call")), true);
   assert.equal(isTransientError(new Error("socket hang up")), true);
   assert.equal(isTransientError(Object.assign(new Error("aborted"), { name: "AbortError" })), true);
   assert.equal(isTransientError(Object.assign(new Error("custom"), { transient: true })), true);
@@ -30,6 +33,7 @@ test("isTransientError classifies on-chain reverts and decode failures as genuin
   // A genuine venue error means that pair is deterministically unroutable on this
   // venue — it must stay a real no-route, NOT a retryable transient.
   assert.equal(isTransientError(new Error("eth_call failed: execution reverted")), false);
+  assert.equal(isTransientError(new Error("eth_call failed with HTTP 400: execution reverted")), false);
   assert.equal(isTransientError(new Error("V3 quoter result must contain ABI-encoded uint256 words.")), false);
   assert.equal(isTransientError(new Error("getReserves result must contain ABI-encoded uint256 words.")), false);
   assert.equal(isTransientError(null), false);
