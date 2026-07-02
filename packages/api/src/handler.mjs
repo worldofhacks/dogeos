@@ -5,6 +5,10 @@ import {
   listSources,
   listVenueContracts,
 } from "../../aggregator/src/index.mjs";
+import {
+  buildBlockscoutUrl,
+  createBlockscoutClient,
+} from "../../../scripts/blockscout/client.mjs";
 import { SPLIT_SOURCE_ID } from "../../aggregator/src/routes/splitRoutes.mjs";
 import { MAX_SLIPPAGE_BPS } from "../../aggregator/src/quoteService.mjs";
 import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
@@ -24,6 +28,7 @@ const JSON_HEADERS = {
 };
 const DEFAULT_ACTIVITY_LIMIT = 20;
 const MAX_ACTIVITY_LIMIT = 50;
+const RESERVED_ACTIVITY_QUERY_PARAMS = new Set(["address", "limit"]);
 
 function jsonReplacer(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
@@ -90,8 +95,25 @@ function normalizedActivityLimit(value) {
   return Math.max(1, Math.min(MAX_ACTIVITY_LIMIT, Math.trunc(numericLimit)));
 }
 
-function blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl) {
-  return `${blockscoutBaseUrl}/api/v2/addresses/${address}/transactions`;
+function blockscoutAddressTransactionsUrl(
+  address,
+  blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl,
+  pageParams = {},
+) {
+  return buildBlockscoutUrl(
+    blockscoutBaseUrl,
+    `api/v2/addresses/${address}/transactions`,
+    pageParams,
+  );
+}
+
+function activityPageParams(searchParams) {
+  const pageParams = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (RESERVED_ACTIVITY_QUERY_PARAMS.has(key)) continue;
+    pageParams[key] = value;
+  }
+  return pageParams;
 }
 
 function defaultChainStatus() {
@@ -122,19 +144,20 @@ async function fetchBlockscoutAddressTransactions({
   limit = DEFAULT_ACTIVITY_LIMIT,
   fetchFn = fetch,
   blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl,
+  pageParams = {},
+  timeoutMs,
 } = {}) {
-  const sourceUrl = blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl);
-  const response = await fetchFn(sourceUrl);
-  const body = await response.json();
-
-  if (!response.ok) {
-    throw new Error(body?.message ?? body?.error ?? `Blockscout request failed: ${response.status}`);
-  }
+  const blockscout = createBlockscoutClient({
+    baseUrl: blockscoutBaseUrl,
+    fetchImpl: fetchFn,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  });
+  const body = await blockscout.addressTransactions(address, pageParams);
 
   return {
     items: (Array.isArray(body.items) ? body.items : []).slice(0, limit),
     nextPageParams: body.next_page_params ?? null,
-    sourceUrl,
+    sourceUrl: blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl, pageParams),
   };
 }
 
@@ -768,13 +791,14 @@ export function createAggregatorApiHandler({
     if (request.method === "GET" && url.pathname === "/activity") {
       const address = url.searchParams.get("address") ?? "";
       const limit = normalizedActivityLimit(url.searchParams.get("limit"));
+      const pageParams = activityPageParams(url.searchParams);
 
       if (!isHexAddress(address)) {
         return errorResponse(400, "invalid-activity-request", "A valid 20-byte wallet address is required.");
       }
 
       try {
-        const activity = await activityProvider({ address, limit });
+        const activity = await activityProvider({ address, limit, pageParams });
         const items = Array.isArray(activity)
           ? activity
           : Array.isArray(activity?.items)
@@ -788,7 +812,7 @@ export function createAggregatorApiHandler({
           address,
           source: "blockscout",
           blockscoutUrl:
-            activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address),
+            activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address, DOGEOS_CHAIN.blockscoutBaseUrl, pageParams),
           data: items.slice(0, limit),
           nextPageParams: activity?.nextPageParams ?? activity?.next_page_params ?? null,
         });
