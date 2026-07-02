@@ -1,4 +1,5 @@
 {
+  "model": "claude-fable-5",
   "enabledPlugins": {
     "property-based-testing@trailofbits": true,
     "building-secure-contracts@trailofbits": true,
