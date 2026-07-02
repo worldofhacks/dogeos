@@ -32,6 +32,9 @@ test("public aggregator API exports stable module boundaries", () => {
   assert.equal(typeof aggregator.composeOneHopCandidates, "function");
   assert.equal(typeof aggregator.createOneHopQuoteCandidateProvider, "function");
   assert.equal(typeof aggregator.buildQuoteResponse, "function");
+  assert.equal(typeof aggregator.buildReadOnlyCrosschainRoute, "function");
+  assert.equal(typeof aggregator.deriveCrosschainOrderStatus, "function");
+  assert.equal(typeof aggregator.isCrosschainEnabled, "function");
   assert.equal(typeof aggregator.buildSwapTx, "function");
   assert.equal(typeof aggregator.createVerifiedCalldataBuilder, "function");
   assert.equal(typeof aggregator.createErc20ApprovalPlanner, "function");
