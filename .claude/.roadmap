@@ -1,0 +1,197 @@
+# DogeSwap Roadmap — state of record
+
+This file is the single source of truth for project state. **Update it at the end
+of every working session**: move finished items to Done (with commit hash), add
+newly discovered work with a one-line rationale and the files it touches.
+Ordering within a section is priority order.
+
+Product: non-custodial DEX aggregator for DogeOS (Dogecoin zkEVM, Chikyū
+testnet, chain id 6281971). Venues: MuchFi V2, MuchFi V3, Barkswap Algebra.
+First-party command/executor router (`packages/contracts/`) settles split and
+router-mode swaps. **Testnet-only until externally audited.**
+
+---
+
+## Now
+
+In-flight and near-term: bugs, hardening, and test gaps confirmed against the
+code (session 2026-07-02 audit sweep; see `docs/audit-notes-2026-07-02.md`).
+
+1. **Redeploy hardened router + execute governance handover** — the live router
+   `0xa3158549f38400F355aDf20C92DA1769620Aa35A` is an immutable **pre-hardening**
+   build (lacks H1–H11: mandatory settlement, fee-evasion close, permit
+   front-run tolerance…), and EOA `0xE659…2873` still owns both router and
+   registry — timelock `acceptOwnership()` was never executed. Highest-severity
+   open item; the full cutover checklist already exists.
+   → `packages/contracts/audit/REDEPLOY-RUNBOOK.md`, `~/dogeswap-deploy/deploy-router.sh`
+2. **Fix quote scoring fee weighting** — `outputWeiPerFeeWei` defaults to `1n`
+   with no decimals/price conversion, so gas+data fees are subtracted 1:1 from
+   output-token wei; for 6-decimal outputs (USDC/USDT) the fee term is
+   overweighted by ~1e12 and can misrank venues or drive netOutput negative.
+   → `packages/api/src/live.mjs:182`, `packages/aggregator/src/fees/dogeosFeeEstimator.mjs`
+3. **Fix transient-error misclassification order** — `isTransientError` checks
+   the non-transient regex before transport patterns, so a transport failure
+   whose message contains "invalid"/"decode" (e.g. HTML error page → JSON parse
+   error) is misread as a real no-route: the exact bug class c32bc98 fixed.
+   → `packages/aggregator/src/quotes/sourceQuoteRunner.mjs:51`
+4. **/quote catch-all: 400 → correct status + redaction** — every thrown error
+   becomes a client-fault 400 `invalid-quote-request` with the raw
+   `error.message` (RPC endpoint details can leak; transient outages read as
+   client errors). Also redact raw upstream messages in `telemetry.sourceErrors`
+   and 422 bodies. → `packages/api/src/handler.mjs:876-881,917,980`
+5. **Warm the token index in the production entrypoint** — systemd runs
+   `packages/web/src/server.mjs`, which never calls `warmTokenIndex`; first
+   `/tokens` after each restart eats the ~15s cold build that the startup warm
+   was built to absorb. → `packages/web/src/server.mjs:159,218-224`
+6. **JS CI** — the 352-test node suite has no CI at all (only
+   contracts-security.yml exists); any aggregator/api regression ships silently.
+   Add a workflow running `npm ci && npm test` on Node 22.
+   → `.github/workflows/`
+7. **Pin Uniswap/permit2 in contracts CI** — CI installs permit2 untagged while
+   `lib/` vendors 1.0.0; CI can green-light against a different Permit2 than the
+   audited copy. → `.github/workflows/contracts-security.yml:13,23`
+8. **Server-side deadline validation** — `quote.deadline` is client-supplied and
+   unchecked; MuchFi V3 single-hop calldata carries no deadline at all, so V3
+   exact-output direct swaps have no expiry. Add a server-side range check and a
+   deadline floor. → `packages/aggregator/src/swap/venueCalldataBuilders.mjs:109-121`
+9. **Slippage lower-bound guard in UI** — 0% (or dust) slippage is accepted and
+   near-guarantees on-chain reverts; add a floor/warning.
+   → `apps/web/src/ui/useSettings.js:33-37`, `apps/web/src/ui/SwapView.jsx:787-795`
+10. **Timeouts on all Blockscout fetches** — activity, token-icon, holders, and
+    deployer lookups have no AbortSignal; a stalled explorer pins requests to
+    the 30s server timeout and stalls token-index builds. Route them through the
+    new `scripts/blockscout/` client (which has timeouts).
+    → `packages/api/src/handler.mjs:127`, `packages/api/src/live.mjs:333,385,405`
+11. **E2E foundation** — Playwright suite (`e2e/`) covering the swap flow,
+    error states, and the desktop+mobile viewport matrix, plus the performance
+    harness writing `docs/qa/<date>.md`; wired into the daily routine.
+12. **Verification snapshot single-flight** — concurrent `/venues` +
+    `/intelligence` + `/verification` after TTL expiry each trigger a full
+    verification run (thundering herd on cold cache).
+    → `packages/aggregator/src/verification/verificationSnapshot.mjs:865-877`
+13. **useQuote brownout dead-end** — after transient-retry exhaustion the hook
+    stays in `scanning` forever instead of surfacing the unavailable state.
+    → `apps/web/src/ui/useQuote.js:150-155`
+14. **.env.example drift** — missing `CORS_ALLOW_ORIGIN`,
+    `DOGESWAP_ROUTER_ADDRESS`, `DOGESWAP_ROUTER_MODE`; a fresh operator would
+    silently run with the first-party router disabled. → `.env.example`
+15. **/activity pagination** — the endpoint returns Blockscout
+    `nextPageParams` but accepts no pagination input, so page 2 is unreachable.
+    → `packages/api/src/handler.mjs:768-798`
+
+## Next
+
+Cross-chain, source expansion, and the mainnet-readiness ledger.
+
+- **Cross-chain swaps, phase 0** — design doc + multi-leg quote schema behind a
+  flag (`docs/cross-chain-design.md`, this session). DogeOS reality check: the
+  only bridge is the canonical L1 portal (OP_RETURN deposits, up-to-4h relays);
+  no third-party messaging (LayerZero/Hyperlane/CCTP) supports DogeOS testnet.
+  Design targets a relayer-fill model (Relay-style) with the NEAR-Intents spec
+  (`docs/superpowers/specs/2026-06-06-dogeos-cross-chain-near-intents-spec.md`)
+  as the intent-based candidate; per-leg status in `/activity` from day one.
+  → `packages/aggregator/src/quotes/types` (schema), `packages/api`
+- **Executable one-hop routes** — one-hop candidates are hard-coded
+  `readOnly`/preview-only even though the router can run them as a single
+  program; compose and execute via DogeSwapRouter.
+  → `packages/aggregator/src/routes/oneHop.mjs:44-46,120-125`
+- **SuchSwap venue activation** — a live SuchSwap WDOGE/USDC pool exists but the
+  venue sits on the watchlist pending router/quoter confirmation; run the
+  adapter-verification checklist and promote (or document why not).
+  → `packages/aggregator/src/sources/registry.mjs:443-505`, `docs/adapter-verification.md`
+- **Exact-output split + one-hop** — the router command set is exact-input
+  only, so exact-output requests are always single-venue direct; extend
+  composition (needs reverse-order leg sizing).
+  → `packages/aggregator/src/routes/splitRoutes.mjs:23`, `oneHop.mjs:80`
+- **Creator-reputation persistence** — guilt-by-association flags are lost on
+  every restart (onChange hook exists, never wired); also make route-probe
+  failures distinguishable from RPC outages before guilt-flagging deployers.
+  → `packages/api/src/live.mjs:401`, `packages/aggregator/src/discovery/creatorReputation.mjs`,
+  `tokenIndex.mjs:154-159`
+- **Rate-limiter hardening** — the counter map clears ALL clients above 10k
+  tracked entries (distinct-IP spray defeats it); move to LRU eviction +
+  sliding window. → `packages/api/src/httpHardening.mjs:80-83`
+- **Mainnet-readiness ledger** (each small, all required before mainnet):
+  pin `CORS_ALLOW_ORIGIN` (`packages/api/src/handler.mjs:13-17`); ship a real
+  CSP incl. tomo.inc wallet frames (`httpHardening.mjs:96-97`); re-vendor
+  contracts `lib/` as pinned submodules (`audit/REPRODUCIBILITY.md:44-54`);
+  fill the deploy-evidence table (`audit/DEPLOYMENT.md §7`); Docker non-root +
+  multi-stage; `.nvmrc` + engine-strict (system Node 18 silently breaks
+  `npm test`); move governance key off the web host; self-host fonts.
+- **Fee activation decision** — protocol fee is 0 bps today; H10 closed the
+  fee-evasion path in source but the residual round-trip refund case
+  (`DogeSwapRouter.sol:353`) is open — decide fee level + close or accept the
+  residual before enabling. → `packages/contracts/src/DogeSwapRouter.sol`
+- **Unique-trader trust signal** — needs swap-log indexing (Blockscout logs are
+  now wrapped by `scripts/blockscout/`); strengthens the token trust score.
+  → `packages/aggregator/src/discovery/trustScore.mjs:8-10`
+- **Retire or fix the stale scope guard** — `verify-repository-scope.mjs` flags
+  the now-first-party contracts (994 false violations).
+  → `scripts/verify-repository-scope.mjs:36-51`
+
+## Later
+
+- **Intent/solver V2** — UniswapX/CoW-style auction: signed intents, resolver
+  set, Dutch-auction pricing, batch settlement; the migration path from
+  offchain-quote+onchain-settlement is sketched in the dex-aggregation skill.
+  NEAR-Intents integration (spec D) rides the same abstraction.
+- **External audit** — after router redeploy + governance handover; the
+  audit package (`packages/contracts/audit/`) is the hand-off artifact.
+- **Mainnet deploy** — gated on: external audit, governance ceremony (Safe
+  multisig + timelock, guardian split), mainnet-readiness ledger above,
+  real liquidity (testnet routable depth is ~1,190 WDOGE — aggregation is a
+  moat only if mainnet venues have real depth).
+- **MEV posture** — tip-ordered mempool today; revisit private orderflow /
+  auction protection when DogeOS mainnet mempool rules are known.
+
+## Done
+
+Reconstructed from git history (113 commits) and the audit package.
+
+- **2026-05-02 → 05-04 — Chain facts + venue research**: chain id, official
+  tokens, venue map (Barkswap/MuchFi active; SuchSwap/DogeBox watchlist),
+  L1GasPriceOracle, 17-block reorg depth (`4cb2244`…`e33ab7c`).
+- **2026-05-31 → 06-01 — Aggregator v1 + verification hardening**: full
+  revamp (`82c4c9f`), ABI/pool provenance artifacts, batched reads, request
+  coalescing, phase telemetry, read-only one-hop, re-quote before swap build.
+- **2026-06-06 → 06-07 — Router program**: specs (premium-aggregator v2,
+  router, routing engine, NEAR-Intents cross-chain) then the full
+  command/executor DogeSwapRouter build: ledger + enforced settlement +
+  aggregate caps + Permit2 AllowanceTransfer, invariants I1–I8, adversarial +
+  venue + native/FoT tests, Slither/Echidna/Medusa configs, CI, audit-prep
+  package, deterministic deploy script (`d2481a8`…`1157359`).
+- **2026-06-07 → 06-08 — React app**: shell, swap view + quote engine,
+  execution flow, tokens/activity/settings/chart (real TradingView, no
+  fabricated history), SDK-first connect, server run guide + Dockerfile.
+- **2026-06-11 → 06-13 — Audit round 1 + router goes live**: multi-agent repo
+  audit (0 Crit / 4 High / 31 Med / 26 Low) and fixes (`43d8337`); router
+  integrated: atomic split swaps, single-approval in-tx Permit2 permit, router
+  mode `all` (`80ca6e6`, `504d56c`, `20bd812`); token discovery (paste-a-token,
+  pool enumeration, round-trip honeypot gate); gas tip scaled to DogeOS base
+  fee.
+- **2026-06-12 — Deployed to testnet**: Permit2 canonical live; Timelock
+  `0xf341…1773`; DogeSwapRouter `0xa315…Aa35A`; Registry `0xC596…1215`
+  (see `audit/DEPLOYMENT.md`; governance handover still pending — see Now #1).
+- **2026-06-15 → 06-18 — Connect performance**: hybrid experiments reverted;
+  final: SDK-only Connect with idle pre-mount (`37f838d`) + immutable hashed
+  asset caching (`d37a764`).
+- **2026-06-16 + 06-26 — Router hardening in source**: H1–H9 (`fbb6206`),
+  H10 fee-evasion close + H11 permit front-run tolerance (`64640e4`); forge
+  suite 60 passing. Live router predates these (Now #1).
+- **2026-06-24 → 06-30 — Pool scanner + token index**: 6h systemd scan
+  routine, incremental reorg-aware 10-min scans, round-trip + min-liquidity
+  routability gate, graduated trust score + tier badges, versioned
+  `/tokenlist` (Uniswap Token Lists), guilt-by-association creator filter,
+  stale-while-revalidate `/tokens` (`283adc6`…`4da834e`).
+- **2026-06-25 → 06-27 — Track-2 audit fixes + UI correctness**: 5%/500bps
+  slippage cap, route-aware data-finality fee, Blockscout success link,
+  native-DOGE balance, nonce guidance, OG meta (`833ee40`); `ds-` keyframe
+  namespace fix (`f3bc112`); countdown aligned to the real 10s poll.
+- **2026-06-30 → 07-01 — Quote reliability**: transient venue retries, 4s
+  per-venue budgets, and the root fix — transient-aware venue timeout runner
+  (`1e3586d`, `4dac397`, `c32bc98`). Deployed prod+staging.
+- **2026-07-02 — Claude knowledge infrastructure**: this roadmap;
+  `.claude/skills/` (blockscout-scanner, dex-aggregation, cross-chain-swaps,
+  trail-of-bits-security); `.claude/agents/` (planner, implementer,
+  security-reviewer, code-reviewer, competitive-analyst, qa-tester);
+  `/daily-routine` command + scheduler; model policy (Fable 5); CLAUDE.md.
