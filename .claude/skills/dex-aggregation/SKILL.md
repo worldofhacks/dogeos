@@ -92,10 +92,10 @@ deliberately per-venue (3s) < per-provider (4s):
   races each venue task; on throw/timeout it reports
   `onSourceError(error, {sourceId, transient: isTransientError(error)})` and returns `[]` so
   sibling venues survive `Promise.all`. `isTransientError` (46-61): explicit `transient===true` /
-  AbortError → transient; message matching `execution reverted|revert|must (be|contain)|decode|
-  invalid|exceeds` → genuine (checked FIRST — known misclassification trap for transport errors
-  whose message contains those words, e.g. "not valid JSON"); then timeout/HTTP/ECONN-class →
-  transient.
+  AbortError → transient; timeout, HTTP 408/429/5xx, fetch/socket/ECONN-class, missing-batch,
+  unknown-RPC, and invalid/non-JSON parser failures → transient; then venue signatures
+  (`execution reverted`, ABI shape/decode/invalid/exceeds) → genuine (`a2e828c` fixed the old
+  "invalid JSON" misclassification).
 - The composite (`quotes/providers/composite.mjs`, `DEFAULT_PROVIDER_TIMEOUT_MS = 4_000` line 5 —
   DogeOS testnet quoter eth_call is ~0.7s normal, 2-3s spikes; `DEFAULT_PROVIDER_RETRIES = 1` line
   10) retries only THROWN failures; a resolved `[]` is never retried (runProviderWithRetry 56-66).
@@ -327,9 +327,9 @@ Apply these to any diff touching quoting, scoring, or swap building.
       carrying a `transient` classification — that recreates the pre-c32bc98 false-"no route" bug.
 - [ ] New venue-level awaits go INSIDE `runSourceQuote`'s task so they're budgeted; keep per-venue
       timeout (3s) strictly below the provider budget (4s) so timeouts attribute to the venue.
-- [ ] New error messages: check them against the `isTransientError` regex order
-      (sourceQuoteRunner.mjs:51) — a transport error whose message contains
-      "invalid"/"decode"/"exceeds" will be misclassified as genuine.
+- [ ] New error messages: check them against `isTransientError` ordering. Transport/parser
+      signatures must stay before venue ABI/revert signatures so "invalid JSON" and missing-batch
+      RPC failures remain retryable, while actual quoter reverts and ABI-shape errors stay genuine.
 - [ ] Anything consuming candidates must respect `ttlMs` (default 5s) and preserve
       min-over-legs ttl/timestamp composition for split/one-hop (splitRoutes.mjs:110-111).
 - [ ] /swap must re-quote (or split-refresh with EXACT locked legs) before building — never build
