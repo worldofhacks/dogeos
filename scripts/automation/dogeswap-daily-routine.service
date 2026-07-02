@@ -1,0 +1,13 @@
+[Unit]
+Description=DogeSwap daily routine (headless Claude Code /daily-routine)
+# Network required: git/gh, web research, deploy health checks.
+After=network-online.target
+
+[Service]
+Type=oneshot
+# The routine runs in its own checkout (~/dogeswap-routine), never the live
+# prod/staging service directories. Generous timeout: plan->implement->review->
+# deploy->QA->brief legitimately takes hours.
+ExecStart=/usr/bin/env bash %h/dogeswap-routine/scripts/automation/daily-routine.sh
+TimeoutStartSec=6h
+Nice=10

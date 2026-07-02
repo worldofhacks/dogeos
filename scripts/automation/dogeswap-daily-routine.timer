@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the DogeSwap daily routine at 07:00 US-Eastern
+
+[Timer]
+# systemd handles the EDT/EST switch natively — no cron DST caveat needed.
+OnCalendar=*-*-* 07:00:00 America/New_York
+# If the server was down at 07:00, run on next boot instead of skipping a day.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

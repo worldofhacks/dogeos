@@ -1,0 +1,66 @@
+# Daily routine via GitHub Actions — DORMANT by default.
+#
+# The routine currently runs on the project server via a systemd user timer
+# (see docs/automation.md): this repo's Claude Code auth is OAuth-based and no
+# ANTHROPIC_API_KEY exists in Actions secrets, so a scheduled cloud run would
+# fail. This workflow is kept manual-dispatch-only until a key is provisioned.
+#
+# To activate cloud runs:
+#   1. gh secret set ANTHROPIC_API_KEY
+#   2. Uncomment the `schedule:` block below.
+# DST caveat for cron: GitHub cron is UTC-only. `0 11 * * *` is 07:00 Eastern
+# only during EDT; during EST (Nov–Mar) 07:00 Eastern is `0 12 * * *`. The
+# systemd timer avoids this entirely with `OnCalendar=... America/New_York`.
+
+name: daily-routine
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "0 11 * * *"  # 07:00 America/New_York during EDT (see caveat above)
+
+jobs:
+  routine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Check API key is configured
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret not set — routine runs on the server timer instead (docs/automation.md). Exiting."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        id: keycheck
+      - uses: actions/checkout@v4
+        if: steps.keycheck.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        if: steps.keycheck.outputs.skip != 'true'
+        with: { node-version: 22 }
+      - uses: foundry-rs/foundry-toolchain@v1
+        if: steps.keycheck.outputs.skip != 'true'
+        with: { version: stable }
+      - name: Install Claude Code
+        if: steps.keycheck.outputs.skip != 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run /daily-routine (explicit tool allowlist — no permission bypass)
+        if: steps.keycheck.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm ci --no-audit --no-fund
+          claude -p "/daily-routine" \
+            --allowedTools \
+              "Read" "Glob" "Grep" "Edit" "Write" \
+              "Agent" "Skill" "TaskCreate" "TaskUpdate" "TaskList" "TaskGet" "TaskOutput" \
+              "WebSearch" "WebFetch" \
+              "Bash(git:*)" "Bash(gh:*)" "Bash(forge:*)" "Bash(npm:*)" "Bash(npx:*)" \
+              "Bash(node:*)" "Bash(curl:*)" "Bash(python3:*)" \
+              "Bash(ls:*)" "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)" \
+              "Bash(grep:*)" "Bash(find:*)" "Bash(mkdir:*)" "Bash(cp:*)" "Bash(mv:*)" \
+              "Bash(sed:*)" "Bash(awk:*)" "Bash(diff:*)"
