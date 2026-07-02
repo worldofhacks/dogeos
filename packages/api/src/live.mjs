@@ -40,6 +40,9 @@ import { OFFICIAL_DOGEOS_TOKENS } from "../../config/src/tokens.mjs";
 
 import { createAggregatorApiHandler } from "./handler.mjs";
 
+const NATIVE_FEE_RATE_SAMPLE_WEI = 10n ** 15n;
+const FEE_RATE_CACHE_TTL_MS = 15_000;
+
 function createChainVerifier(client, expectedChainId) {
   let verifiedChainId = null;
   let verificationPromise = null;
@@ -68,6 +71,70 @@ function defaultOneHopViaTokens() {
   return OFFICIAL_DOGEOS_TOKENS.filter((token) => token.symbol === "WDOGE").map(
     (token) => token.address,
   );
+}
+
+function wrappedNativeTokenAddress() {
+  return OFFICIAL_DOGEOS_TOKENS.find((token) => token.symbol === "WDOGE")?.address;
+}
+
+function tokenKey(value) {
+  return String(value ?? "").toLowerCase();
+}
+
+function bestActiveAmountOut(candidates = []) {
+  let best = 0n;
+  for (const candidate of candidates) {
+    if (candidate?.status !== "active") continue;
+    const amountOut = BigInt(candidate.amountOut ?? 0n);
+    if (amountOut > best) best = amountOut;
+  }
+  return best;
+}
+
+function createNativeTokenFeeRateProvider({
+  directQuoteProvider,
+  tokenSelector,
+  chainId = DOGEOS_CHAIN.id,
+  wrappedNativeToken = wrappedNativeTokenAddress(),
+  sampleAmount = NATIVE_FEE_RATE_SAMPLE_WEI,
+  cacheTtlMs = FEE_RATE_CACHE_TTL_MS,
+  nowMs = () => Date.now(),
+} = {}) {
+  const cache = new Map();
+  const clock = typeof nowMs === "function" ? nowMs : () => Date.now();
+  const nativeKey = tokenKey(wrappedNativeToken);
+
+  return async function nativeTokenFeeRate(input = {}) {
+    const token = tokenSelector(input);
+    const key = tokenKey(token);
+    if (!key) return 0n;
+    if (key === nativeKey) return 1n;
+
+    const now = clock();
+    const cached = cache.get(key);
+    if (cached && cached.expiresAtMs > now) return cached.rate;
+
+    try {
+      const amountOut = bestActiveAmountOut(
+        await directQuoteProvider({
+          chainId,
+          quoteMode: "exactInput",
+          sellToken: wrappedNativeToken,
+          buyToken: token,
+          amountIn: sampleAmount,
+          includeSources: [],
+          excludeSources: [],
+        }),
+      );
+      const rate = amountOut > 0n
+        ? { numerator: amountOut, denominator: sampleAmount }
+        : 0n;
+      cache.set(key, { rate, expiresAtMs: now + cacheTtlMs });
+      return rate;
+    } catch {
+      return 0n;
+    }
+  };
 }
 
 function createRequestBlockNumberProvider(client) {
@@ -179,7 +246,7 @@ export function createLiveAggregatorApiHandler({
   // always go direct to the venue (the router's commands are exact-input only).
   dogeSwapRouterMode = process.env.DOGESWAP_ROUTER_MODE || (process.env.DOGESWAP_ROUTER_ADDRESS ? "all" : "off"),
   concentratedLiquidityQuoterProvider,
-  outputWeiPerFeeWei = 1n,
+  outputWeiPerFeeWei,
   inputWeiPerFeeWei,
   dataFinalityFeeWei,
   swapDataFinalityFeeWei,
@@ -262,6 +329,24 @@ export function createLiveAggregatorApiHandler({
       },
     ],
   });
+  const liveOutputWeiPerFeeWei =
+    outputWeiPerFeeWei ??
+    createNativeTokenFeeRateProvider({
+      directQuoteProvider: directQuoteCandidateProvider,
+      tokenSelector: ({ buyToken, quoteMode }) =>
+        quoteMode === "exactOutput" ? undefined : buyToken,
+      nowMs,
+    });
+  const liveInputWeiPerFeeWei =
+    inputWeiPerFeeWei ??
+    (outputWeiPerFeeWei === undefined
+      ? createNativeTokenFeeRateProvider({
+          directQuoteProvider: directQuoteCandidateProvider,
+          tokenSelector: ({ sellToken, quoteMode }) =>
+            quoteMode === "exactOutput" ? sellToken : undefined,
+          nowMs,
+        })
+      : undefined);
   const oneHopQuoteCandidateProvider = createOneHopQuoteCandidateProvider({
     enabled: oneHopEnabled,
     viaTokens: oneHopViaTokens,
@@ -433,8 +518,8 @@ export function createLiveAggregatorApiHandler({
     quoteCandidateProvider: resolvedQuoteCandidateProvider,
     refreshSwapQuoteBeforeBuild,
     gasPriceWei: async () => client.getGasPriceWei(),
-    outputWeiPerFeeWei,
-    inputWeiPerFeeWei,
+    outputWeiPerFeeWei: liveOutputWeiPerFeeWei,
+    inputWeiPerFeeWei: liveInputWeiPerFeeWei,
     // Discover a pasted token: read metadata, then scan every venue for live
     // pools against each official base token. `routable` = at least one live
     // pool, so the UI can immediately enable trading the token.

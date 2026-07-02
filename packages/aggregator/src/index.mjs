@@ -26,7 +26,13 @@ export {
   verifyDefaultSources,
   verifySource,
 } from "./verification/verificationSnapshot.mjs";
-export { estimateDogeosFee, scoreExactOutputQuote, scoreQuote } from "./fees/dogeosFeeEstimator.mjs";
+export {
+  estimateDogeosFee,
+  feeWeiToTokenAmount,
+  normalizeFeeWeiRate,
+  scoreExactOutputQuote,
+  scoreQuote,
+} from "./fees/dogeosFeeEstimator.mjs";
 export {
   GET_L1_FEE_SELECTOR,
   createDogeosDataFinalityFeeProvider,

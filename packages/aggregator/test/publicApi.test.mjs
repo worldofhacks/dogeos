@@ -14,6 +14,8 @@ test("public aggregator API exports stable module boundaries", () => {
   assert.equal(typeof aggregator.createVerificationSnapshotProvider, "function");
   assert.equal(typeof aggregator.summarizeAbiArtifact, "function");
   assert.equal(typeof aggregator.verifyDefaultSources, "function");
+  assert.equal(typeof aggregator.feeWeiToTokenAmount, "function");
+  assert.equal(typeof aggregator.normalizeFeeWeiRate, "function");
   assert.equal(typeof aggregator.scoreExactOutputQuote, "function");
   assert.equal(typeof aggregator.quoteV2ExactInput, "function");
   assert.equal(typeof aggregator.quoteV2ExactOutput, "function");
