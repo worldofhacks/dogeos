@@ -10,7 +10,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with: { version: stable }
-      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
+      # Pin permit2 to the exact audited commit (cc56ad0f = repo HEAD, frozen
+      # since 2023-09-29; the vendored lib/permit2 is v1.0.0). Untagged
+      # `Uniswap/permit2` tracks master and could silently drift from the
+      # audited copy — forge-std and OZ are already tag-pinned.
+      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2@cc56ad0f3439c502c246fc5cfcc3db92bb8b7219 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
       - run: forge build --sizes
       - run: forge test -vvv
         env: { FOUNDRY_INVARIANT_RUNS: "512", FOUNDRY_INVARIANT_DEPTH: "200" }
@@ -20,6 +24,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with: { version: stable }
-      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
+      - run: forge install foundry-rs/forge-std@v1.9.7 Uniswap/permit2@cc56ad0f3439c502c246fc5cfcc3db92bb8b7219 OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
       - uses: crytic/slither-action@v0.4.2
         with: { target: "packages/contracts/", slither-config: "packages/contracts/slither.config.json", fail-on: "config" }
