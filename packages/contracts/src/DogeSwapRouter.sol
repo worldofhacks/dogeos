@@ -363,13 +363,13 @@ contract DogeSwapRouter is Ownable2Step, Pausable, ReentrancyGuardTransient {
     function _payReceived(address t, address to, uint256 amount) internal returns (uint256) {
         if (amount == 0) return 0;
         if (t == NATIVE) {
-            uint256 bal = to.balance;
+            uint256 nativeBefore = to.balance;
             _pay(t, to, amount);
-            return to.balance - bal;
+            return to.balance - nativeBefore;
         }
-        uint256 bal = IERC20(t).balanceOf(to);
+        uint256 tokenBefore = IERC20(t).balanceOf(to);
         _pay(t, to, amount);
-        return IERC20(t).balanceOf(to) - bal;
+        return IERC20(t).balanceOf(to) - tokenBefore;
     }
     function _pay(address t, address to, uint256 amount) internal {
         // slither-disable-next-line incorrect-equality
