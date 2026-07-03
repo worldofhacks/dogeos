@@ -195,7 +195,8 @@ export default function Slider({
                 }}
                 style={{
                   flex: 1,
-                  padding: "6px 0",
+                  minHeight: 34,
+                  padding: "8px 0",
                   borderRadius: 7,
                   cursor: "pointer",
                   border: `1px solid ${active ? acc : th.hair}`,

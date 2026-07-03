@@ -423,7 +423,7 @@ export default function SwapView({
                   display: "flex",
                   alignItems: "center",
                   gap: 7,
-                  padding: "6px 11px",
+                  padding: "9px 12px",
                   borderRadius: 8,
                   border: `1px solid ${chartActive ? th.accent : th.hair}`,
                   background: chartActive ? th.accent : th.panelHi,
@@ -490,8 +490,8 @@ export default function SwapView({
               onClick={flip}
               title="flip"
               style={{
-                width: 30,
-                height: 30,
+                width: 36,
+                height: 36,
                 flexShrink: 0,
                 borderRadius: "50%",
                 background: th.ink,

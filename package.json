@@ -5,6 +5,8 @@
   "scripts": {
     "build:web": "vite build",
     "test": "node --test \"packages/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
+    "e2e": "playwright test --config e2e/playwright.config.mjs",
+    "e2e:perf": "npm run build:web && node e2e/perf/run.mjs",
     "dev:web": "vite --host 127.0.0.1 --port 8788",
     "start:api": "node packages/api/src/server.mjs",
     "start:web": "npm run build:web && node --env-file-if-exists=.env --env-file-if-exists=.env.local packages/web/src/server.mjs",
@@ -21,6 +23,8 @@
     "wagmi": "^2.19.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "lighthouse": "^13.4.0",
     "typescript": "^5.9.3",
     "vite": "^6.4.2"
   },
