@@ -518,6 +518,136 @@ test("GET /activity default Blockscout provider encodes cursor params under Abor
   }
 });
 
+test("GET /activity drops non-allowlisted query params instead of forwarding upstream", async () => {
+  let activityInput;
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    activityProvider: async (input) => {
+      activityInput = input;
+      return { items: [], nextPageParams: null };
+    },
+  });
+
+  const response = await handle(
+    new Request(
+      `https://aggregator.local/activity?address=${walletAddress}`
+      + "&filter=to&apikey=steal&module=account&action=txlist"
+      + "&block_number=6063095&redirect=https%3A%2F%2Fevil.example",
+    ),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  // Only the allowlisted cursor key survives; injected params never reach the provider.
+  assert.deepEqual(activityInput.pageParams, { block_number: "6063095" });
+  assert.deepEqual(
+    Object.fromEntries(new URL(body.blockscoutUrl).searchParams),
+    { block_number: "6063095" },
+  );
+});
+
+test("GET /activity rejects malformed cursor values with 400 before Blockscout work", async () => {
+  let providerCalled = false;
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    activityProvider: async () => {
+      providerCalled = true;
+      return { items: [] };
+    },
+  });
+
+  const malformedCursors = [
+    "block_number=not-a-number",
+    "block_number=-1",
+    "block_number=1e6",
+    `hash=0x7eac731d`, // truncated tx hash
+    "hash=javascript:alert(1)",
+    "inserted_at=2026-07-02", // date without time
+    "inserted_at=now",
+    "fee=0x10", // hex where decimal string expected
+    "items_count=50%0d%0aInjected:header",
+    "value=" + "9".repeat(79), // longer than uint256 can be
+  ];
+
+  for (const cursor of malformedCursors) {
+    const response = await handle(
+      new Request(`https://aggregator.local/activity?address=${walletAddress}&${cursor}`),
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 400, `expected 400 for ${cursor}`);
+    assert.equal(body.error.code, "invalid-activity-cursor", `expected cursor error for ${cursor}`);
+  }
+  assert.equal(providerCalled, false);
+});
+
+test("GET /activity nextPageParams round-trips through the default Blockscout provider", async () => {
+  const originalFetch = globalThis.fetch;
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  const cursorTxHash = "0x7eac" + "b".repeat(56) + "731d";
+  const pageOneCursor = {
+    block_number: 6063095,
+    fee: "1566445689512",
+    hash: cursorTxHash,
+    index: 0,
+    inserted_at: "2026-07-02T16:56:46.621534Z",
+    items_count: 50,
+    value: "100000000",
+  };
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response(
+      JSON.stringify({
+        items: [{ hash: "0x" + "2".repeat(64), status: "ok" }],
+        next_page_params: calls.length === 1 ? pageOneCursor : null,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const handle = createAggregatorApiHandler({ nowMs: () => now });
+
+    // Page 1: no cursor in, cursor out.
+    const firstResponse = await handle(
+      new Request(`https://aggregator.local/activity?address=${walletAddress}`),
+    );
+    const firstBody = await firstResponse.json();
+    assert.equal(firstResponse.status, 200);
+    assert.deepEqual(firstBody.nextPageParams, pageOneCursor);
+    assert.deepEqual([...new URL(calls[0].url).searchParams.keys()], []);
+
+    // Page 2: echo the cursor exactly as a client would (values stringified).
+    const echoed = new URLSearchParams({ address: walletAddress });
+    for (const [key, value] of Object.entries(firstBody.nextPageParams)) {
+      echoed.set(key, String(value));
+    }
+    const secondResponse = await handle(
+      new Request(`https://aggregator.local/activity?${echoed}`),
+    );
+    const secondBody = await secondResponse.json();
+
+    assert.equal(secondResponse.status, 200);
+    assert.equal(secondBody.nextPageParams, null);
+    assert.equal(calls.length, 2);
+    const upstreamUrl = new URL(calls[1].url);
+    assert.equal(upstreamUrl.origin, "https://blockscout.testnet.dogeos.com");
+    assert.equal(upstreamUrl.pathname, `/api/v2/addresses/${walletAddress}/transactions`);
+    // Every cursor key round-trips verbatim (as its string form) — nothing extra.
+    assert.deepEqual(
+      Object.fromEntries(upstreamUrl.searchParams),
+      Object.fromEntries(
+        Object.entries(pageOneCursor).map(([key, value]) => [key, String(value)]),
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("GET /activity rejects malformed wallet addresses before Blockscout work", async () => {
   let providerCalled = false;
   const handle = createAggregatorApiHandler({
