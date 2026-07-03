@@ -179,10 +179,20 @@ async function fetchBlockscoutAddressTransactions({
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   });
   const body = await blockscout.addressTransactions(address, pageParams);
+  const upstreamItems = Array.isArray(body.items) ? body.items : [];
+  const items = upstreamItems.slice(0, limit);
 
   return {
-    items: (Array.isArray(body.items) ? body.items : []).slice(0, limit),
-    nextPageParams: body.next_page_params ?? null,
+    items,
+    // Blockscout serves fixed-size pages (50 items) with no page-size knob,
+    // and its next_page_params cursor points past the FULL upstream page. If
+    // our local slice dropped items (limit < upstream page length), following
+    // that cursor would silently skip the dropped items — so we withhold it.
+    // Fail-safe contract: never more than `limit` items, and a returned cursor
+    // always continues exactly where the returned items end. Clients that want
+    // to paginate complete history should request limit=50 (MAX_ACTIVITY_LIMIT
+    // == the upstream page size), where the slice never drops anything.
+    nextPageParams: items.length < upstreamItems.length ? null : body.next_page_params ?? null,
     sourceUrl: blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl, pageParams),
   };
 }
@@ -837,14 +847,25 @@ export function createAggregatorApiHandler({
               ? activity.data
               : [];
 
+        // Same fail-safe rule as fetchBlockscoutAddressTransactions, enforced
+        // here for injected providers too: if slicing to `limit` dropped items,
+        // the provider's cursor points past the dropped items, and returning it
+        // would make the next page silently skip them. Withhold the cursor
+        // instead — a shorter list with no cursor is visible; a gap is not.
+        const page = items.slice(0, limit);
+        const nextPageParams =
+          page.length < items.length
+            ? null
+            : activity?.nextPageParams ?? activity?.next_page_params ?? null;
+
         return jsonResponse({
           chainId: DOGEOS_CHAIN.id,
           address,
           source: "blockscout",
           blockscoutUrl:
             activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address, DOGEOS_CHAIN.blockscoutBaseUrl, pageParams),
-          data: items.slice(0, limit),
-          nextPageParams: activity?.nextPageParams ?? activity?.next_page_params ?? null,
+          data: page,
+          nextPageParams,
         });
       } catch (error) {
         return unavailableResponse("activity-unavailable", error);

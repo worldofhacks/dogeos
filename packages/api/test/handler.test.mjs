@@ -648,6 +648,100 @@ test("GET /activity nextPageParams round-trips through the default Blockscout pr
   }
 });
 
+// Regression: Blockscout serves fixed 50-item pages with no page-size knob, so
+// its next_page_params cursor always points past item 50. Before the fix, a
+// limit-20 request sliced the page to items 1-20 but still returned that
+// cursor, so page 2 started at item 51 — items 21-50 vanished silently.
+test("GET /activity withholds nextPageParams when limit-slicing drops upstream items", async () => {
+  const originalFetch = globalThis.fetch;
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  // 60-tx wallet: upstream page 1 = txs 0..49 (+cursor), page 2 = txs 50..59.
+  const allTxs = Array.from({ length: 60 }, (_, i) => ({
+    hash: "0x" + String(i).padStart(64, "0"),
+    status: "ok",
+  }));
+  const pageTwoCursor = { block_number: 6063000, index: 0, items_count: 50 };
+  globalThis.fetch = async (url) => {
+    const isPageTwo = new URL(String(url)).searchParams.has("block_number");
+    return new Response(
+      JSON.stringify(
+        isPageTwo
+          ? { items: allTxs.slice(50), next_page_params: null }
+          : { items: allTxs.slice(0, 50), next_page_params: pageTwoCursor },
+      ),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const handle = createAggregatorApiHandler({ nowMs: () => now });
+
+    // limit=20 slices the 50-item upstream page: cursor MUST be withheld,
+    // otherwise following it would skip items 21-50.
+    const truncated = await handle(
+      new Request(`https://aggregator.local/activity?address=${walletAddress}&limit=20`),
+    );
+    const truncatedBody = await truncated.json();
+    assert.equal(truncated.status, 200);
+    assert.equal(truncatedBody.data.length, 20);
+    assert.deepEqual(truncatedBody.data.map((tx) => tx.hash), allTxs.slice(0, 20).map((tx) => tx.hash));
+    assert.equal(truncatedBody.nextPageParams, null);
+
+    // limit=50 (== upstream page size): nothing dropped, cursor flows through,
+    // and following it yields items 51-60 with zero gaps or overlaps.
+    const pageOne = await handle(
+      new Request(`https://aggregator.local/activity?address=${walletAddress}&limit=50`),
+    );
+    const pageOneBody = await pageOne.json();
+    assert.equal(pageOne.status, 200);
+    assert.equal(pageOneBody.data.length, 50);
+    assert.deepEqual(pageOneBody.nextPageParams, pageTwoCursor);
+
+    const echoed = new URLSearchParams({ address: walletAddress, limit: "50" });
+    for (const [key, value] of Object.entries(pageOneBody.nextPageParams)) {
+      echoed.set(key, String(value));
+    }
+    const pageTwo = await handle(new Request(`https://aggregator.local/activity?${echoed}`));
+    const pageTwoBody = await pageTwo.json();
+    assert.equal(pageTwo.status, 200);
+    assert.equal(pageTwoBody.nextPageParams, null);
+
+    // Continuity: the two pages reconstruct the full 60-tx history exactly.
+    assert.deepEqual(
+      [...pageOneBody.data, ...pageTwoBody.data].map((tx) => tx.hash),
+      allTxs.map((tx) => tx.hash),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("GET /activity withholds injected-provider cursors when the route slices items", async () => {
+  const walletAddress = "0x1111111111111111111111111111111111111111";
+  const providerItems = Array.from({ length: 30 }, (_, i) => ({
+    hash: "0x" + String(i).padStart(64, "1"),
+    status: "ok",
+  }));
+  const handle = createAggregatorApiHandler({
+    nowMs: () => now,
+    activityProvider: async () => ({
+      items: providerItems,
+      nextPageParams: { block_number: 6063000, index: 0, items_count: 50 },
+    }),
+  });
+
+  const response = await handle(
+    new Request(`https://aggregator.local/activity?address=${walletAddress}&limit=20`),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data.length, 20);
+  // The route dropped items 21-30, so the provider's cursor (which points past
+  // item 30) must not be surfaced.
+  assert.equal(body.nextPageParams, null);
+});
+
 test("GET /activity rejects malformed wallet addresses before Blockscout work", async () => {
   let providerCalled = false;
   const handle = createAggregatorApiHandler({
