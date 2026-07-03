@@ -59,6 +59,22 @@ export {
   createVerifiedConcentratedLiquidityQuoteCandidateProvider,
 } from "./quotes/providers/concentratedLiquidity.mjs";
 export { buildQuoteResponse } from "./quoteService.mjs";
+export {
+  CROSSCHAIN_LEG_KINDS,
+  CROSSCHAIN_LEG_STATUSES,
+  CROSSCHAIN_ORDER_STATUSES,
+  CROSSCHAIN_PREVIEW_STATUS,
+  CROSSCHAIN_PREVIEW_WARNING,
+  CROSSCHAIN_PROTOCOL_TYPE,
+  CROSSCHAIN_ROUTE_TYPE,
+  buildReadOnlyCrosschainRoute,
+  deriveCrosschainOrderStatus,
+  isCrosschainEnabled,
+  normalizeCrosschainLeg,
+  normalizeCrosschainLegs,
+  validateCrosschainLeg,
+  validateCrosschainRoute,
+} from "./crosschain/quoteSchema.mjs";
 export { chooseBestDirectRoute } from "./routes/direct.mjs";
 export {
   composeOneHopCandidates,
