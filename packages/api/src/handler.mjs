@@ -29,6 +29,22 @@ const JSON_HEADERS = {
 const DEFAULT_ACTIVITY_LIMIT = 20;
 const MAX_ACTIVITY_LIMIT = 50;
 const RESERVED_ACTIVITY_QUERY_PARAMS = new Set(["address", "limit"]);
+// Strict allowlist of the Blockscout v2 keyset-cursor params for
+// GET /api/v2/addresses/{addr}/transactions, with a value shape per key.
+// These are the ONLY client-supplied query params we ever echo upstream —
+// everything else is dropped, so a caller cannot inject arbitrary params
+// (filter=, apikey=, module=, …) into our Blockscout requests. Key set
+// verified against the live instance:
+// .claude/skills/blockscout-scanner/references/api.md ("Pagination cursor").
+const ACTIVITY_CURSOR_PARAM_PATTERNS = new Map([
+  ["block_number", /^\d{1,20}$/],
+  ["fee", /^\d{1,78}$/], // wei, decimal string (uint256 is at most 78 digits)
+  ["hash", /^0x[0-9a-fA-F]{64}$/],
+  ["index", /^\d{1,10}$/],
+  ["inserted_at", /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/],
+  ["items_count", /^\d{1,10}$/],
+  ["value", /^\d{1,78}$/], // wei, decimal string
+]);
 
 function jsonReplacer(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
@@ -107,13 +123,23 @@ function blockscoutAddressTransactionsUrl(
   );
 }
 
+// Extracts the upstream pagination cursor from the client's query string.
+// Fail-closed contract: unknown params are silently dropped (never forwarded
+// upstream), and an allowlisted cursor key whose value does not match its
+// expected shape returns { error } so the handler can 400 instead of silently
+// serving page 1 again or forwarding attacker-shaped values.
 function activityPageParams(searchParams) {
   const pageParams = {};
   for (const [key, value] of searchParams.entries()) {
     if (RESERVED_ACTIVITY_QUERY_PARAMS.has(key)) continue;
+    const pattern = ACTIVITY_CURSOR_PARAM_PATTERNS.get(key);
+    if (pattern === undefined) continue;
+    if (!pattern.test(value)) {
+      return { error: `Malformed pagination cursor parameter: ${key}.` };
+    }
     pageParams[key] = value;
   }
-  return pageParams;
+  return { pageParams };
 }
 
 function defaultChainStatus() {
@@ -791,10 +817,14 @@ export function createAggregatorApiHandler({
     if (request.method === "GET" && url.pathname === "/activity") {
       const address = url.searchParams.get("address") ?? "";
       const limit = normalizedActivityLimit(url.searchParams.get("limit"));
-      const pageParams = activityPageParams(url.searchParams);
 
       if (!isHexAddress(address)) {
         return errorResponse(400, "invalid-activity-request", "A valid 20-byte wallet address is required.");
+      }
+
+      const { pageParams, error: cursorError } = activityPageParams(url.searchParams);
+      if (cursorError) {
+        return errorResponse(400, "invalid-activity-cursor", cursorError);
       }
 
       try {

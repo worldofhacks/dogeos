@@ -437,9 +437,10 @@ test("GET /activity exposes connected wallet DogeOS Blockscout transaction histo
   assert.equal(body.data[0].method, "swapExactTokensForTokens");
 });
 
-test("GET /activity forwards opaque Blockscout cursor params", async () => {
+test("GET /activity forwards allowlisted Blockscout cursor params", async () => {
   let activityInput;
   const walletAddress = "0x1111111111111111111111111111111111111111";
+  const cursorTxHash = "0x7eac" + "a".repeat(56) + "731d";
   const handle = createAggregatorApiHandler({
     nowMs: () => now,
     activityProvider: async (input) => {
@@ -455,7 +456,7 @@ test("GET /activity forwards opaque Blockscout cursor params", async () => {
     new Request(
       `https://aggregator.local/activity?address=${walletAddress}&limit=5`
       + "&block_number=6063095&fee=1566445689512"
-      + "&hash=0x7eac731d&index=0"
+      + `&hash=${cursorTxHash}&index=0`
       + "&inserted_at=2026-07-02T16%3A56%3A46.621534Z"
       + "&items_count=50&value=100000000",
     ),
@@ -467,7 +468,7 @@ test("GET /activity forwards opaque Blockscout cursor params", async () => {
   assert.deepEqual(activityInput.pageParams, {
     block_number: "6063095",
     fee: "1566445689512",
-    hash: "0x7eac731d",
+    hash: cursorTxHash,
     index: "0",
     inserted_at: "2026-07-02T16:56:46.621534Z",
     items_count: "50",
