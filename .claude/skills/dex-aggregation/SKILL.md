@@ -111,14 +111,14 @@ deliberately per-venue (3s) < per-provider (4s):
 ### 1.4 Route selection, scoring, one-hop, split
 
 - **Scoring** (`fees/dogeosFeeEstimator.mjs`): `totalFeeWei = gasUnits·gasPriceWei +
-  dataFinalityFeeWei`; exactInput `netOutput = amountOut − totalFeeWei·outputWeiPerFeeWei −
-  failurePenalty` (scoreQuote 10-33); exactOutput `totalInput = amountIn +
-  totalFeeWei·inputWeiPerFeeWei` (35-58). Selection (direct.mjs:47-58): exactInput by descending
-  netOutput, exactOutput by ascending totalInput, ties → lower gasUnits → sourceId lexicographic.
-  **Caveat:** `outputWeiPerFeeWei` defaults to `1n` (live.mjs:182) — 1 fee-wei is treated as 1
-  output-token-wei with no price/decimals conversion. For 6-decimal outputs (USDC/USDT) the fee
-  term is wildly overweighted and can misrank venues whose gasUnits differ (algebra 180k vs v3
-  165k vs v2 135k) or drive netOutput negative. `failurePenalty` is plumbed but nothing sets it.
+  dataFinalityFeeWei`; exactInput `netOutput = amountOut − feeWeiToTokenAmount(totalFeeWei,
+  outputWeiPerFeeWei) − failurePenalty`; exactOutput `totalInput = amountIn +
+  feeWeiToTokenAmount(totalFeeWei, inputWeiPerFeeWei)`. Rates can be a bigint scalar or a rational
+  `{ numerator, denominator }` (`f328fdd`). Live mode now derives default rates from a cached
+  WDOGE→target-token quote: output token for exact-input, input token for exact-output, with WDOGE
+  = 1:1 and fail-open `0n` if no safe conversion route exists. Selection (direct.mjs:47-58):
+  exactInput by descending netOutput, exactOutput by ascending totalInput, ties → lower gasUnits →
+  sourceId lexicographic. `failurePenalty` is plumbed but nothing sets it.
 - **One-hop** (`routes/oneHop.mjs`): via-token = WDOGE only (live.mjs:67-71); composes two direct
   legs but candidates are hard-coded `status:"readOnly", reason:"one-hop-execution-preview"`
   (oneHop.mjs:41-44) — **multi-hop is preview-only, never executable today**; it only upgrades a
@@ -310,10 +310,10 @@ Apply these to any diff touching quoting, scoring, or swap building.
 - [ ] Scoring must stay gas-inclusive: a diff that compares candidates on raw amountOut regresses
       the venue-gas tiebreak (135k/165k/180k differ by venue). Use `score.netOutput` /
       `score.totalInput`.
-- [ ] Watch the `outputWeiPerFeeWei = 1n` caveat (live.mjs:182): any change amplifying fee weight
-      (bigger gasUnits, bigger payload bytes) disproportionately punishes low-decimal output
-      tokens. A real fix needs a native→output-token price conversion; until then don't tune
-      constants to compensate for one pair.
+- [ ] Fee scoring rates must stay unit-correct: `outputWeiPerFeeWei` / `inputWeiPerFeeWei` may be
+      rational objects, and live mode derives them from WDOGE→token quotes. If that derivation
+      fails it returns `0n`, so the route falls back to raw amount comparison plus the gasUnits
+      tie-break; do not reintroduce the old hardcoded `1n` native-wei→token-wei assumption.
 - [ ] Split acceptance must keep the `minImprovementBps` floor mode-aware (1bp "all" / 5bp
       otherwise, live.mjs:288-293) — in "all" mode single-venue swaps already pay router overhead,
       so demanding 5bps there suppresses genuinely better splits.

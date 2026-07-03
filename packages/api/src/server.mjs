@@ -89,6 +89,7 @@ export function startAggregatorApiServer({
   nowMs,
   quoteCandidateProvider,
   outputWeiPerFeeWei,
+  inputWeiPerFeeWei,
   calldataBuilder,
   // Forwarded to the live handler: warm the non-official token index at startup.
   // Default off so tests asserting exact RPC call sequences aren't perturbed.
@@ -102,6 +103,7 @@ export function startAggregatorApiServer({
       nowMs,
       quoteCandidateProvider,
       outputWeiPerFeeWei,
+      inputWeiPerFeeWei,
       calldataBuilder,
       warmTokenIndex,
     });

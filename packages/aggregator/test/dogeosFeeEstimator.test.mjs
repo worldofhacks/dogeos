@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   estimateDogeosFee,
+  feeWeiToTokenAmount,
   scoreExactOutputQuote,
   scoreQuote,
 } from "../src/fees/dogeosFeeEstimator.mjs";
@@ -43,6 +44,25 @@ test("scoreQuote penalizes calldata-heavy routes with higher DogeOS fee", () => 
   assert.equal(simpleRoute.netOutput > complexRoute.netOutput, true);
 });
 
+test("scoreQuote supports rational native-fee to token conversion rates", () => {
+  const route = scoreQuote({
+    amountOut: 1_000_000n,
+    gasUnits: 100_000n,
+    gasPriceWei: 1n,
+    dataFinalityFeeWei: 1_000n,
+    outputWeiPerFeeWei: { numerator: 5n, denominator: 1_000n },
+    failurePenalty: 0n,
+  });
+
+  assert.equal(route.totalFeeWei, 101_000n);
+  assert.equal(route.feeCostInOutputToken, 505n);
+  assert.equal(route.netOutput, 999_495n);
+  assert.equal(
+    feeWeiToTokenAmount(101_000n, { rateNumerator: 5n, rateDenominator: 1_000n }),
+    505n,
+  );
+});
+
 test("scoreExactOutputQuote prefers lower total input after DogeOS fee", () => {
   const cheaperRoute = scoreExactOutputQuote({
     amountIn: 1_000_000n,
@@ -65,4 +85,18 @@ test("scoreExactOutputQuote prefers lower total input after DogeOS fee", () => {
   assert.equal(cheaperRoute.totalInput, 1_101_000n);
   assert.equal(higherGasRoute.totalInput, 1_250_000n);
   assert.equal(cheaperRoute.totalInput < higherGasRoute.totalInput, true);
+});
+
+test("scoreExactOutputQuote supports rational native-fee to input-token rates", () => {
+  const route = scoreExactOutputQuote({
+    amountIn: 1_000_000n,
+    gasUnits: 100_000n,
+    gasPriceWei: 1n,
+    dataFinalityFeeWei: 1_000n,
+    inputWeiPerFeeWei: { numerator: 5n, denominator: 1_000n },
+    failurePenalty: 0n,
+  });
+
+  assert.equal(route.feeCostInInputToken, 505n);
+  assert.equal(route.totalInput, 1_000_505n);
 });

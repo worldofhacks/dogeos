@@ -59,7 +59,11 @@ function oracleFeeResult(value = 10_000n) {
   return `0x${word(value)}`;
 }
 
-function discoveryRpc() {
+function discoveryRpc({
+  reserve0 = 1_000_000_000n,
+  reserve1 = 2_000_000_000n,
+  gasPriceWei = 2n,
+} = {}) {
   const calls = [];
 
   return {
@@ -71,7 +75,7 @@ function discoveryRpc() {
       let result;
       if (body.method === "eth_chainId") result = "0x5fdaf3";
       if (body.method === "eth_blockNumber") result = "0x4f5880";
-      if (body.method === "eth_gasPrice") result = "0x2";
+      if (body.method === "eth_gasPrice") result = `0x${gasPriceWei.toString(16)}`;
       if (body.method === "eth_call") {
         if (
           body.params[0].to.toLowerCase() === l1GasPriceOracle.toLowerCase() &&
@@ -84,7 +88,7 @@ function discoveryRpc() {
         if (selector === "0xe6a43905") result = addressResult(muchfiV2Pair);
         if (selector === "0x0dfe1681") result = addressResult(usdc.address);
         if (selector === "0xd21220a7") result = addressResult(wdoge.address);
-        if (selector === "0x0902f1ac") result = reservesResult(1_000_000_000n, 2_000_000_000n);
+        if (selector === "0x0902f1ac") result = reservesResult(reserve0, reserve1);
       }
 
       if (!result) {
@@ -201,6 +205,127 @@ test("createLiveAggregatorApiHandler verifies DogeOS RPC chain and uses live gas
     rpc.calls.map((call) => call.method),
     ["eth_chainId", "eth_gasPrice"],
   );
+});
+
+test("createLiveAggregatorApiHandler derives fractional fee rates for non-WDOGE outputs", async () => {
+  const rpc = discoveryRpc({
+    // token0 = USDC, token1 = WDOGE; this makes 1 WDOGE worth about 0.5 USDC.
+    reserve0: 500n * 10n ** 18n,
+    reserve1: 1_000n * 10n ** 18n,
+  });
+  const handle = createLiveAggregatorApiHandler({
+    nowMs: () => now,
+    fetchFn: rpc.fetchFn,
+    quoteCandidateProvider: async () => [
+      candidate({
+        sellToken: wdoge.address,
+        buyToken: usdc.address,
+        amountOut: 1_000_000n,
+      }),
+    ],
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: wdoge.address,
+      buyToken: usdc.address,
+      amountIn: "1000000000000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+  const feeCost = BigInt(body.best.score.feeCostInOutputToken);
+  const totalFee = BigInt(body.best.score.totalFeeWei);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "ok");
+  assert.equal(body.best.buyToken, usdc.address);
+  assert.equal(totalFee, 245_000n);
+  // Sample: 1e15 WDOGE-wei through the mocked V2 pool (reserves 1000 WDOGE /
+  // 500 USDC, 20bps fee) → 498999501998497 USDC-wei out, so
+  // feeCost = 245000 · 498999501998497 / 1e15 = 122254 (pinned).
+  assert.equal(feeCost, 122_254n);
+  assert.equal(BigInt(body.best.score.netOutput), 877_746n);
+  assert.equal(BigInt(body.best.score.netOutput), BigInt(body.best.amountOut) - feeCost);
+});
+
+test("createLiveAggregatorApiHandler scales the fee penalty for 6-decimal outputs at a realistic gas price", async () => {
+  // Realistic 6-decimal pool: 1000 WDOGE (1e21 wei) vs 80 USDC (80e6 units,
+  // 6 decimals) — DOGE ≈ $0.08. Gas price 2 gwei.
+  const rpc = discoveryRpc({
+    reserve0: 80_000_000n,
+    reserve1: 10n ** 21n,
+    gasPriceWei: 2_000_000_000n,
+  });
+  const handle = createLiveAggregatorApiHandler({
+    nowMs: () => now,
+    fetchFn: rpc.fetchFn,
+    quoteCandidateProvider: async () => [
+      candidate({
+        sellToken: wdoge.address,
+        buyToken: usdc.address,
+        amountOut: 1_000_000n, // 1 USDC
+      }),
+    ],
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: wdoge.address,
+      buyToken: usdc.address,
+      amountIn: "1000000000000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "ok");
+  // totalFeeWei = 120000 gas · 2 gwei + 5000 data/finality = 240000000005000
+  // native wei. The old hardcoded 1n rate subtracted that from a 1e6 USDC-unit
+  // amountOut, driving netOutput to ≈ −2.4e14. With the derived rate
+  // (79 USDC-units per 1e15 fee-wei sample) the penalty is 18 USDC-units.
+  assert.equal(BigInt(body.best.score.totalFeeWei), 240_000_000_005_000n);
+  assert.equal(BigInt(body.best.score.feeCostInOutputToken), 18n);
+  assert.equal(BigInt(body.best.score.netOutput), 999_982n);
+  assert.equal(BigInt(body.best.score.netOutput) > 0n, true);
+});
+
+test("createLiveAggregatorApiHandler zeroes the fee penalty when no WDOGE conversion route exists", async () => {
+  // No WDOGE→USDC pool discoverable: the fee-rate provider must fail open to
+  // a 0n rate (no fee penalty) instead of the old 1:1 native-wei assumption —
+  // netOutput falls back to raw amountOut and can never go negative from a
+  // unit error alone.
+  const rpc = noPairDiscoveryRpc();
+  const handle = createLiveAggregatorApiHandler({
+    nowMs: () => now,
+    fetchFn: rpc.fetchFn,
+    quoteCandidateProvider: async () => [
+      candidate({
+        sellToken: wdoge.address,
+        buyToken: usdc.address,
+      }),
+    ],
+  });
+
+  const response = await handle(
+    jsonRequest("/quote", {
+      chainId: DOGEOS_CHAIN.id,
+      sellToken: wdoge.address,
+      buyToken: usdc.address,
+      amountIn: "1000000",
+      slippageBps: "50",
+    }),
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "ok");
+  assert.equal(BigInt(body.best.score.totalFeeWei), 245_000n);
+  assert.equal(BigInt(body.best.score.feeCostInOutputToken), 0n);
+  assert.equal(body.best.score.netOutput, body.best.amountOut);
 });
 
 test("createLiveAggregatorApiHandler shares initial DogeOS RPC chain verification across concurrent live quotes", async () => {
@@ -363,7 +488,8 @@ test("createLiveAggregatorApiHandler uses default V2 exact-output discovery", as
   assert.equal(body.best.amountIn, "998998"); // 20 bps venue fee (live-verified)
   assert.equal(body.best.amountOut, "1992013");
   assert.equal(body.best.maxAmountIn, "1003992");
-  assert.equal(body.best.score.totalInput, "1278998");
+  assert.equal(body.best.score.feeCostInInputToken, "0");
+  assert.equal(body.best.score.totalInput, "998998");
   assert.equal(rpc.calls[0].method, "eth_chainId");
   assert.equal(rpc.calls.some((call) => call.method === "eth_gasPrice"), true);
 });
