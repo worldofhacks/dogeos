@@ -5,6 +5,10 @@ import {
   listSources,
   listVenueContracts,
 } from "../../aggregator/src/index.mjs";
+import {
+  buildBlockscoutUrl,
+  createBlockscoutClient,
+} from "../../../scripts/blockscout/client.mjs";
 import { SPLIT_SOURCE_ID } from "../../aggregator/src/routes/splitRoutes.mjs";
 import { MAX_SLIPPAGE_BPS } from "../../aggregator/src/quoteService.mjs";
 import { DOGEOS_CHAIN } from "../../config/src/chains.mjs";
@@ -24,6 +28,23 @@ const JSON_HEADERS = {
 };
 const DEFAULT_ACTIVITY_LIMIT = 20;
 const MAX_ACTIVITY_LIMIT = 50;
+const RESERVED_ACTIVITY_QUERY_PARAMS = new Set(["address", "limit"]);
+// Strict allowlist of the Blockscout v2 keyset-cursor params for
+// GET /api/v2/addresses/{addr}/transactions, with a value shape per key.
+// These are the ONLY client-supplied query params we ever echo upstream —
+// everything else is dropped, so a caller cannot inject arbitrary params
+// (filter=, apikey=, module=, …) into our Blockscout requests. Key set
+// verified against the live instance:
+// .claude/skills/blockscout-scanner/references/api.md ("Pagination cursor").
+const ACTIVITY_CURSOR_PARAM_PATTERNS = new Map([
+  ["block_number", /^\d{1,20}$/],
+  ["fee", /^\d{1,78}$/], // wei, decimal string (uint256 is at most 78 digits)
+  ["hash", /^0x[0-9a-fA-F]{64}$/],
+  ["index", /^\d{1,10}$/],
+  ["inserted_at", /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/],
+  ["items_count", /^\d{1,10}$/],
+  ["value", /^\d{1,78}$/], // wei, decimal string
+]);
 
 function jsonReplacer(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
@@ -90,8 +111,35 @@ function normalizedActivityLimit(value) {
   return Math.max(1, Math.min(MAX_ACTIVITY_LIMIT, Math.trunc(numericLimit)));
 }
 
-function blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl) {
-  return `${blockscoutBaseUrl}/api/v2/addresses/${address}/transactions`;
+function blockscoutAddressTransactionsUrl(
+  address,
+  blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl,
+  pageParams = {},
+) {
+  return buildBlockscoutUrl(
+    blockscoutBaseUrl,
+    `api/v2/addresses/${address}/transactions`,
+    pageParams,
+  );
+}
+
+// Extracts the upstream pagination cursor from the client's query string.
+// Fail-closed contract: unknown params are silently dropped (never forwarded
+// upstream), and an allowlisted cursor key whose value does not match its
+// expected shape returns { error } so the handler can 400 instead of silently
+// serving page 1 again or forwarding attacker-shaped values.
+function activityPageParams(searchParams) {
+  const pageParams = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (RESERVED_ACTIVITY_QUERY_PARAMS.has(key)) continue;
+    const pattern = ACTIVITY_CURSOR_PARAM_PATTERNS.get(key);
+    if (pattern === undefined) continue;
+    if (!pattern.test(value)) {
+      return { error: `Malformed pagination cursor parameter: ${key}.` };
+    }
+    pageParams[key] = value;
+  }
+  return { pageParams };
 }
 
 function defaultChainStatus() {
@@ -122,19 +170,30 @@ async function fetchBlockscoutAddressTransactions({
   limit = DEFAULT_ACTIVITY_LIMIT,
   fetchFn = fetch,
   blockscoutBaseUrl = DOGEOS_CHAIN.blockscoutBaseUrl,
+  pageParams = {},
+  timeoutMs,
 } = {}) {
-  const sourceUrl = blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl);
-  const response = await fetchFn(sourceUrl);
-  const body = await response.json();
-
-  if (!response.ok) {
-    throw new Error(body?.message ?? body?.error ?? `Blockscout request failed: ${response.status}`);
-  }
+  const blockscout = createBlockscoutClient({
+    baseUrl: blockscoutBaseUrl,
+    fetchImpl: fetchFn,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  });
+  const body = await blockscout.addressTransactions(address, pageParams);
+  const upstreamItems = Array.isArray(body.items) ? body.items : [];
+  const items = upstreamItems.slice(0, limit);
 
   return {
-    items: (Array.isArray(body.items) ? body.items : []).slice(0, limit),
-    nextPageParams: body.next_page_params ?? null,
-    sourceUrl,
+    items,
+    // Blockscout serves fixed-size pages (50 items) with no page-size knob,
+    // and its next_page_params cursor points past the FULL upstream page. If
+    // our local slice dropped items (limit < upstream page length), following
+    // that cursor would silently skip the dropped items — so we withhold it.
+    // Fail-safe contract: never more than `limit` items, and a returned cursor
+    // always continues exactly where the returned items end. Clients that want
+    // to paginate complete history should request limit=50 (MAX_ACTIVITY_LIMIT
+    // == the upstream page size), where the slice never drops anything.
+    nextPageParams: items.length < upstreamItems.length ? null : body.next_page_params ?? null,
+    sourceUrl: blockscoutAddressTransactionsUrl(address, blockscoutBaseUrl, pageParams),
   };
 }
 
@@ -773,8 +832,13 @@ export function createAggregatorApiHandler({
         return errorResponse(400, "invalid-activity-request", "A valid 20-byte wallet address is required.");
       }
 
+      const { pageParams, error: cursorError } = activityPageParams(url.searchParams);
+      if (cursorError) {
+        return errorResponse(400, "invalid-activity-cursor", cursorError);
+      }
+
       try {
-        const activity = await activityProvider({ address, limit });
+        const activity = await activityProvider({ address, limit, pageParams });
         const items = Array.isArray(activity)
           ? activity
           : Array.isArray(activity?.items)
@@ -783,14 +847,25 @@ export function createAggregatorApiHandler({
               ? activity.data
               : [];
 
+        // Same fail-safe rule as fetchBlockscoutAddressTransactions, enforced
+        // here for injected providers too: if slicing to `limit` dropped items,
+        // the provider's cursor points past the dropped items, and returning it
+        // would make the next page silently skip them. Withhold the cursor
+        // instead — a shorter list with no cursor is visible; a gap is not.
+        const page = items.slice(0, limit);
+        const nextPageParams =
+          page.length < items.length
+            ? null
+            : activity?.nextPageParams ?? activity?.next_page_params ?? null;
+
         return jsonResponse({
           chainId: DOGEOS_CHAIN.id,
           address,
           source: "blockscout",
           blockscoutUrl:
-            activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address),
-          data: items.slice(0, limit),
-          nextPageParams: activity?.nextPageParams ?? activity?.next_page_params ?? null,
+            activity?.sourceUrl ?? blockscoutAddressTransactionsUrl(address, DOGEOS_CHAIN.blockscoutBaseUrl, pageParams),
+          data: page,
+          nextPageParams,
         });
       } catch (error) {
         return unavailableResponse("activity-unavailable", error);
