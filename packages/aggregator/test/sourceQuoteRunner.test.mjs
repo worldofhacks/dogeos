@@ -22,7 +22,17 @@ test("isTransientError classifies timeouts and transport faults as transient", (
   assert.equal(isTransientError(new Error("eth_call failed with HTTP 503.")), true);
   assert.equal(isTransientError(new Error("fetch failed")), true);
   assert.equal(isTransientError(new Error("fetch failed: invalid JSON response body")), true);
+  // Exact V8 JSON.parse message for a gateway HTML error page — the excerpt
+  // embeds the page's own CRLF, so this pins that the classifier matches
+  // across newlines (the c32bc98 false-"no route" class).
+  assert.equal(
+    isTransientError(new Error('Unexpected token \'<\', "<html>\r\n<h"... is not valid JSON')),
+    true,
+  );
   assert.equal(isTransientError(new Error("HTTP 502 returned non-JSON response")), true);
+  // jsonRpcClient's batch shape check is a transport fault, not a venue error —
+  // it must not be captured by the genuine "must be" signature.
+  assert.equal(isTransientError(new Error("JSON-RPC batch response must be an array.")), true);
   assert.equal(isTransientError(new Error("unknown RPC error: missing batch response for decoded call")), true);
   assert.equal(isTransientError(new Error("socket hang up")), true);
   assert.equal(isTransientError(Object.assign(new Error("aborted"), { name: "AbortError" })), true);
@@ -34,6 +44,10 @@ test("isTransientError classifies on-chain reverts and decode failures as genuin
   // venue — it must stay a real no-route, NOT a retryable transient.
   assert.equal(isTransientError(new Error("eth_call failed: execution reverted")), false);
   assert.equal(isTransientError(new Error("eth_call failed with HTTP 400: execution reverted")), false);
+  // A venue rejecting the request itself (not a transport fault) stays genuine
+  // even though transport patterns now run first.
+  assert.equal(isTransientError(new Error("invalid token address")), false);
+  assert.equal(isTransientError(new Error("quote failed: amount exceeds available liquidity")), false);
   assert.equal(isTransientError(new Error("V3 quoter result must contain ABI-encoded uint256 words.")), false);
   assert.equal(isTransientError(new Error("getReserves result must contain ABI-encoded uint256 words.")), false);
   assert.equal(isTransientError(null), false);

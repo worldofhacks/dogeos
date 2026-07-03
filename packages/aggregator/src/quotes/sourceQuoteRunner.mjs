@@ -50,7 +50,13 @@ function isTransportErrorMessage(message) {
     /\bfetch failed\b|\bnetwork\b|\bsocket\b|\bconnection\b/i.test(message) ||
     /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|UND_ERR/i.test(message) ||
     /missing batch response|unknown RPC error/i.test(message) ||
-    /invalid json|unexpected token .*json|non-JSON/i.test(message)
+    // jsonRpcClient throws this when the endpoint returns well-formed JSON of
+    // the wrong shape (e.g. a gateway rate-limit envelope) — transport, not venue.
+    /batch response must be an array/i.test(message) ||
+    // JSON.parse failures from an HTML error page. V8's message is
+    // `Unexpected token '<', "<html>\r\n<h"... is not valid JSON` — the excerpt
+    // embeds the page's own newlines, so the token→json span MUST use [\s\S].
+    /invalid json|unexpected token[\s\S]*json|not valid json|non-JSON/i.test(message)
   );
 }
 
@@ -63,10 +69,17 @@ export function isTransientError(error) {
   if (error.transient === true) return true;
   if (error.name === "AbortError") return true;
   const message = String(error.message ?? error);
+  // Transport signatures FIRST: a transport fault whose text also contains a
+  // venue word ("invalid", "decode", …— e.g. an HTML error page's JSON parse
+  // error) must stay retryable, or we reintroduce the false-"no route" class
+  // fixed in c32bc98.
   if (isTransportErrorMessage(message)) return true;
-  if (isGenuineVenueErrorMessage(message)) {
-    return false;
-  }
+  // Venue signatures are genuine, deterministic no-routes.
+  if (isGenuineVenueErrorMessage(message)) return false;
+  // Unknown error text ALSO defaults to genuine: the composite retry only
+  // re-runs THROWN transients, and guessing "transient" for unrecognized text
+  // would hide real venue failures behind retries. Add new transport
+  // signatures to isTransportErrorMessage instead.
   return false;
 }
 
