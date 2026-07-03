@@ -156,11 +156,15 @@ function serveRuntimeConfig(runtimeConfig) {
 }
 
 export function createWebRequestListener({
-  apiHandle = createLiveAggregatorApiHandler(),
+  apiHandle,
+  createApiHandle = createLiveAggregatorApiHandler,
+  warmTokenIndex = false,
   staticRoot = defaultStaticRoot(),
   runtimeConfig = defaultRuntimeConfig(),
   rateLimiter = createRateLimiter(),
 } = {}) {
+  const resolvedApiHandle = apiHandle ?? createApiHandle({ warmTokenIndex });
+
   return async function webRequestListener(request, response) {
     try {
       // Rate-limit the API surface (each /quote fans out into upstream RPC
@@ -177,7 +181,7 @@ export function createWebRequestListener({
       const fetchResponse = pathname === RUNTIME_CONFIG_PATH
         ? serveRuntimeConfig(runtimeConfig)
         : API_PATHS.has(pathname)
-          ? await apiHandle(fetchRequest)
+          ? await resolvedApiHandle(fetchRequest)
           : await serveStatic({ pathname, staticRoot });
 
       await writeFetchResponse(response, fetchResponse);
@@ -199,11 +203,21 @@ export function startAggregatorWebServer({
   host = process.env.HOST ?? "127.0.0.1",
   port = Number(process.env.PORT ?? 8788),
   apiHandle,
+  createApiHandle,
   staticRoot,
   runtimeConfig,
+  warmTokenIndex = false,
 } = {}) {
   const server = applyServerTimeouts(
-    createServer(createWebRequestListener({ apiHandle, staticRoot, runtimeConfig })),
+    createServer(
+      createWebRequestListener({
+        apiHandle,
+        createApiHandle,
+        staticRoot,
+        runtimeConfig,
+        warmTokenIndex,
+      }),
+    ),
   );
 
   return new Promise((resolveServer, reject) => {
@@ -216,7 +230,7 @@ export function startAggregatorWebServer({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = await startAggregatorWebServer();
+  const server = await startAggregatorWebServer({ warmTokenIndex: true });
   const address = server.address();
   const host = address.address === "127.0.0.1" ? "localhost" : address.address;
 

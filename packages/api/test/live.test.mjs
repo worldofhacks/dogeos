@@ -895,3 +895,65 @@ test("createLiveAggregatorApiHandler verifies chain and simulates active swaps b
     "latest",
   ]);
 });
+
+test("warmTokenIndex fires the index build at construction without blocking the factory", async () => {
+  // Every upstream call hangs forever: if the factory awaited the warm in any
+  // way, constructing the handler would never return and this test would time
+  // out. The warm must still have STARTED (at least one upstream call).
+  const calls = [];
+  const handle = createLiveAggregatorApiHandler({
+    fetchFn: (url) => {
+      calls.push(String(url));
+      return new Promise(() => {});
+    },
+    warmTokenIndex: true,
+  });
+
+  assert.equal(typeof handle, "function");
+
+  // Give the fire-and-forget warm a few turns to reach its first upstream call.
+  for (let turn = 0; turn < 10 && calls.length === 0; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.ok(calls.length >= 1, "warm token index build never started");
+});
+
+test("warmTokenIndex is off by default: construction makes no upstream calls", async () => {
+  const calls = [];
+  createLiveAggregatorApiHandler({
+    fetchFn: (url) => {
+      calls.push(String(url));
+      return new Promise(() => {});
+    },
+  });
+
+  for (let turn = 0; turn < 10; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("warmTokenIndex failure is swallowed: no unhandled rejection, no crash", async () => {
+  const unhandled = [];
+  const onUnhandledRejection = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandledRejection);
+
+  try {
+    const handle = createLiveAggregatorApiHandler({
+      fetchFn: async () => {
+        throw new Error("token index warm upstream failure");
+      },
+      warmTokenIndex: true,
+    });
+
+    assert.equal(typeof handle, "function");
+
+    // Let the warm run to completion/failure so any stray rejection surfaces.
+    for (let turn = 0; turn < 50; turn += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandledRejection);
+  }
+});

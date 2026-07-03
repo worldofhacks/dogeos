@@ -270,6 +270,39 @@ test("web listener delegates venue contract maps through the API boundary", asyn
   assert.deepEqual(JSON.parse(response.body), { data: [] });
 });
 
+test("web listener constructs the live API handler with the warm-token-index flag", async () => {
+  let createInput;
+  const listener = createWebRequestListener({
+    createApiHandle: (input) => {
+      createInput = input;
+      return async () => new Response("{}", { headers: { "content-type": "application/json" } });
+    },
+    warmTokenIndex: true,
+  });
+
+  const response = await collectResponse(listener, incomingRequest({ url: "/tokens" }));
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(createInput, { warmTokenIndex: true });
+});
+
+test("web listener does not construct a live API handler when one is injected", async () => {
+  let createCalled = false;
+  const listener = createWebRequestListener({
+    apiHandle: async () => new Response("{}", { headers: { "content-type": "application/json" } }),
+    createApiHandle: () => {
+      createCalled = true;
+      return stubApi;
+    },
+    warmTokenIndex: true,
+  });
+
+  const response = await collectResponse(listener, incomingRequest({ url: "/tokens" }));
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(createCalled, false);
+});
+
 test("startAggregatorWebServer binds a local HTTP server", async () => {
   const server = await startAggregatorWebServer({
     port: 0,
@@ -279,6 +312,24 @@ test("startAggregatorWebServer binds a local HTTP server", async () => {
   try {
     const address = server.address();
     assert.equal(typeof address.port, "number");
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("startAggregatorWebServer passes warm-token-index through to the live handler factory", async () => {
+  let createInput;
+  const server = await startAggregatorWebServer({
+    port: 0,
+    warmTokenIndex: true,
+    createApiHandle: (input) => {
+      createInput = input;
+      return async () => new Response("{}", { headers: { "content-type": "application/json" } });
+    },
+  });
+
+  try {
+    assert.deepEqual(createInput, { warmTokenIndex: true });
   } finally {
     await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
