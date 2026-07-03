@@ -39,14 +39,18 @@ class SourceTimeoutError extends Error {
 
 // Distinguish a TRANSIENT failure (retry would likely succeed) from a GENUINE
 // one (the venue truly can't quote this pair). Transient = our per-venue timeout
-// or a transport-layer fault from the JSON-RPC client / fetch (HTTP non-2xx,
-// network reset, DNS, aborted socket, missing batch response). NON-transient = an
-// on-chain revert ("execution reverted") or an ABI-decode failure — that pair is
-// deterministically unroutable on this venue and must stay a real no-route.
+// or a transport-layer fault from the JSON-RPC client / fetch (ANY HTTP status
+// in the message — jsonRpcClient throws `eth_call failed with HTTP <status>.`
+// BEFORE reading the body, so a gateway 400/403 blip is as retryable as a 502;
+// real reverts arrive via HTTP 200 + JSON-RPC error envelope, never as an HTTP
+// status message). NON-transient = an on-chain revert ("execution reverted") or
+// an ABI-decode failure — that pair is deterministically unroutable on this
+// venue and must stay a real no-route; revert markers are checked before these
+// transport patterns in isTransientError.
 function isTransportErrorMessage(message) {
   return (
     /\btimed out\b|\btimeout\b/i.test(message) ||
-    /\bHTTP\s?(?:408|429|5\d\d)\b/i.test(message) ||
+    /\bHTTP\s?\d/i.test(message) ||
     /\bfetch failed\b|\bnetwork\b|\bsocket\b|\bconnection\b/i.test(message) ||
     /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|UND_ERR/i.test(message) ||
     /missing batch response|unknown RPC error/i.test(message) ||
@@ -54,10 +58,20 @@ function isTransportErrorMessage(message) {
     // the wrong shape (e.g. a gateway rate-limit envelope) — transport, not venue.
     /batch response must be an array/i.test(message) ||
     // JSON.parse failures from an HTML error page. V8's message is
-    // `Unexpected token '<', "<html>\r\n<h"... is not valid JSON` — the excerpt
-    // embeds the page's own newlines, so the token→json span MUST use [\s\S].
-    /invalid json|unexpected token[\s\S]*json|not valid json|non-JSON/i.test(message)
+    // `Unexpected token '<', "<html>\r\n<h"... is not valid JSON` — the quoted
+    // excerpt embeds the page's own newlines, but the trailing "is not valid
+    // JSON" is contiguous, so the plain substring below matches it (anchored to
+    // the real message tail instead of a broad token→json span).
+    /invalid json|not valid json|non-JSON/i.test(message)
   );
+}
+
+// Definitive on-chain revert markers. A revert means the venue's quoter itself
+// rejected the call deterministically — even if the surrounding text looks
+// transport-shaped (hypothetical "HTTP 400: execution reverted"), it must stay
+// a genuine no-route, so these are checked BEFORE the transport patterns.
+function isRevertMessage(message) {
+  return /execution reverted|\brevert/i.test(message);
 }
 
 function isGenuineVenueErrorMessage(message) {
@@ -69,12 +83,16 @@ export function isTransientError(error) {
   if (error.transient === true) return true;
   if (error.name === "AbortError") return true;
   const message = String(error.message ?? error);
-  // Transport signatures FIRST: a transport fault whose text also contains a
-  // venue word ("invalid", "decode", …— e.g. an HTML error page's JSON parse
-  // error) must stay retryable, or we reintroduce the false-"no route" class
-  // fixed in c32bc98.
+  // Precedence: revert markers → transport signatures → other venue signatures.
+  // Revert markers are definitive genuine no-routes even inside a
+  // transport-shaped message ("HTTP 400: execution reverted"). Transport
+  // signatures then run BEFORE the broader venue words ("invalid", "decode", …)
+  // so a transport fault whose text contains one of those (e.g. an HTML error
+  // page's "not valid JSON" parse error) stays retryable — that is the
+  // false-"no route" class fixed in c32bc98.
+  if (isRevertMessage(message)) return false;
   if (isTransportErrorMessage(message)) return true;
-  // Venue signatures are genuine, deterministic no-routes.
+  // Remaining venue signatures are genuine, deterministic no-routes.
   if (isGenuineVenueErrorMessage(message)) return false;
   // Unknown error text ALSO defaults to genuine: the composite retry only
   // re-runs THROWN transients, and guessing "transient" for unrecognized text

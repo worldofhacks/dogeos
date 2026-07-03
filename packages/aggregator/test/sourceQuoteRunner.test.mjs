@@ -20,6 +20,12 @@ test("the default per-venue budget covers the documented 2-3s testnet quoter spi
 test("isTransientError classifies timeouts and transport faults as transient", () => {
   assert.equal(isTransientError(new Error("Source x timed out after 3000ms.")), true);
   assert.equal(isTransientError(new Error("eth_call failed with HTTP 503.")), true);
+  // jsonRpcClient throws `eth_call failed with HTTP <status>.` BEFORE reading
+  // the body, so ANY status here is a transport blip (e.g. a Cloudflare 403
+  // challenge or a gateway 400), never a venue verdict — reverts arrive via
+  // HTTP 200 + JSON-RPC error envelope. These pin the broad HTTP match.
+  assert.equal(isTransientError(new Error("eth_call failed with HTTP 400.")), true);
+  assert.equal(isTransientError(new Error("eth_call failed with HTTP 403.")), true);
   assert.equal(isTransientError(new Error("fetch failed")), true);
   assert.equal(isTransientError(new Error("fetch failed: invalid JSON response body")), true);
   // Exact V8 JSON.parse message for a gateway HTML error page — the excerpt
@@ -43,9 +49,13 @@ test("isTransientError classifies on-chain reverts and decode failures as genuin
   // A genuine venue error means that pair is deterministically unroutable on this
   // venue — it must stay a real no-route, NOT a retryable transient.
   assert.equal(isTransientError(new Error("eth_call failed: execution reverted")), false);
+  // A revert marker wins even inside a transport-shaped message: revert markers
+  // are checked BEFORE the (broad) HTTP transport pattern. This message shape is
+  // hypothetical — jsonRpcClient never mixes an HTTP status with a revert — but
+  // the precedence must hold if a future client ever does.
   assert.equal(isTransientError(new Error("eth_call failed with HTTP 400: execution reverted")), false);
   // A venue rejecting the request itself (not a transport fault) stays genuine
-  // even though transport patterns now run first.
+  // even though transport patterns run before the broader venue words.
   assert.equal(isTransientError(new Error("invalid token address")), false);
   assert.equal(isTransientError(new Error("quote failed: amount exceeds available liquidity")), false);
   assert.equal(isTransientError(new Error("V3 quoter result must contain ABI-encoded uint256 words.")), false);
