@@ -11,6 +11,7 @@ const SELECTORS = Object.freeze({
   v2SwapTokensForExactTokens: "0x8803dbee",
   muchfiV3ExactInputSingle: "0x04e45aaf",
   muchfiV3ExactOutputSingle: "0x5023b4df",
+  muchfiV3MulticallDeadline: "0x5ae401dc",
   barkswapAlgebraExactInputSingle: "0x1679c792",
   barkswapAlgebraExactOutputSingle: "0x1764babc",
 });
@@ -106,18 +107,43 @@ export function buildV2SwapTokensForExactTokensCalldata(quote) {
   return `${SELECTORS.v2SwapTokensForExactTokens}${encodeUint(amountOut, "amountOut")}${encodeUint(maxAmountIn, "maxAmountIn")}${encodeUint(160n, "path offset")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(quote.deadline, "deadline")}${encodeUint(BigInt(path.length), "path length")}${path.join("")}`;
 }
 
+// MuchFi V3 is a SwapRouter02-style router: exactInputSingle/exactOutputSingle
+// take NO deadline in their params (unlike V2 and Algebra). The enforceable
+// expiry SwapRouter02 provides is multicall(uint256 deadline, bytes[] data),
+// which reverts the whole batch when block.timestamp > deadline. The deployed
+// router (0x54f7…C1CB) carries the 0x5ae401dc selector in its on-chain
+// bytecode (checked 2026-07-04 via Blockscout eth_getCode; the V1-style
+// deadline-in-params selectors 0x414bf389/0xdb3e2198 are absent), so direct V3
+// swaps wrap the unchanged inner swap calldata in a single-element multicall.
+// Without this, a V3 direct swap stuck in the mempool has unbounded inclusion
+// time with only minAmountOut/maxAmountIn protection (issue #16).
+function wrapInMuchFiV3MulticallDeadline(quote, innerCalldata) {
+  const deadline = positiveUint(quote.deadline, "deadline");
+  const inner = innerCalldata.slice(2);
+  const innerByteLength = BigInt(inner.length / 2);
+  const paddedInner = inner.padEnd(Math.ceil(inner.length / 64) * 64, "0");
+
+  return `${SELECTORS.muchfiV3MulticallDeadline}${encodeUint(deadline, "deadline")}${encodeUint(64n, "data offset")}${encodeUint(1n, "data count")}${encodeUint(32n, "element offset")}${encodeUint(innerByteLength, "element length")}${paddedInner}`;
+}
+
 export function buildMuchFiV3ExactInputSingleCalldata(quote) {
   const amountIn = positiveUint(quote.amountIn, "amountIn");
   const minAmountOut = minAmountOutFor(quote);
 
-  return `${SELECTORS.muchfiV3ExactInputSingle}${encodeAddress(quote.sellToken, "sellToken")}${encodeAddress(quote.buyToken, "buyToken")}${encodeUint(feeTierFor(quote), "feeTier")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(amountIn, "amountIn")}${encodeUint(minAmountOut, "minAmountOut")}${encodeUint(0n, "sqrtPriceLimitX96")}`;
+  return wrapInMuchFiV3MulticallDeadline(
+    quote,
+    `${SELECTORS.muchfiV3ExactInputSingle}${encodeAddress(quote.sellToken, "sellToken")}${encodeAddress(quote.buyToken, "buyToken")}${encodeUint(feeTierFor(quote), "feeTier")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(amountIn, "amountIn")}${encodeUint(minAmountOut, "minAmountOut")}${encodeUint(0n, "sqrtPriceLimitX96")}`,
+  );
 }
 
 export function buildMuchFiV3ExactOutputSingleCalldata(quote) {
   const amountOut = amountOutFor(quote);
   const maxAmountIn = maxAmountInFor(quote);
 
-  return `${SELECTORS.muchfiV3ExactOutputSingle}${encodeAddress(quote.sellToken, "sellToken")}${encodeAddress(quote.buyToken, "buyToken")}${encodeUint(feeTierFor(quote), "feeTier")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(amountOut, "amountOut")}${encodeUint(maxAmountIn, "maxAmountIn")}${encodeUint(0n, "sqrtPriceLimitX96")}`;
+  return wrapInMuchFiV3MulticallDeadline(
+    quote,
+    `${SELECTORS.muchfiV3ExactOutputSingle}${encodeAddress(quote.sellToken, "sellToken")}${encodeAddress(quote.buyToken, "buyToken")}${encodeUint(feeTierFor(quote), "feeTier")}${encodeAddress(quote.recipient, "recipient")}${encodeUint(amountOut, "amountOut")}${encodeUint(maxAmountIn, "maxAmountIn")}${encodeUint(0n, "sqrtPriceLimitX96")}`,
+  );
 }
 
 export function buildBarkswapAlgebraExactInputSingleCalldata(source, quote) {
@@ -173,18 +199,20 @@ export function createVenueCalldataBuilders({ sources = listSources() } = {}) {
 
     if (source.sourceId === "muchfi-v3" && source.protocolType === "v3") {
       return [
+        // Direct V3 calldata leads with the multicall(deadline, …) selector;
+        // the verified swap selector sits inside the wrapped element.
         {
           sourceId: source.sourceId,
           protocolType: source.protocolType,
           quoteMode: "exactInput",
-          selector: SELECTORS.muchfiV3ExactInputSingle,
+          selector: SELECTORS.muchfiV3MulticallDeadline,
           buildCalldata: buildMuchFiV3ExactInputSingleCalldata,
         },
         {
           sourceId: source.sourceId,
           protocolType: source.protocolType,
           quoteMode: "exactOutput",
-          selector: SELECTORS.muchfiV3ExactOutputSingle,
+          selector: SELECTORS.muchfiV3MulticallDeadline,
           buildCalldata: buildMuchFiV3ExactOutputSingleCalldata,
         },
         routerExecutionBuilder(source),

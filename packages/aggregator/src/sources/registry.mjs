@@ -30,10 +30,14 @@ const V2_ROUTER_FUNCTIONS = [
   "getAmountsOut(uint256,address[])",
   "swapTokensForExactTokens(uint256,uint256,address[],address,uint256)",
 ];
-const MUCHFI_V3_ROUTER_SELECTORS = ["0x04e45aaf", "0x5023b4df"];
+// 0x5ae401dc = multicall(uint256 deadline, bytes[]) — the SwapRouter02-style
+// deadline wrapper direct V3 swaps are built through (the single-swap params
+// carry no deadline). Present in the deployed router bytecode (2026-07-04).
+const MUCHFI_V3_ROUTER_SELECTORS = ["0x04e45aaf", "0x5023b4df", "0x5ae401dc"];
 const MUCHFI_V3_ROUTER_FUNCTIONS = [
   "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
   "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+  "multicall(uint256,bytes[])",
 ];
 const MUCHFI_V3_QUOTER_SELECTORS = ["0xc6a5026a", "0xbd21704a", "0xcdca1753"];
 const MUCHFI_V3_QUOTER_FUNCTIONS = [
@@ -213,7 +217,7 @@ const SOURCES = [
             expectedAddress: "0xF6BDB158A5ddF77F1B83bC9074F6a472c58D78aE",
           },
         ],
-        notes: "V3 router with exactInputSingle, exactOutputSingle, factory(), and WETH9() selectors observed on-chain.",
+        notes: "V3 router with exactInputSingle, exactOutputSingle, multicall(deadline,bytes[]), factory(), and WETH9() selectors observed on-chain.",
       },
       {
         role: "quoter",

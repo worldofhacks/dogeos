@@ -814,7 +814,12 @@ test("createLiveAggregatorApiHandler loads venue calldata builders for active li
 
   assert.equal(response.status, 200);
   assert.equal(body.transaction.to, "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB");
-  assert.match(body.transaction.data, /^0x04e45aaf/);
+  // Direct V3 calldata is multicall(deadline, [exactInputSingle(...)]) — the
+  // deadline word carries the quote deadline and the verified swap selector
+  // leads the wrapped element.
+  assert.match(body.transaction.data, /^0x5ae401dc/);
+  assert.equal(BigInt(`0x${body.transaction.data.slice(10, 74)}`), 1_780_000_300n);
+  assert.equal(body.transaction.data.slice(330, 338), "04e45aaf");
 });
 
 test("createLiveAggregatorApiHandler verifies chain and simulates active swaps before returning gas", async () => {
