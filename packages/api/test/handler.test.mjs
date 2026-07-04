@@ -2163,6 +2163,109 @@ test("POST /swap rejects the zero-address recipient", async () => {
   assert.match(body.error.message, /non-zero address/i);
 });
 
+// now = 1_780_000_000_000 ms → server time 1_780_000_000 s. The accepted
+// deadline window is (now, now + 35 minutes]; 35m = the UI's largest
+// tx-deadline option (30m) + 5m client clock-skew allowance.
+const nowSeconds = 1_780_000_000;
+const maxDeadlineSeconds = nowSeconds + 35 * 60;
+
+function deadlineSwapHandle(onBuild) {
+  return createAggregatorApiHandler({
+    nowMs: () => now,
+    calldataBuilder: () => {
+      onBuild?.();
+      return "0x38ed1739";
+    },
+  });
+}
+
+function deadlineSwapRequest(deadline) {
+  return jsonRequest("/swap", {
+    sender: "0x2222222222222222222222222222222222222222",
+    quote: {
+      sourceId: "muchfi-v3",
+      protocolType: "v3",
+      status: "active",
+      chainId: DOGEOS_CHAIN.id,
+      router: "0x54f7D7f6FeDf4E930eFd6b4742Ba0B9E8a6dC1CB",
+      sellToken: usdc.address,
+      buyToken: wdoge.address,
+      amountIn: "1000000",
+      minAmountOut: "900000",
+      recipient: "0x2222222222222222222222222222222222222222",
+      ...(deadline === undefined ? {} : { deadline }),
+      quoteTimestampMs: now,
+      ttlMs: 10_000,
+    },
+  });
+}
+
+test("POST /swap rejects an already-expired deadline before calldata is built", async () => {
+  let calldataCalled = false;
+  const handle = deadlineSwapHandle(() => {
+    calldataCalled = true;
+  });
+
+  // 10 seconds in the past, and the exact server second (an on-chain check of
+  // block.timestamp <= deadline could only settle in this very second).
+  for (const deadline of [nowSeconds - 10, nowSeconds]) {
+    const response = await handle(deadlineSwapRequest(deadline));
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, "invalid-deadline");
+    assert.match(body.error.message, /expired/i);
+  }
+  assert.equal(calldataCalled, false);
+});
+
+test("POST /swap rejects a deadline beyond the maximum horizon", async () => {
+  let calldataCalled = false;
+  const handle = deadlineSwapHandle(() => {
+    calldataCalled = true;
+  });
+
+  for (const deadline of [maxDeadlineSeconds + 1, nowSeconds + 86_400, "99999999999999"]) {
+    const response = await handle(deadlineSwapRequest(deadline));
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, "invalid-deadline");
+    assert.match(body.error.message, /shorter deadline/i);
+  }
+  assert.equal(calldataCalled, false);
+});
+
+test("POST /swap rejects missing or malformed deadlines", async () => {
+  let calldataCalled = false;
+  const handle = deadlineSwapHandle(() => {
+    calldataCalled = true;
+  });
+
+  for (const deadline of [undefined, null, "not-a-number", 1.5, -1, 0, ""]) {
+    const response = await handle(deadlineSwapRequest(deadline));
+    const body = await response.json();
+
+    assert.equal(response.status, 400, `deadline ${String(deadline)}`);
+    assert.equal(body.error.code, "invalid-deadline", `deadline ${String(deadline)}`);
+  }
+  assert.equal(calldataCalled, false);
+});
+
+test("POST /swap accepts deadlines up to the maximum horizon", async () => {
+  const handle = deadlineSwapHandle();
+
+  // One second ahead, a typical 5-minute deadline, and the exact horizon edge.
+  for (const deadline of [nowSeconds + 1, nowSeconds + 300, maxDeadlineSeconds]) {
+    const response = await handle(deadlineSwapRequest(deadline));
+    const body = await response.json();
+
+    assert.equal(response.status, 200, `deadline ${deadline}`);
+    assert.equal(body.transaction.data, "0x38ed1739");
+    assert.equal(body.transaction.routeBinding.deadline, deadline);
+  }
+});
+
 test("GET /token returns metadata + discovered pools for a routable token", async () => {
   const handle = createAggregatorApiHandler({
     tokenScanProvider: async ({ address }) => ({

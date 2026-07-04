@@ -28,6 +28,15 @@ const JSON_HEADERS = {
 };
 const DEFAULT_ACTIVITY_LIMIT = 20;
 const MAX_ACTIVITY_LIMIT = 50;
+// /swap deadline policy (audit 2026-07-02 Medium, issue #16): quote.deadline
+// is client-supplied and gets encoded into venue calldata as the on-chain
+// inclusion cutoff, so it must be range-checked at build time. An expired
+// deadline can never settle; an absurdly distant one gives a stuck transaction
+// near-unbounded inclusion time with only the price bounds protecting the
+// user. The horizon is the UI's largest tx-deadline option (30 minutes) plus
+// 5 minutes of client clock-skew allowance. This check only ADDS bounds — a
+// short deadline is never clamped upward.
+const MAX_SWAP_DEADLINE_HORIZON_SECONDS = (30n + 5n) * 60n;
 const RESERVED_ACTIVITY_QUERY_PARAMS = new Set(["address", "limit"]);
 // Strict allowlist of the Blockscout v2 keyset-cursor params for
 // GET /api/v2/addresses/{addr}/transactions, with a value shape per key.
@@ -101,6 +110,31 @@ function recipientBindingError(recipient, sender) {
   }
   if (recipientStr.toLowerCase() !== senderStr.toLowerCase()) {
     return "quote.recipient must equal the swap sender; third-party recipients are not allowed.";
+  }
+  return null;
+}
+
+// Returns an error message when the swap deadline is missing, malformed,
+// already expired, or beyond the accepted horizon — null when valid. The
+// deadline is a unix timestamp in SECONDS (what the venue routers compare
+// against block.timestamp).
+function swapDeadlineError(deadline, nowMs) {
+  let deadlineSeconds;
+  try {
+    deadlineSeconds = BigInt(deadline ?? "");
+  } catch {
+    return "quote.deadline must be a unix timestamp in seconds.";
+  }
+  if (deadlineSeconds <= 0n) {
+    return "quote.deadline must be a positive unix timestamp in seconds.";
+  }
+
+  const nowSeconds = BigInt(Math.floor(nowMs / 1000));
+  if (deadlineSeconds <= nowSeconds) {
+    return `quote.deadline ${deadlineSeconds} has already expired (server time ${nowSeconds}). Refresh the quote and try again.`;
+  }
+  if (deadlineSeconds > nowSeconds + MAX_SWAP_DEADLINE_HORIZON_SECONDS) {
+    return `quote.deadline ${deadlineSeconds} is more than ${MAX_SWAP_DEADLINE_HORIZON_SECONDS} seconds ahead of server time ${nowSeconds}; choose a shorter deadline.`;
   }
   return null;
 }
@@ -1012,6 +1046,17 @@ export function createAggregatorApiHandler({
         const recipientMismatch = recipientBindingError(originalQuote.recipient, sender);
         if (recipientMismatch) {
           return errorResponse(400, "recipient-mismatch", recipientMismatch);
+        }
+
+        // Server-side deadline range check. Validated on the ORIGINAL quote:
+        // the pre-build refresh carries this exact deadline through
+        // (quoteWithSwapExecutionFields), so nothing downstream can widen it.
+        const deadlineMismatch = swapDeadlineError(
+          originalQuote.deadline,
+          await resolveProvider(nowMs, Date.now(), originalQuote),
+        );
+        if (deadlineMismatch) {
+          return errorResponse(400, "invalid-deadline", deadlineMismatch);
         }
 
         await preSwapVerifier(originalQuote);
