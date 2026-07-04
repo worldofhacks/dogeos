@@ -87,7 +87,7 @@ test("source registry exposes verification targets for routers, factories, and p
 
   assert.deepEqual(
     targets.find((target) => target.sourceId === "muchfi-v3" && target.role === "router").expectedSelectors,
-    ["0x04e45aaf", "0x5023b4df"],
+    ["0x04e45aaf", "0x5023b4df", "0x5ae401dc"],
   );
   assert.equal(
     targets.find((target) => target.sourceId === "muchfi-v3" && target.role === "router")
@@ -110,6 +110,7 @@ test("source registry exposes verification targets for routers, factories, and p
     [
       "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
       "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+      "multicall(uint256,bytes[])",
     ],
   );
   assert.deepEqual(
@@ -244,13 +245,14 @@ test("source registry exposes a venue contract map with executable live venues",
   );
   assert.deepEqual(
     muchFiV3.contracts.find((contract) => contract.role === "router").expectedSelectors,
-    ["0x04e45aaf", "0x5023b4df"],
+    ["0x04e45aaf", "0x5023b4df", "0x5ae401dc"],
   );
   assert.deepEqual(
     muchFiV3.contracts.find((contract) => contract.role === "router").expectedAbiFunctions,
     [
       "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
       "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+      "multicall(uint256,bytes[])",
     ],
   );
   assert.deepEqual(

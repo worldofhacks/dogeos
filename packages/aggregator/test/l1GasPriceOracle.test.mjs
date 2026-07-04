@@ -32,20 +32,22 @@ test("decodeUint256Result parses oracle uint256 return values", () => {
 
 test("estimatedSwapPayloadForFee uses calldata-size-aware protocol payloads", () => {
   assert.equal((estimatedSwapPayloadForFee({ protocolType: "v2" }).length - 2) / 2, 260);
-  assert.equal((estimatedSwapPayloadForFee({ protocolType: "v3" }).length - 2) / 2, 228);
+  // v3 direct = multicall(deadline, [singleSwap]): 4 selector + 160 head + 256 inner.
+  assert.equal((estimatedSwapPayloadForFee({ protocolType: "v3" }).length - 2) / 2, 420);
   assert.equal((estimatedSwapPayloadForFee({ protocolType: "algebra" }).length - 2) / 2, 260);
   assert.equal(estimatedSwapPayloadForFee({ protocolType: "unknown" }), "0x");
 });
 
 test("swapPayloadForFee charges the real router-program length, not the direct-venue size", () => {
-  // Direct-venue: router off / not executable -> 228-260B (the historical sizes).
-  assert.equal(payloadBytes(swapPayloadForFee({ protocolType: "v3", routerExecutable: false })), 228);
+  // Direct-venue: router off / not executable -> the real direct calldata sizes
+  // (v3 includes the multicall deadline wrapper since issue #16).
+  assert.equal(payloadBytes(swapPayloadForFee({ protocolType: "v3", routerExecutable: false })), 420);
   assert.equal(payloadBytes(swapPayloadForFee({ protocolType: "v2", routerMode: "off", routerExecutable: true })), 260);
 
   // exactOutput stays direct-venue even under router mode "all" (router is exact-input only).
   assert.equal(
     payloadBytes(swapPayloadForFee({ protocolType: "v3", quoteMode: "exactOutput", routerMode: "all", routerExecutable: true })),
-    228,
+    420,
   );
 
   // Router-executable exactInput single venue -> a 1-leg router program (~644B),

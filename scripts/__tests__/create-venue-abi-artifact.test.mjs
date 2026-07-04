@@ -68,6 +68,14 @@ const v3RouterAbiJson = JSON.stringify([
       },
     ],
   },
+  {
+    type: "function",
+    name: "multicall",
+    inputs: [
+      { name: "deadline", type: "uint256" },
+      { name: "data", type: "bytes[]" },
+    ],
+  },
 ]);
 
 test("parseArgs normalizes venue ABI artifact CLI options", () => {
@@ -159,10 +167,11 @@ test("buildVenueAbiArtifactFromArgs can resolve target metadata from the source 
   );
 
   assert.equal(artifact.target.address, router);
-  assert.deepEqual(artifact.selectors, ["0x04e45aaf", "0x5023b4df"]);
+  assert.deepEqual(artifact.selectors, ["0x04e45aaf", "0x5023b4df", "0x5ae401dc"]);
   assert.deepEqual(artifact.abiFunctionSignatures, [
     "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
     "exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+    "multicall(uint256,bytes[])",
   ]);
 });
 

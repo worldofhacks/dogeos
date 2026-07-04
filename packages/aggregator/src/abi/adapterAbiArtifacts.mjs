@@ -124,6 +124,20 @@ export const MUCHFI_V3_ROUTER_ABI = Object.freeze([
     ],
     outputs: [{ name: "amountIn", type: "uint256" }],
   },
+  // SwapRouter02-style deadline wrapper: the params structs above carry no
+  // deadline, so direct swaps are sent as multicall(deadline, [swapCalldata]).
+  // Selector 0x5ae401dc confirmed in the deployed router's bytecode
+  // (2026-07-04); V1-style deadline-in-params selectors are absent.
+  {
+    type: "function",
+    name: "multicall",
+    stateMutability: "payable",
+    inputs: [
+      { name: "deadline", type: "uint256" },
+      { name: "data", type: "bytes[]" },
+    ],
+    outputs: [{ name: "results", type: "bytes[]" }],
+  },
 ]);
 
 export const MUCHFI_V3_QUOTER_ABI = Object.freeze([

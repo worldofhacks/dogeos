@@ -323,7 +323,7 @@ test("defaultVerificationTargets comes from the shared source registry", () => {
   assert.equal(targets.length > 9, true);
   assert.deepEqual(
     targets.find((target) => target.sourceId === "muchfi-v3" && target.role === "router").expectedSelectors,
-    ["0x04e45aaf", "0x5023b4df"],
+    ["0x04e45aaf", "0x5023b4df", "0x5ae401dc"],
   );
   assert.deepEqual(
     targets.find((target) => target.sourceId === "muchfi-v2" && target.role === "router").expectedSelectors,

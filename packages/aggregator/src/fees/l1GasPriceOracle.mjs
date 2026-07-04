@@ -5,9 +5,12 @@ export const GET_L1_FEE_SELECTOR = "0x49948e0e";
 // Direct-venue calldata sizes (router-UNWRAPPED). Used when the swap executes
 // straight against the venue's own router — exact-output (the DogeSwapRouter is
 // exact-input only) or when router execution is off.
+// v3 = multicall(deadline, [exactInput/OutputSingle]) since the deadline wrap
+// (issue #16): 4 selector + 5 head words (160) + 256 padded inner = 420 bytes
+// (the bare single-swap call was 228).
 const DIRECT_VENUE_PAYLOAD_BYTES = Object.freeze({
   v2: 260,
-  v3: 228,
+  v3: 420,
   algebra: 260,
 });
 
@@ -79,7 +82,7 @@ export function estimatedSwapPayloadForFee({ protocolType } = {}) {
 //   - exactOutput, or router execution not active → direct-venue calldata (the
 //     router is exact-input only).
 //   - router-executable exactInput single venue → a 1-leg router program (~644B)
-//     instead of the ~228-260B direct-venue calldata.
+//     instead of the ~260-420B direct-venue calldata.
 export function swapPayloadForFee(input = {}) {
   const { protocolType, quoteMode = "exactInput", routeType } = input;
   const isSplit = routeType === "split" || (Array.isArray(input.legs) && input.legs.length > 1);
