@@ -412,12 +412,112 @@ test("createVerificationSnapshotProvider refreshes after cache expiry", async ()
     tokens: [],
   });
 
-  await provider();
+  const first = await provider();
   const callCountAfterFirst = fetcher.calls.length;
   now += 501;
-  await provider();
+  const second = await provider();
 
+  // SWR: the expired call serves the stale report and refreshes in the background.
+  assert.equal(second, first);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(fetcher.calls.length > callCountAfterFirst, true);
+});
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+test("createVerificationSnapshotProvider shares one build across concurrent cold callers (single-flight)", async () => {
+  let builds = 0;
+  const gate = deferred();
+  const provider = createVerificationSnapshotProvider({
+    cacheTtlMs: 15_000,
+    buildSnapshot: async () => {
+      builds += 1;
+      return gate.promise;
+    },
+  });
+
+  const requests = [provider(), provider(), provider()];
+  gate.resolve({ checkedAt: "first" });
+  const reports = await Promise.all(requests);
+
+  assert.equal(builds, 1, "N concurrent cold requests share exactly one build");
+  assert.deepEqual(
+    reports.map((report) => report.checkedAt),
+    ["first", "first", "first"],
+  );
+});
+
+test("createVerificationSnapshotProvider serves stale data instantly on expiry while refreshing in background (SWR)", async () => {
+  let now = 1_000;
+  let builds = 0;
+  const gates = [deferred(), deferred()];
+  const provider = createVerificationSnapshotProvider({
+    cacheTtlMs: 500,
+    nowMs: () => now,
+    buildSnapshot: async () => {
+      const gate = gates[builds];
+      builds += 1;
+      return gate.promise;
+    },
+  });
+
+  const coldRequest = provider();
+  gates[0].resolve({ checkedAt: "first" });
+  const first = await coldRequest;
+  assert.equal(first.checkedAt, "first");
+
+  now += 501; // expire the cache; the second build stays UNRESOLVED
+  const stale = await provider();
+  assert.equal(stale, first, "served the stale report without blocking on the refresh");
+  assert.equal(builds, 2, "a background refresh was kicked off");
+
+  const staleAgain = await provider();
+  assert.equal(staleAgain, first, "repeat callers keep getting stale data, no extra build");
+  assert.equal(builds, 2, "the in-flight refresh is shared, not duplicated");
+
+  gates[1].resolve({ checkedAt: "second" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await provider()).checkedAt, "second", "the finished refresh replaced the cache");
+  assert.equal(builds, 2);
+});
+
+test("createVerificationSnapshotProvider keeps serving stale data when the background refresh fails, then retries", async () => {
+  let now = 1_000;
+  let builds = 0;
+  const outcomes = [
+    () => Promise.resolve({ checkedAt: "first" }),
+    () => Promise.reject(new Error("rpc down")),
+    () => Promise.resolve({ checkedAt: "third" }),
+  ];
+  const provider = createVerificationSnapshotProvider({
+    cacheTtlMs: 500,
+    nowMs: () => now,
+    buildSnapshot: () => outcomes[builds++](),
+  });
+
+  const first = await provider();
+  assert.equal(first.checkedAt, "first");
+
+  now += 501; // expire -> background refresh fails
+  const stale = await provider();
+  assert.equal(stale, first, "refresh failure does not poison the cache");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 2, "the failing refresh ran");
+
+  // The latch is not stuck: a later call still serves stale AND retries the build.
+  const staleRetry = await provider();
+  assert.equal(staleRetry, first);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 3, "a later call retried the build after the failure");
+  assert.equal((await provider()).checkedAt, "third", "the successful retry replaced the cache");
 });
 
 test("createVerificationSnapshotProvider uses Blockscout getabi payloads for Blockscout ABI provenance", async () => {

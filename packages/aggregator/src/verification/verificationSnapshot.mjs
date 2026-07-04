@@ -858,21 +858,43 @@ export async function verifyDefaultSources(options = {}) {
 export function createVerificationSnapshotProvider({
   cacheTtlMs = 60_000,
   nowMs = () => Date.now(),
+  buildSnapshot = verifyDefaultSources,
   ...options
 } = {}) {
   let cached = null;
+  let inflight = null;
 
   return async function verificationSnapshotProvider() {
     const now = nowMs();
+    // Fresh cache -> serve it.
     if (cached && now - cached.cachedAtMs <= cacheTtlMs) {
       return cached.report;
     }
 
-    const report = await verifyDefaultSources(options);
-    cached = {
-      cachedAtMs: now,
-      report,
-    };
-    return report;
+    // Single-flight: the rebuild is RPC + Blockscout heavy (~6s cold), so
+    // concurrent callers (/venues, /intelligence, /verification hitting the
+    // same expiry) must share ONE build instead of each triggering their own.
+    if (!inflight) {
+      inflight = buildSnapshot(options)
+        .then((report) => {
+          cached = { cachedAtMs: nowMs(), report };
+          return report;
+        })
+        .finally(() => {
+          inflight = null;
+        });
+      // A background refresh failure must not poison the cache (the stale
+      // report keeps being served) nor crash the process with an unhandled
+      // rejection when no caller is awaiting; cold callers still await the
+      // original promise below and see the error.
+      inflight.catch(() => {});
+    }
+
+    // Stale-while-revalidate: if we have a last-known report, serve it
+    // INSTANTLY and let the refresh finish in the background — callers never
+    // block on the TTL boundary. Only a truly cold call (no report yet) has
+    // nothing to serve, so it awaits the build.
+    if (cached) return cached.report;
+    return inflight;
   };
 }
