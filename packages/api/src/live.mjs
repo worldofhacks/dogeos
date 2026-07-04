@@ -278,7 +278,7 @@ export function createLiveAggregatorApiHandler({
       client,
       // Charge the REAL calldata length at quote time: with router mode "all" a
       // bare venue exactInput quote executes as a DogeSwapRouter program (~644B),
-      // not the direct-venue ~228-260B — and a split is ONE combined program, not
+      // not the direct-venue ~260-420B — and a split is ONE combined program, not
       // the sum of per-leg venue calldata. Mirrors resolvedSwapDataFinalityFeeWei.
       payloadProvider: (input) =>
         swapPayloadForFee({
